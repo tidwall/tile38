@@ -60,11 +60,11 @@ func (conn *HTTPEndpointConn) Send(msg string) error {
 		}
 	}
 	req, err := http.NewRequest("POST", conn.ep.Original, bytes.NewBufferString(msg))
-	req.Header.Set("Content-Type", "application/json")
-	
 	if err != nil {
 		return err
 	}
+
+	req.Header.Set("Content-Type", "application/json")
 	resp, err := conn.client.Do(req)
 	if err != nil {
 		return err

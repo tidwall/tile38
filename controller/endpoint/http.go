@@ -63,6 +63,8 @@ func (conn *HTTPEndpointConn) Send(msg string) error {
 	if err != nil {
 		return err
 	}
+
+	req.Header.Set("Content-Type", "application/json")
 	resp, err := conn.client.Do(req)
 	if err != nil {
 		return err

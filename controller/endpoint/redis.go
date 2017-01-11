@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	_ "strconv"
-	_ "strings"
 	"sync"
 	"time"
 )

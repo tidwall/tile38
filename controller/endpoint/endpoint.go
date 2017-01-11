@@ -38,7 +38,7 @@ type Endpoint struct {
 	Redis struct {
 		Host		string
 		Port		int
-		Channel string
+		Channel	string
 	}
 }
 

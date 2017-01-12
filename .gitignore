@@ -2,8 +2,9 @@
 tile38-*
 !cmd/tile38-*
 data*/
-coverage.out 
+coverage.out
 packages/
 
-# Ignore VS Code folder
+# Ignore IDE folders
+.idea/
 .vscode/

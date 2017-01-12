@@ -173,8 +173,6 @@ func main() {
   |_______|_______|   tile38.com
 `+"\n", core.Version, gitsha, strconv.IntSize, runtime.GOARCH, runtime.GOOS, hostd, port, os.Getpid(), httpTransportEnabled)
 
-	fmt.Printf("%v\n", httpTransport)
-
 	if err := controller.ListenAndServe(host, port, dir, httpTransport); err != nil {
 		log.Fatal(err)
 	}

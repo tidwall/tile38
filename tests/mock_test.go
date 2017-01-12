@@ -51,7 +51,7 @@ func mockOpenServer() (*mockServer, error) {
 	s := &mockServer{port: port}
 	tlog.Default = tlog.New(logOutput, nil)
 	go func() {
-		if err := controller.ListenAndServe("localhost", port, dir); err != nil {
+		if err := controller.ListenAndServe("localhost", port, dir, true); err != nil {
 			log.Fatal(err)
 		}
 	}()

@@ -32,6 +32,9 @@ var (
 	quiet       bool
 )
 
+// TODO: Set to false in 2.*
+var httpTransport bool = true
+
 // Fire up a webhook test server by using the --webhook-http-consumer-port
 // for example
 //   $ ./tile38-server --webhook-http-consumer-port 9999
@@ -106,6 +109,17 @@ func main() {
 		case "--dev", "-dev":
 			devMode = true
 			continue
+		case "--http-transport":
+			i++
+			if i < len(os.Args) {
+				switch strings.ToLower(os.Args[i]) {
+				case "1", "true":
+					httpTransport = true
+				case "0", "false":
+					httpTransport = false
+				}
+				continue
+			}
 		}
 		nargs = append(nargs, os.Args[i])
 	}
@@ -118,6 +132,7 @@ func main() {
 	flag.BoolVar(&quiet, "q", false, "Quiet logging. Totally silent.")
 	flag.BoolVar(&veryVerbose, "vv", false, "Enable very verbose logging.")
 	flag.Parse()
+
 	var logw io.Writer = os.Stderr
 	if quiet {
 		logw = ioutil.Discard
@@ -138,6 +153,11 @@ func main() {
 		gitsha = ""
 	}
 
+	httpTransportEnabled := "Enabled"
+	if !httpTransport {
+		httpTransportEnabled = "Disabled"
+	}
+
 	//  _____ _ _     ___ ___
 	// |_   _|_| |___|_  | . |
 	//   | | | | | -_|_  | . |
@@ -148,12 +168,14 @@ func main() {
   |       |       |
   |____   |   _   |   Tile38 %s%s %d bit (%s/%s)
   |       |       |   %sPort: %d, PID: %d
-  |____   |   _   |
-  |       |       |   tile38.com
-  |_______|_______|
-`+"\n", core.Version, gitsha, strconv.IntSize, runtime.GOARCH, runtime.GOOS, hostd, port, os.Getpid())
+  |____   |   _   |   HTTP & WebSocket transports: %s
+  |       |       |
+  |_______|_______|   tile38.com
+`+"\n", core.Version, gitsha, strconv.IntSize, runtime.GOARCH, runtime.GOOS, hostd, port, os.Getpid(), httpTransportEnabled)
 
-	if err := controller.ListenAndServe(host, port, dir); err != nil {
+	fmt.Printf("%v\n", httpTransport)
+
+	if err := controller.ListenAndServe(host, port, dir, httpTransport); err != nil {
 		log.Fatal(err)
 	}
 }

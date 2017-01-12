@@ -100,10 +100,10 @@ type Controller struct {
 }
 
 // ListenAndServe starts a new tile38 server
-func ListenAndServe(host string, port int, dir string) error {
-	return ListenAndServeEx(host, port, dir, nil)
+func ListenAndServe(host string, port int, dir string, http bool) error {
+	return ListenAndServeEx(host, port, dir, nil, http)
 }
-func ListenAndServeEx(host string, port int, dir string, ln *net.Listener) error {
+func ListenAndServeEx(host string, port int, dir string, ln *net.Listener, http bool) error {
 	log.Infof("Server started, Tile38 version %s, git %s", core.Version, core.GitSHA)
 	c := &Controller{
 		host:     host,
@@ -221,7 +221,7 @@ func ListenAndServeEx(host string, port int, dir string, ln *net.Listener) error
 		delete(c.conns, conn)
 		c.mu.Unlock()
 	}
-	return server.ListenAndServe(host, port, protected, handler, opened, closed, ln)
+	return server.ListenAndServe(host, port, protected, handler, opened, closed, ln, http)
 }
 
 func (c *Controller) watchMemory() {

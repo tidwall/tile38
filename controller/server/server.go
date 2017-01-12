@@ -21,21 +21,21 @@ Tile38 is running in protected mode because protected mode is enabled, no host
 address was specified, no authentication password is requested to clients. In
 this mode connections are only accepted from the loopback interface. If you
 want to connect from external computers to Tile38 you may adopt one of the
-following solutions: 
+following solutions:
 
 1) Disable protected mode by sending the command 'CONFIG SET protected-mode no'
-   from the loopback interface by connecting to Tile38 from the same host 
+   from the loopback interface by connecting to Tile38 from the same host
    the server is running, however MAKE SURE Tile38 is not publicly accessible
    from internet if you do so. Use CONFIG REWRITE to make this change
-   permanent. 
+   permanent.
 2) Alternatively you can just disable the protected mode by editing the Tile38
    configuration file, and setting the 'protected-mode' option to 'no', and
    then restarting the server.
 3) If you started the server manually just for testing, restart it with the
-   '--protected-mode no' option. 
-4) Use a host address or an authentication password. 
+   '--protected-mode no' option.
+4) Use a host address or an authentication password.
 
-NOTE: You only need to do one of the above things in order for the server 
+NOTE: You only need to do one of the above things in order for the server
 to start accepting connections from the outside.
 `) + "\r\n")
 
@@ -55,6 +55,7 @@ func ListenAndServe(
 	opened func(conn *Conn),
 	closed func(conn *Conn),
 	lnp *net.Listener,
+	http bool,
 ) error {
 	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", host, port))
 	if err != nil {
@@ -70,7 +71,7 @@ func ListenAndServe(
 			log.Error(err)
 			return err
 		}
-		go handleConn(&Conn{Conn: conn}, protected, handler, opened, closed)
+		go handleConn(&Conn{Conn: conn}, protected, handler, opened, closed, http)
 	}
 }
 
@@ -87,6 +88,7 @@ func handleConn(
 	handler func(conn *Conn, msg *Message, rd *AnyReaderWriter, w io.Writer, websocket bool) error,
 	opened func(conn *Conn),
 	closed func(conn *Conn),
+	http bool,
 ) {
 	opened(conn)
 	defer closed(conn)
@@ -110,6 +112,14 @@ func handleConn(
 	rd := NewAnyReaderWriter(conn)
 	for {
 		msg, err := rd.ReadMessage()
+
+		// Just closing connection if we have deprecated HTTP or WS connection,
+		// And --http-transport = false
+		if !http && (msg.ConnType == WebSocket || msg.ConnType == HTTP) {
+			conn.Close()
+			return
+		}
+
 		if err != nil {
 			if err == io.EOF {
 				return

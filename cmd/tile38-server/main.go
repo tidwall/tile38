@@ -113,9 +113,9 @@ func main() {
 			i++
 			if i < len(os.Args) {
 				switch strings.ToLower(os.Args[i]) {
-				case "1", "true":
+				case "1", "true", "yes":
 					httpTransport = true
-				case "0", "false":
+				case "0", "false", "no":
 					httpTransport = false
 				}
 				continue

@@ -16,6 +16,7 @@ const (
 	HTTP   = EndpointProtocol("http")   // HTTP
 	Disque = EndpointProtocol("disque") // Disque
 	GRPC   = EndpointProtocol("grpc")   // GRPC
+	Redis  = EndpointProtocol("redis")  // Redis
 )
 
 // Endpoint represents an endpoint.
@@ -33,6 +34,11 @@ type Endpoint struct {
 		Options   struct {
 			Replicate int
 		}
+	}
+	Redis struct {
+		Host		string
+		Port		int
+		Channel	string
 	}
 }
 
@@ -93,6 +99,8 @@ func (epc *EndpointManager) Send(endpoint, val string) error {
 			conn = newDisqueEndpointConn(ep)
 		case GRPC:
 			conn = newGRPCEndpointConn(ep)
+		case Redis:
+			conn = newRedisEndpointConn(ep)
 		}
 		epc.conns[endpoint] = conn
 	}
@@ -114,17 +122,22 @@ func parseEndpoint(s string) (Endpoint, error) {
 		endpoint.Protocol = Disque
 	case strings.HasPrefix(s, "grpc:"):
 		endpoint.Protocol = GRPC
+	case strings.HasPrefix(s, "redis:"):
+		endpoint.Protocol = Redis
 	}
+
 	s = s[strings.Index(s, ":")+1:]
 	if !strings.HasPrefix(s, "//") {
 		return endpoint, errors.New("missing the two slashes")
 	}
+
 	sqp := strings.Split(s[2:], "?")
 	sp := strings.Split(sqp[0], "/")
 	s = sp[0]
 	if s == "" {
 		return endpoint, errors.New("missing host")
 	}
+
 	if endpoint.Protocol == GRPC {
 		dp := strings.Split(s, ":")
 		switch len(dp) {
@@ -142,6 +155,33 @@ func parseEndpoint(s string) (Endpoint, error) {
 			endpoint.GRPC.Port = int(n)
 		}
 	}
+
+	if endpoint.Protocol == Redis {
+		dp := strings.Split(s, ":")
+		switch len(dp) {
+		default:
+			return endpoint, errors.New("invalid redis url")
+		case 1:
+			endpoint.Redis.Host = dp[0]
+			endpoint.Redis.Port = 6379
+		case 2:
+			endpoint.Redis.Host = dp[0]
+			n, err := strconv.ParseUint(dp[1], 10, 16)
+			if err != nil {
+				return endpoint, errors.New("invalid redis url port")
+			}
+			endpoint.Redis.Port = int(n)
+		}
+
+		if len(sp) > 1 {
+			var err error
+			endpoint.Redis.Channel, err = url.QueryUnescape(sp[1])
+			if err != nil {
+				return endpoint, errors.New("invalid redis channel name")
+			}
+		}
+	}
+
 	if endpoint.Protocol == Disque {
 		dp := strings.Split(s, ":")
 		switch len(dp) {
@@ -187,7 +227,7 @@ func parseEndpoint(s string) (Endpoint, error) {
 		if endpoint.Disque.QueueName == "" {
 			return endpoint, errors.New("missing disque queue name")
 		}
-
 	}
+
 	return endpoint, nil
 }

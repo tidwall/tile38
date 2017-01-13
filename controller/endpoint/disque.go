@@ -109,11 +109,11 @@ func (conn *DisqueEndpointConn) Send(msg string) error {
 func buildRedisCommand(args []string) []byte {
 	var cmd []byte
 	cmd = append(cmd, '*')
-	cmd = append(cmd, strconv.FormatInt(int64(len(args)), 10)...)
+	cmd = strconv.AppendInt(cmd, int64(len(args)), 10)
 	cmd = append(cmd, '\r', '\n')
 	for _, arg := range args {
 		cmd = append(cmd, '$')
-		cmd = append(cmd, strconv.FormatInt(int64(len(arg)), 10)...)
+		cmd = strconv.AppendInt(cmd, int64(len(arg)), 10)
 		cmd = append(cmd, '\r', '\n')
 		cmd = append(cmd, arg...)
 		cmd = append(cmd, '\r', '\n')

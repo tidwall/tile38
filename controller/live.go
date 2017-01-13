@@ -116,7 +116,7 @@ func (c *Controller) goLive(inerr error, conn net.Conn, rd *server.AnyReaderWrit
 		for {
 			v, err := rd.ReadMessage()
 			if err != nil {
-				if err != io.EOF {
+				if err != io.EOF && !(websocket && err == io.ErrUnexpectedEOF) {
 					log.Error(err)
 				}
 				return

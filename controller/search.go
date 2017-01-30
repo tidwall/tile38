@@ -12,6 +12,7 @@ import (
 	"github.com/tidwall/tile38/controller/server"
 	"github.com/tidwall/tile38/geojson"
 	"github.com/tidwall/tile38/geojson/geohash"
+	"sort"
 )
 
 type liveFenceSwitches struct {
@@ -297,14 +298,34 @@ func (c *Controller) cmdNearby(msg *server.Message) (res string, err error) {
 				distance = o.CalculatedPoint().DistanceTo(geojson.Position{X: s.lon, Y: s.lat, Z: 0})
 			}
 
-			return sw.writeObject(ScanWriterParams{
-				id:       id,
-				o:        o,
-				fields:   fields,
-				distance: distance,
-			})
+			opts := ScanWriterParams{
+				id:          id,
+				o:           o,
+				fields:      fields,
+				distance:    distance,
+			}
+
+			// TODO: Remove this after KNN, please!
+			if distance > 0 && s.limit > 0 {
+				return sw.poolObject(opts)
+			}
+
+			return sw.writeObject(opts)
 		})
 	}
+
+	// TODO: remove this after KNN search implementation
+	// TODO: This is totally hacky right now
+	if len(sw.pool) > 0 {
+		sort.Sort(ScanWriterPool(sw.pool))
+
+		for i := range sw.pool {
+			if !sw.writeObject(sw.pool[i]) {
+				break
+			}
+		}
+	}
+
 	sw.writeFoot(s.cursor)
 	if msg.OutputType == server.JSON {
 		wr.WriteString(`,"elapsed":"` + time.Now().Sub(start).String() + "\"}")

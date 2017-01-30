@@ -52,15 +52,22 @@ type scanWriter struct {
 	fullFields     bool
 	values         []resp.Value
 	matchValues    bool
+	pool           ScanWriterPool
 }
 
 type ScanWriterParams struct {
-	id string
-	o geojson.Object
-	fields []float64
+	id       string
+	o        geojson.Object
+	fields   []float64
 	distance float64
-	noLock bool
+	noLock   bool
 }
+
+type ScanWriterPool []ScanWriterParams
+
+func (s ScanWriterPool) Len() int           { return len(s) }
+func (s ScanWriterPool) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+func (s ScanWriterPool) Less(i, j int) bool { return s[i].distance < s[j].distance }
 
 func (c *Controller) newScanWriter(
 	wr *bytes.Buffer, msg *server.Message, key string, output outputT,
@@ -239,6 +246,12 @@ func (sw *scanWriter) fieldMatch(fields []float64, o geojson.Object) ([]float64,
 		}
 	}
 	return sw.fvals, true
+}
+
+// TODO: This function is a hacky way of implementation sorted distance between points
+func (sw *scanWriter) poolObject(opts ScanWriterParams) bool {
+	sw.pool = append(sw.pool, opts)
+	return true
 }
 
 //id string, o geojson.Object, fields []float64, noLock bool

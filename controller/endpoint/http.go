@@ -6,7 +6,6 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
-	"sync"
 	"time"
 )
 
@@ -17,7 +16,6 @@ const (
 )
 
 type HTTPEndpointConn struct {
-	mu     sync.Mutex
 	ep     Endpoint
 	client *http.Client
 }
@@ -25,6 +23,13 @@ type HTTPEndpointConn struct {
 func newHTTPEndpointConn(ep Endpoint) *HTTPEndpointConn {
 	return &HTTPEndpointConn{
 		ep: ep,
+		client: &http.Client{
+			Transport: &http.Transport{
+				MaxIdleConnsPerHost: httpMaxIdleConnections,
+				IdleConnTimeout:     httpExpiresAfter,
+			},
+			Timeout: httpRequestTimeout,
+		},
 	}
 }
 
@@ -33,18 +38,6 @@ func (conn *HTTPEndpointConn) Expired() bool {
 }
 
 func (conn *HTTPEndpointConn) Send(msg string) error {
-	conn.mu.Lock()
-	defer conn.mu.Unlock()
-
-	if conn.client == nil {
-		conn.client = &http.Client{
-			Transport: &http.Transport{
-				MaxIdleConnsPerHost: httpMaxIdleConnections,
-				IdleConnTimeout:     httpExpiresAfter,
-			},
-			Timeout: httpRequestTimeout,
-		}
-	}
 	req, err := http.NewRequest("POST", conn.ep.Original, bytes.NewBufferString(msg))
 	if err != nil {
 		return err

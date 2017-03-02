@@ -489,7 +489,7 @@ func (h *Hook) proc() (ok bool) {
 		for _, endpoint := range h.Endpoints {
 			err := h.epm.Send(endpoint, val)
 			if err != nil {
-				log.Debugf("could not send log: %v: %v: %v", idx, endpoint, err)
+				log.Debugf("Endpoint connect/send error: %v: %v: %v", idx, endpoint, err)
 				continue
 			}
 			sent = true

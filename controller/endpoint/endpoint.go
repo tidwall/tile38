@@ -20,6 +20,7 @@ const (
 	GRPC   = EndpointProtocol("grpc")   // GRPC
 	Redis  = EndpointProtocol("redis")  // Redis
 	Kafka  = EndpointProtocol("kafka")  // Kafka
+	AMQP   = EndpointProtocol("amqp")   // AMQP
 )
 
 // Endpoint represents an endpoint.
@@ -47,6 +48,12 @@ type Endpoint struct {
 		Host      string
 		Port      int
 		QueueName string
+	}
+	AMQP struct {
+		URI       string
+		SSL       bool
+		QueueName string
+		RouteKey  string
 	}
 }
 
@@ -115,6 +122,8 @@ func (epc *EndpointManager) Send(endpoint, val string) error {
 				conn = newRedisEndpointConn(ep)
 			case Kafka:
 				conn = newKafkaEndpointConn(ep)
+			case AMQP:
+				conn = newAMQPEndpointConn(ep)
 			}
 			epc.conns[endpoint] = conn
 		}
@@ -151,6 +160,10 @@ func parseEndpoint(s string) (Endpoint, error) {
 		endpoint.Protocol = Redis
 	case strings.HasPrefix(s, "kafka:"):
 		endpoint.Protocol = Kafka
+	case strings.HasPrefix(s, "amqp:"):
+		endpoint.Protocol = AMQP
+	case strings.HasPrefix(s, "amqps:"):
+		endpoint.Protocol = AMQP
 	}
 
 	s = s[strings.Index(s, ":")+1:]
@@ -287,6 +300,61 @@ func parseEndpoint(s string) (Endpoint, error) {
 		// Throw error if we not provide any queue name
 		if endpoint.Kafka.QueueName == "" {
 			return endpoint, errors.New("missing kafka topic name")
+		}
+	}
+
+	// Basic AMQP connection strings in HOOKS interface
+	// amqp://guest:guest@localhost:5672/<queue_name>/?params=value
+	//
+	// Default params are:
+	//
+	// Mandatory - false
+	// Immeditate - false
+	// Durable - true
+	// Routing-Key - tile38
+	//
+	// - "route" - [string] routing key
+	//
+	if endpoint.Protocol == AMQP {
+		// Bind connection information
+		endpoint.AMQP.URI = s
+
+		// Bind queue name
+		if len(sp) > 1 {
+			var err error
+			endpoint.AMQP.QueueName, err = url.QueryUnescape(sp[1])
+			if err != nil {
+				return endpoint, errors.New("invalid AMQP queue name")
+			}
+		}
+
+		// Parsing additional attributes
+		if len(sqp) > 1 {
+			m, err := url.ParseQuery(sqp[1])
+			if err != nil {
+				return endpoint, errors.New("invalid AMQP url")
+			}
+			for key, val := range m {
+				if len(val) == 0 {
+					continue
+				}
+				switch key {
+				case "route":
+					endpoint.AMQP.RouteKey = val[0]
+				}
+			}
+		}
+
+		if strings.HasPrefix(endpoint.Original, "amqps:") {
+			endpoint.AMQP.SSL = true
+		}
+
+		if endpoint.AMQP.QueueName == "" {
+			return endpoint, errors.New("missing AMQP queue name")
+		}
+
+		if endpoint.AMQP.RouteKey == "" {
+			endpoint.AMQP.RouteKey = "tile38"
 		}
 	}
 

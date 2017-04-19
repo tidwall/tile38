@@ -40,9 +40,7 @@ func orderFields(fmap map[string]int, fields []float64) []fvt {
 		if idx < len(fields) {
 			fv.field = field
 			fv.value = fields[idx]
-			if fv.value != 0 {
-				fvs = append(fvs, fv)
-			}
+			fvs = append(fvs, fv)
 		}
 	}
 	sort.Sort(byField(fvs))

@@ -13,6 +13,7 @@ RUN apk update \
     && tar -xzvf tile38.tar.gz \
     && rm -f tile38.tar.gz \
     && mv tile38-$TILE38_VERSION-linux-amd64/tile38-server /usr/local/bin \
+    && mv tile38-$TILE38_VERSION-linux-amd64/tile38-cli /usr/local/bin \
     && rm -fR tile38-$TILE38_VERSION-linux-amd64
 
 RUN mkdir /data && chown tile38:tile38 /data

@@ -175,7 +175,7 @@ You can choose a value between 1 and 8. The value 1 will result in no more than 
 ## Geofencing
 
 <img src="/doc/geofence.gif" width="200" height="200" border="0" alt="Geofence animation" align="left">
-A [geofence](https://en.wikipedia.org/wiki/Geo-fence) is a virtual boundary that can detect when an object enters or exits the area. This boundary can be a radius, bounding box, or a polygon. Tile38 can turn any standard search into a geofence monitor by adding the FENCE keyword to the search. 
+A <a href="https://en.wikipedia.org/wiki/Geo-fence">geofence</a> is a virtual boundary that can detect when an object enters or exits the area. This boundary can be a radius, bounding box, or a polygon. Tile38 can turn any standard search into a geofence monitor by adding the FENCE keyword to the search. 
 
 *Tile38 also allows for [Webhooks](http://tile38.com/commands/sethook) to be assigned to Geofences.*
 

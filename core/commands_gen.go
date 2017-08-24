@@ -511,6 +511,14 @@ var commandsJSON = `{
         "multiple": true
       },
       {
+        "command": "WHEREIN",
+        "name": ["field","count","value"],
+        "type": ["string","integer","double"],
+        "optional": true,
+        "multiple": true,
+        "variadic": true
+      },
+      {
         "command": "NOFIELDS",
         "name": [],
         "type": [],
@@ -576,6 +584,14 @@ var commandsJSON = `{
         "type": ["string","double","double"],
         "optional": true,
         "multiple": true
+      },
+      {
+        "command": "WHEREIN",
+        "name": ["field","count","value"],
+        "type": ["string","integer","double"],
+        "optional": true,
+        "multiple": true,
+        "variadic": true
       },
       {
         "command": "NOFIELDS",
@@ -661,6 +677,14 @@ var commandsJSON = `{
         "type": ["string","double","double"],
         "optional": true,
         "multiple": true
+      },
+      {
+        "command": "WHEREIN",
+        "name": ["field","count","value"],
+        "type": ["string","integer","double"],
+        "optional": true,
+        "multiple": true,
+        "variadic": true
       },
       {
         "command": "NOFIELDS",
@@ -797,6 +821,14 @@ var commandsJSON = `{
         "type": ["string","double","double"],
         "optional": true,
         "multiple": true
+      },
+      {
+        "command": "WHEREIN",
+        "name": ["field","count","value"],
+        "type": ["string","integer","double"],
+        "optional": true,
+        "multiple": true,
+        "variadic": true
       },
       {
         "command": "NOFIELDS",
@@ -977,6 +1009,14 @@ var commandsJSON = `{
         "type": ["string","double","double"],
         "optional": true,
         "multiple": true
+      },
+      {
+        "command": "WHEREIN",
+        "name": ["field","count","value"],
+        "type": ["string","integer","double"],
+        "optional": true,
+        "multiple": true,
+        "variadic": true
       },
       {
         "command": "NOFIELDS",

@@ -66,7 +66,7 @@ type Endpoint struct {
 	}
 
 	SQS struct {
-		QueueURL    string
+		QueueID     string
 		Region      string
 		CredPath    string
 		CredProfile string
@@ -396,7 +396,7 @@ func parseEndpoint(s string) (Endpoint, error) {
 		}
 	}
 	// Basic SQS connection strings in HOOKS interface
-	// sqs://<region>:<aws_sqs_url>/<queue_name>/?params=value
+	// sqs://<region>:<queue_id>/<queue_name>/?params=value
 	//
 	//  params are:
 	//
@@ -410,7 +410,7 @@ func parseEndpoint(s string) (Endpoint, error) {
 			return endpoint, errors.New("invalid SQS url")
 		case 2:
 			endpoint.SQS.Region = hp[0]
-			endpoint.SQS.QueueURL = hp[1]
+			endpoint.SQS.QueueID = hp[1]
 		}
 
 		// Parsing SQS queue name

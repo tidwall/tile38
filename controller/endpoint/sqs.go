@@ -30,6 +30,10 @@ type SQSEndpointConn struct {
 	t       time.Time
 }
 
+func (conn *SQSEndpointConn) generateSQSURL() string {
+	return "https://sqs." + conn.ep.SQS.Region + "amazonaws.com/" + conn.ep.SQS.QueueID + "/" + conn.ep.SQS.QueueName
+}
+
 func (conn *SQSEndpointConn) Expired() bool {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
@@ -63,45 +67,42 @@ func (conn *SQSEndpointConn) Send(msg string) error {
 		credProfile := conn.ep.SQS.CredProfile
 		var sess *session.Session
 		if credPath != "" && credProfile != "" {
-			sess = session.New(&aws.Config{
+			sess = session.Must(session.NewSession(&aws.Config{
 				Region:      aws.String(conn.ep.SQS.Region),
 				Credentials: credentials.NewSharedCredentials(credPath, credProfile),
 				MaxRetries:  aws.Int(5),
-			})
+			}))
 		} else if credPath != "" {
-			sess = session.New(&aws.Config{
+			sess = session.Must(session.NewSession(&aws.Config{
 				Region:      aws.String(conn.ep.SQS.Region),
 				Credentials: credentials.NewSharedCredentials(credPath, "default"),
 				MaxRetries:  aws.Int(5),
-			})
+			}))
 		} else {
-			sess = session.New(&aws.Config{
+			sess = session.Must(session.NewSession(&aws.Config{
 				Region:     aws.String(conn.ep.SQS.Region),
 				MaxRetries: aws.Int(5),
-			})
+			}))
 		}
 		// Create a SQS service client.
-		svc := sqs.New(conn.session)
+		svc := sqs.New(sess)
 
-		_, err := conn.svc.CreateQueue(&sqs.CreateQueueInput{
+		svc.CreateQueue(&sqs.CreateQueueInput{
 			QueueName: aws.String(conn.ep.SQS.QueueName),
 			Attributes: map[string]*string{
 				"DelaySeconds":           aws.String("60"),
 				"MessageRetentionPeriod": aws.String("86400"),
 			},
 		})
-		if err != nil {
-			fmt.Println("Error", err)
-			return errCreateQueue
-		}
 		conn.session = sess
 		conn.svc = svc
 	}
 
+	queueURL := conn.generateSQSURL()
 	// Send message
 	sendParams := &sqs.SendMessageInput{
 		MessageBody: aws.String(msg),
-		QueueUrl:    aws.String(conn.ep.SQS.QueueURL),
+		QueueUrl:    aws.String(queueURL),
 	}
 	_, err := conn.svc.SendMessage(sendParams)
 	if err != nil {

@@ -136,7 +136,6 @@ function rmtemp {
 	rm -rf "$TMP"
 }
 trap rmtemp EXIT
-
 if [ "$NOCOPY" != "1" ]; then
 	# copy all files to an isloated directory.
 	WD="$TMP/src/github.com/tidwall/tile38"

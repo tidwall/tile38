@@ -83,7 +83,7 @@ func (conn *SQSEndpointConn) Send(msg string) error {
 		// Create a SQS service client.
 		svc := sqs.New(conn.session)
 
-		result, err := conn.svc.CreateQueue(&sqs.CreateQueueInput{
+		_, err := conn.svc.CreateQueue(&sqs.CreateQueueInput{
 			QueueName: aws.String(conn.ep.SQS.QueueName),
 			Attributes: map[string]*string{
 				"DelaySeconds":           aws.String("60"),

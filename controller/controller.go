@@ -673,6 +673,14 @@ func (c *Controller) command(
 		res, err = c.cmdClient(msg, conn)
 	case "eval":
 		res, err = c.cmdEval(msg)
+	case "evalsha":
+		res, err = c.cmdEvalSha(msg)
+	case "script load":
+		res, err = c.cmdScriptLoad(msg)
+	case "script exists":
+		res, err = c.cmdScriptExists(msg)
+	case "script flush":
+		res, err = c.cmdScriptFlush(msg)
 	}
 	return
 }

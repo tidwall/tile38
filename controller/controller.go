@@ -671,6 +671,8 @@ func (c *Controller) command(
 		}
 	case "client":
 		res, err = c.cmdClient(msg, conn)
+	case "eval":
+		res, err = c.cmdEval(msg)
 	}
 	return
 }

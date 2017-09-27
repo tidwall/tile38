@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -18,9 +19,88 @@ var errLuaCompileFailure = errors.New("LUA script compilation error")
 var errLuaRunFailure = errors.New("LUA script runtime error")
 var errShaNotFound = errors.New("SHA not found")
 
-type CompiledLuaScript *lua.FunctionProto
 
-var allScripts = make(map[string]CompiledLuaScript)
+func ConvertTableToResp(tbl *lua.LTable) resp.Value {
+	var values []resp.Value
+	var cb func(lnum lua.LValue, lv lua.LValue)
+
+	if tbl.Len() != 0 { // list
+		cb = func(lnum lua.LValue, lv lua.LValue){
+			values = append(values, ConvertToResp(lv))
+		}
+	} else { // map
+		cb = func(lk lua.LValue, lv lua.LValue){
+			values = append(values, resp.ArrayValue(
+				[]resp.Value{ConvertToResp(lk), ConvertToResp(lv)}))
+		}
+	}
+	tbl.ForEach(cb)
+	return resp.ArrayValue(values)
+}
+
+func ConvertToResp(val lua.LValue) resp.Value {
+	switch val.Type() {
+	case lua.LTNil:
+		return resp.NullValue()
+	case lua.LTBool:
+		if val == lua.LTrue {
+			return resp.IntegerValue(1)
+		} else {
+			return resp.NullValue()
+		}
+	case lua.LTNumber:
+		return resp.IntegerValue(int(math.Ceil(float64(val.(lua.LNumber)))))
+	case lua.LTString:
+		return resp.StringValue(val.String())
+	case lua.LTTable:
+		return ConvertTableToResp(val.(*lua.LTable))
+	}
+	return resp.StringValue("ERROR")
+}
+
+func ConvertTableToJson(tbl *lua.LTable) string {
+	var values []string
+	var cb func(lnum lua.LValue, lv lua.LValue)
+	var start, end string
+
+	if tbl.Len() != 0 { // list
+		start = `[`
+		end = `]`
+		cb = func(lnum lua.LValue, lv lua.LValue){
+			values = append(values, ConvertToJson(lv))
+		}
+	} else { // map
+		start = `{`
+		end=`}`
+		cb = func(lk lua.LValue, lv lua.LValue){
+			values = append(
+				values, ConvertToJson(lk) + `:` + ConvertToJson(lv))
+		}
+	}
+	tbl.ForEach(cb)
+	return start + strings.Join(values, `,`) + end
+}
+
+func ConvertToJson(val lua.LValue) string {
+	switch val.Type() {
+	case lua.LTNil:
+		return "null"
+	case lua.LTBool:
+		if val == lua.LTrue {
+			return "true"
+		} else {
+			return "false"
+		}
+	case lua.LTNumber:
+		return val.String()
+	case lua.LTString:
+		return `"` + val.String() + `"`
+	case lua.LTTable:
+		return ConvertTableToJson(val.(*lua.LTable))
+	}
+	return "ERROR"
+}
+
 
 // TODO: Refactor common bits from all these functions
 func (c* Controller) cmdEval(msg *server.Message) (res string, err error) {
@@ -43,10 +123,7 @@ func (c* Controller) cmdEval(msg *server.Message) (res string, err error) {
 		return
 	}
 
-	L := lua.NewState()
-	defer L.Close()
-
-	keys_tbl := L.CreateTable(int(numkeys), 0)
+	keys_tbl := c.luastate.CreateTable(int(numkeys), 0)
 	for i = 0; i < numkeys; i++ {
 		if vs, key, ok = tokenval(vs); !ok || key == "" {
 			err = errInvalidNumberOfArguments
@@ -55,7 +132,7 @@ func (c* Controller) cmdEval(msg *server.Message) (res string, err error) {
 		keys_tbl.Append(lua.LString(key))
 	}
 
-	args_tbl := L.CreateTable(len(vs), 0)
+	args_tbl := c.luastate.CreateTable(len(vs), 0)
 	for len(vs) > 0 {
 		if vs, arg, ok = tokenval(vs); !ok || key == "" {
 			err = errInvalidNumberOfArguments
@@ -67,15 +144,15 @@ func (c* Controller) cmdEval(msg *server.Message) (res string, err error) {
 	fmt.Printf("SCRIPT source:\n%s\n\n", script)
 	sha_sum := fmt.Sprintf("%x", sha1.Sum([]byte(script)))
 
-	L.SetGlobal("KEYS", keys_tbl)
-	L.SetGlobal("ARGS", args_tbl)
+	c.luastate.SetGlobal("KEYS", keys_tbl)
+	c.luastate.SetGlobal("ARGS", args_tbl)
 
-	compiled, ok := allScripts[sha_sum]
+	compiled, ok := c.luascripts[sha_sum]
 	var fn *lua.LFunction
 	if ok {
 		fn = &lua.LFunction{
 			IsG: false,
-			Env: L.Env,
+			Env: c.luastate.Env,
 
 			Proto:     compiled,
 			GFunction: nil,
@@ -83,28 +160,21 @@ func (c* Controller) cmdEval(msg *server.Message) (res string, err error) {
 		}
 		fmt.Printf("RETRIEVED %s\n", sha_sum)
 	} else {
-		fn, err = L.Load(strings.NewReader(script), sha_sum)
+		fn, err = c.luastate.Load(strings.NewReader(script), sha_sum)
 		if err != nil {
 			return "", errLuaCompileFailure
 		}
-		allScripts[sha_sum] = fn.Proto
+		c.luascripts[sha_sum] = fn.Proto
 		fmt.Printf("STORED %s\n", sha_sum)
 	}
-	L.Push(fn)
-	if err := L.PCall(0, 1, nil); err != nil {
+	c.luastate.Push(fn)
+	if err := c.luastate.PCall(0, 1, nil); err != nil {
 		return "", errLuaRunFailure
 	}
-	ret := L.Get(-1) // returned value
-	L.Pop(1)  // remove received value
+	ret := c.luastate.Get(-1) // returned value
+	c.luastate.Pop(1)  // remove received value
 
 	fmt.Printf("RET type %s, val %s\n", ret.Type(), ret.String())
-
-	if ret.Type() == lua.LTTable {
-		if tbl, ok := ret.(*lua.LTable); ok {
-			fmt.Printf("LEN %d\n", L.ObjLen(tbl))
-			tbl.ForEach(func(num lua.LValue, val lua.LValue) {fmt.Printf("num %s val %s\n", num, val)})
-		}
-	}
 
 	switch msg.OutputType {
 	case server.JSON:
@@ -112,11 +182,11 @@ func (c* Controller) cmdEval(msg *server.Message) (res string, err error) {
 		if msg.OutputType == server.JSON {
 			buf.WriteString(`{"ok":true`)
 		}
-		buf.WriteString(`,"result":"` + ret.String() + `"`)
+		buf.WriteString(`,"result":"` + ConvertToJson(ret) + `"`)
 		buf.WriteString(`,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
 		return buf.String(), nil
 	case server.RESP:
-		oval := resp.StringValue(ret.String())
+		oval := ConvertToResp(ret)
 		data, err := oval.MarshalRESP()
 		if err != nil {
 			return "", err
@@ -146,10 +216,7 @@ func (c* Controller) cmdEvalSha(msg *server.Message) (res string, err error) {
 		return
 	}
 
-	L := lua.NewState()
-	defer L.Close()
-
-	keys_tbl := L.CreateTable(int(numkeys), 0)
+	keys_tbl := c.luastate.CreateTable(int(numkeys), 0)
 	for i = 0; i < numkeys; i++ {
 		if vs, key, ok = tokenval(vs); !ok || key == "" {
 			err = errInvalidNumberOfArguments
@@ -158,7 +225,7 @@ func (c* Controller) cmdEvalSha(msg *server.Message) (res string, err error) {
 		keys_tbl.Append(lua.LString(key))
 	}
 
-	args_tbl := L.CreateTable(len(vs), 0)
+	args_tbl := c.luastate.CreateTable(len(vs), 0)
 	for len(vs) > 0 {
 		if vs, arg, ok = tokenval(vs); !ok || key == "" {
 			err = errInvalidNumberOfArguments
@@ -167,38 +234,31 @@ func (c* Controller) cmdEvalSha(msg *server.Message) (res string, err error) {
 		args_tbl.Append(lua.LString(arg))
 	}
 
-	L.SetGlobal("KEYS", keys_tbl)
-	L.SetGlobal("ARGS", args_tbl)
+	c.luastate.SetGlobal("KEYS", keys_tbl)
+	c.luastate.SetGlobal("ARGS", args_tbl)
 
-	compiled, ok := allScripts[sha_sum]
+	compiled, ok := c.luascripts[sha_sum]
 	if !ok {
 		err = errShaNotFound
 		return
 	}
 	fn := &lua.LFunction{
 		IsG: false,
-		Env: L.Env,
+		Env: c.luastate.Env,
 
 		Proto:     compiled,
 		GFunction: nil,
 		Upvalues:  make([]*lua.Upvalue, 0),
 	}
 	fmt.Printf("RETRIEVED %s\n", sha_sum)
-	L.Push(fn)
-	if err := L.PCall(0, 1, nil); err != nil {
+	c.luastate.Push(fn)
+	if err := c.luastate.PCall(0, 1, nil); err != nil {
 		return "", errLuaRunFailure
 	}
-	ret := L.Get(-1) // returned value
-	L.Pop(1)  // remove received value
+	ret := c.luastate.Get(-1) // returned value
+	c.luastate.Pop(1)  // remove received value
 
 	fmt.Printf("RET type %s, val %s\n", ret.Type(), ret.String())
-
-	if ret.Type() == lua.LTTable {
-		if tbl, ok := ret.(*lua.LTable); ok {
-			fmt.Printf("LEN %d\n", L.ObjLen(tbl))
-			tbl.ForEach(func(num lua.LValue, val lua.LValue) {fmt.Printf("num %s val %s\n", num, val)})
-		}
-	}
 
 	switch msg.OutputType {
 	case server.JSON:
@@ -206,11 +266,11 @@ func (c* Controller) cmdEvalSha(msg *server.Message) (res string, err error) {
 		if msg.OutputType == server.JSON {
 			buf.WriteString(`{"ok":true`)
 		}
-		buf.WriteString(`,"result":"` + ret.String() + `"`)
+		buf.WriteString(`,"result":` + ConvertToJson(ret))
 		buf.WriteString(`,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
 		return buf.String(), nil
 	case server.RESP:
-		oval := resp.StringValue(ret.String())
+		oval := ConvertToResp(ret)
 		data, err := oval.MarshalRESP()
 		if err != nil {
 			return "", err
@@ -230,17 +290,14 @@ func (c* Controller) cmdScriptLoad(msg *server.Message) (res string, err error) 
 		return "", errInvalidNumberOfArguments
 	}
 
-	L := lua.NewState()
-	defer L.Close()
-
 	fmt.Printf("SCRIPT source:\n%s\n\n", script)
 	sha_sum := fmt.Sprintf("%x", sha1.Sum([]byte(script)))
 
-	fn, err := L.Load(strings.NewReader(script), sha_sum)
+	fn, err := c.luastate.Load(strings.NewReader(script), sha_sum)
 	if err != nil {
 		return "", errLuaCompileFailure
 	}
-	allScripts[sha_sum] = fn.Proto
+	c.luascripts[sha_sum] = fn.Proto
 	fmt.Printf("STORED %s\n", sha_sum)
 
 	switch msg.OutputType {
@@ -274,7 +331,7 @@ func (c* Controller) cmdScriptExists(msg *server.Message) (res string, err error
 			err = errInvalidNumberOfArguments
 			return
 		}
-		_, ok = allScripts[sha_sum]
+		_, ok = c.luascripts[sha_sum]
 		if ok {
 			ires = 1
 		} else {
@@ -286,9 +343,7 @@ func (c* Controller) cmdScriptExists(msg *server.Message) (res string, err error
 	switch msg.OutputType {
 	case server.JSON:
 		var buf bytes.Buffer
-		if msg.OutputType == server.JSON {
-			buf.WriteString(`{"ok":true`)
-		}
+		buf.WriteString(`{"ok":true`)
 		var res_array []string
 		for _, ires := range results {
 			res_array = append(res_array, fmt.Sprintf("%d", ires))
@@ -313,14 +368,12 @@ func (c* Controller) cmdScriptExists(msg *server.Message) (res string, err error
 
 func (c* Controller) cmdScriptFlush(msg *server.Message) (res string, err error) {
 	start := time.Now()
-	allScripts = make(map[string]CompiledLuaScript)
+	c.luascripts = make(map[string]*lua.FunctionProto)
 
 	switch msg.OutputType {
 	case server.JSON:
 		var buf bytes.Buffer
-		if msg.OutputType == server.JSON {
-			buf.WriteString(`{"ok":true`)
-		}
+		buf.WriteString(`{"ok":true`)
 		buf.WriteString(`,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
 		return buf.String(), nil
 	case server.RESP:

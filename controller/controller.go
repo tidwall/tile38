@@ -24,6 +24,7 @@ import (
 	"github.com/tidwall/tile38/controller/server"
 	"github.com/tidwall/tile38/core"
 	"github.com/tidwall/tile38/geojson"
+	"github.com/yuin/gopher-lua"
 )
 
 var errOOM = errors.New("OOM command not allowed when used memory > 'maxmemory'")
@@ -96,6 +97,9 @@ type Controller struct {
 	started   time.Time
 	http      bool
 
+	luascripts map[string]*lua.FunctionProto
+	luastate   *lua.LState
+
 	epc *endpoint.EndpointManager
 
 	statsTotalConns    int
@@ -134,6 +138,8 @@ func ListenAndServeEx(host string, port int, dir string, ln *net.Listener, http 
 		conns:    make(map[*server.Conn]*clientConn),
 		epc:      endpoint.NewEndpointManager(),
 		http:     http,
+		luascripts: make(map[string]*lua.FunctionProto),
+		luastate: lua.NewState(),
 	}
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
@@ -199,6 +205,7 @@ func ListenAndServeEx(host string, port int, dir string, ln *net.Listener, http 
 		c.stopWatchingAutoGC = true
 		c.mu.Unlock()
 	}()
+	defer c.luastate.Close()
 	handler := func(conn *server.Conn, msg *server.Message, rd *server.AnyReaderWriter, w io.Writer, websocket bool) error {
 		c.mu.Lock()
 		if cc, ok := c.conns[conn]; ok {

@@ -380,6 +380,19 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 		words = append(words, v.String())
 	}
 	start := time.Now()
+	serialize_output := func(res resp.Value) (string, error) {
+		var res_str string
+		var err error
+		switch msg.OutputType {
+		case server.JSON:
+			res_str = res.String()
+		case server.RESP:
+			var res_bytes []byte
+			res_bytes, err = res.MarshalRESP()
+			res_str = string(res_bytes)
+		}
+		return res_str, err
+	}
 	writeOutput := func(res string) error {
 		switch msg.ConnType {
 		default:
@@ -472,7 +485,8 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 			}
 			conn.Authenticated = true
 			if msg.ConnType != server.HTTP {
-				return writeOutput(server.OKMessage(msg, start))
+				res_str, _ := serialize_output(server.OKMessage(msg, start))
+				return writeOutput(res_str)
 			}
 		} else if msg.Command == "auth" {
 			return writeErr(errors.New("invalid password"))
@@ -534,7 +548,7 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 		}
 		return writeErr(err)
 	}
-	if write {
+	if write { // TODO: script commands themselves should not write AOF!
 		if err := c.writeAOF(resp.ArrayValue(msg.Values), &d); err != nil {
 			if _, ok := err.(errAOFHook); ok {
 				return writeErr(err)
@@ -543,12 +557,25 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 			return err
 		}
 	}
-	if res != "" {
-		if err := writeOutput(res); err != nil {
+
+	if !isRespValueEmptyString(res) {
+		var res_str string
+		res_str, err := serialize_output(res)
+		if err != nil {
+			return err
+		}
+		if err := writeOutput(res_str); err != nil {
 			return err
 		}
 	}
+
 	return nil
+}
+
+
+func isRespValueEmptyString(val resp.Value) bool {
+	return !val.IsNull() && (
+		val.Type() == resp.SimpleString || val.Type() == resp.BulkString) && len(val.Bytes()) == 0
 }
 
 func randomKey(n int) string {
@@ -571,7 +598,7 @@ func (c *Controller) reset() {
 func (c *Controller) command(
 	msg *server.Message, w io.Writer, conn *server.Conn,
 ) (
-	res string, d commandDetailsT, err error,
+	res resp.Value, d commandDetailsT, err error,
 ) {
 	switch msg.Command {
 	default:

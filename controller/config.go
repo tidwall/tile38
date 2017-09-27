@@ -268,65 +268,64 @@ func (c *Controller) writeConfig(writeProperties bool) error {
 	return nil
 }
 
-func (c *Controller) cmdConfigGet(msg *server.Message) (res string, err error) {
+func (c *Controller) cmdConfigGet(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 	var ok bool
 	var name string
+	empty_response := resp.SimpleStringValue("")
 	if vs, name, ok = tokenval(vs); !ok {
-		return "", errInvalidNumberOfArguments
+		return empty_response, errInvalidNumberOfArguments
 	}
 	if len(vs) != 0 {
-		return "", errInvalidNumberOfArguments
+		return empty_response, errInvalidNumberOfArguments
 	}
 	m := c.getConfigProperties(name)
 	switch msg.OutputType {
 	case server.JSON:
 		data, err := json.Marshal(m)
 		if err != nil {
-			return "", err
+			return empty_response, err
 		}
-		res = `{"ok":true,"properties":` + string(data) + `,"elapsed":"` + time.Now().Sub(start).String() + "\"}"
+		res = resp.StringValue(`{"ok":true,"properties":` + string(data) + `,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
 	case server.RESP:
 		vals := respValuesSimpleMap(m)
-		data, err := resp.ArrayValue(vals).MarshalRESP()
-		if err != nil {
-			return "", err
-		}
-		res = string(data)
+		res = resp.ArrayValue(vals)
 	}
 	return
 }
-func (c *Controller) cmdConfigSet(msg *server.Message) (res string, err error) {
+func (c *Controller) cmdConfigSet(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 	var ok bool
 	var name string
+	empty_response := resp.SimpleStringValue("")
 	if vs, name, ok = tokenval(vs); !ok {
-		return "", errInvalidNumberOfArguments
+		return empty_response, errInvalidNumberOfArguments
 	}
 	var value string
 	if vs, value, ok = tokenval(vs); !ok {
 		if strings.ToLower(name) != RequirePass {
-			return "", errInvalidNumberOfArguments
+			return empty_response, errInvalidNumberOfArguments
 		}
 	}
 	if len(vs) != 0 {
-		return "", errInvalidNumberOfArguments
+		return empty_response, errInvalidNumberOfArguments
 	}
 	if err := c.setConfigProperty(name, value, false); err != nil {
-		return "", err
+		return empty_response, err
 	}
 	return server.OKMessage(msg, start), nil
 }
-func (c *Controller) cmdConfigRewrite(msg *server.Message) (res string, err error) {
+func (c *Controller) cmdConfigRewrite(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
+	empty_response := resp.SimpleStringValue("")
 	if len(vs) != 0 {
-		return "", errInvalidNumberOfArguments
+		return empty_response, errInvalidNumberOfArguments
 	}
 	if err := c.writeConfig(true); err != nil {
-		return "", err
+		return empty_response, err
 	}
 	return server.OKMessage(msg, start), nil
 }

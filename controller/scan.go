@@ -21,18 +21,19 @@ func cmdScanArgs(vs []resp.Value) (s liveFenceSwitches, err error) {
 	return
 }
 
-func (c *Controller) cmdScan(msg *server.Message) (res string, err error) {
+func (c *Controller) cmdScan(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 
-	wr := &bytes.Buffer{}
+	empty_response := resp.SimpleStringValue("")
 	s, err := cmdScanArgs(vs)
 	if err != nil {
-		return "", err
+		return empty_response, err
 	}
+	wr := &bytes.Buffer{}
 	sw, err := c.newScanWriter(wr, msg, s.key, s.output, s.precision, s.glob, false, s.cursor, s.limit, s.wheres, s.whereins, s.nofields)
 	if err != nil {
-		return "", err
+		return empty_response, err
 	}
 	if msg.OutputType == server.JSON {
 		wr.WriteString(`{"ok":true`)
@@ -74,6 +75,7 @@ func (c *Controller) cmdScan(msg *server.Message) (res string, err error) {
 	sw.writeFoot()
 	if msg.OutputType == server.JSON {
 		wr.WriteString(`,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
+		return resp.BytesValue(wr.Bytes()), nil
 	}
-	return string(wr.Bytes()), nil
+	return sw.respOut, nil
 }

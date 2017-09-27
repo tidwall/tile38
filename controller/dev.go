@@ -23,9 +23,11 @@ func randMassInsertPosition(minLat, minLon, maxLat, maxLon float64) (float64, fl
 	return lat, lon
 }
 
-func (c *Controller) cmdMassInsert(msg *server.Message) (res string, err error) {
+func (c *Controller) cmdMassInsert(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
+
+	empty_response := resp.SimpleStringValue("")
 
 	minLat, minLon, maxLat, maxLon := -90.0, -180.0, 90.0, 180.0 //37.10776, -122.67145, 38.19502, -121.62775
 
@@ -33,50 +35,50 @@ func (c *Controller) cmdMassInsert(msg *server.Message) (res string, err error) 
 	var cols, objs int
 	var ok bool
 	if vs, snumCols, ok = tokenval(vs); !ok || snumCols == "" {
-		return "", errInvalidNumberOfArguments
+		return empty_response, errInvalidNumberOfArguments
 	}
 	if vs, snumPoints, ok = tokenval(vs); !ok || snumPoints == "" {
-		return "", errInvalidNumberOfArguments
+		return empty_response, errInvalidNumberOfArguments
 	}
 	if len(vs) != 0 {
 		var sminLat, sminLon, smaxLat, smaxLon string
 		if vs, sminLat, ok = tokenval(vs); !ok || sminLat == "" {
-			return "", errInvalidNumberOfArguments
+			return empty_response, errInvalidNumberOfArguments
 		}
 		if vs, sminLon, ok = tokenval(vs); !ok || sminLon == "" {
-			return "", errInvalidNumberOfArguments
+			return empty_response, errInvalidNumberOfArguments
 		}
 		if vs, smaxLat, ok = tokenval(vs); !ok || smaxLat == "" {
-			return "", errInvalidNumberOfArguments
+			return empty_response, errInvalidNumberOfArguments
 		}
 		if vs, smaxLon, ok = tokenval(vs); !ok || smaxLon == "" {
-			return "", errInvalidNumberOfArguments
+			return empty_response, errInvalidNumberOfArguments
 		}
 		var err error
 		if minLat, err = strconv.ParseFloat(sminLat, 64); err != nil {
-			return "", err
+			return empty_response, err
 		}
 		if minLon, err = strconv.ParseFloat(sminLon, 64); err != nil {
-			return "", err
+			return empty_response, err
 		}
 		if maxLat, err = strconv.ParseFloat(smaxLat, 64); err != nil {
-			return "", err
+			return empty_response, err
 		}
 		if maxLon, err = strconv.ParseFloat(smaxLon, 64); err != nil {
-			return "", err
+			return empty_response, err
 		}
 		if len(vs) != 0 {
-			return "", errors.New("invalid number of arguments")
+			return empty_response, errors.New("invalid number of arguments")
 		}
 	}
 	n, err := strconv.ParseUint(snumCols, 10, 64)
 	if err != nil {
-		return "", errInvalidArgument(snumCols)
+		return empty_response, errInvalidArgument(snumCols)
 	}
 	cols = int(n)
 	n, err = strconv.ParseUint(snumPoints, 10, 64)
 	if err != nil {
-		return "", errInvalidArgument(snumPoints)
+		return empty_response, errInvalidArgument(snumPoints)
 	}
 	docmd := func(values []resp.Value) error {
 		nmsg := &server.Message{}

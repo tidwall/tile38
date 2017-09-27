@@ -11,6 +11,7 @@ import (
 
 	"github.com/tidwall/tile38/controller/log"
 	"github.com/tidwall/tile38/core"
+	"github.com/tidwall/resp"
 )
 
 // This phrase is copied nearly verbatim from Redis.
@@ -193,12 +194,14 @@ func WriteWebSocketMessage(w io.Writer, data []byte) error {
 }
 
 // OKMessage returns a default OK message in JSON or RESP.
-func OKMessage(msg *Message, start time.Time) string {
+func OKMessage(msg *Message, start time.Time) resp.Value {
 	switch msg.OutputType {
 	case JSON:
-		return `{"ok":true,"elapsed":"` + time.Now().Sub(start).String() + "\"}"
+		return resp.StringValue(`{"ok":true,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
 	case RESP:
-		return "+OK\r\n"
+		return resp.SimpleStringValue("OK")
 	}
-	return ""
+	return resp.SimpleStringValue("")
 }
+
+var empty_response = resp.SimpleStringValue("")

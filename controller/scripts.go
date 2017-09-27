@@ -103,18 +103,19 @@ func ConvertToJson(val lua.LValue) string {
 
 
 // TODO: Refactor common bits from all these functions
-func (c* Controller) cmdEval(msg *server.Message) (res string, err error) {
+func (c* Controller) cmdEval(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 
+	empty_response := resp.SimpleStringValue("")
 	var ok bool
 	var script, numkeys_str, key, arg string
 	if vs, script, ok = tokenval(vs); !ok || script == "" {
-		return "", errInvalidNumberOfArguments
+		return empty_response, errInvalidNumberOfArguments
 	}
 
 	if vs, numkeys_str, ok = tokenval(vs); !ok || numkeys_str == "" {
-		return "", errInvalidNumberOfArguments
+		return empty_response, errInvalidNumberOfArguments
 	}
 
 	var i, numkeys uint64
@@ -162,14 +163,14 @@ func (c* Controller) cmdEval(msg *server.Message) (res string, err error) {
 	} else {
 		fn, err = c.luastate.Load(strings.NewReader(script), sha_sum)
 		if err != nil {
-			return "", errLuaCompileFailure
+			return empty_response, errLuaCompileFailure
 		}
 		c.luascripts[sha_sum] = fn.Proto
 		fmt.Printf("STORED %s\n", sha_sum)
 	}
 	c.luastate.Push(fn)
 	if err := c.luastate.PCall(0, 1, nil); err != nil {
-		return "", errLuaRunFailure
+		return empty_response, errLuaRunFailure
 	}
 	ret := c.luastate.Get(-1) // returned value
 	c.luastate.Pop(1)  // remove received value
@@ -179,35 +180,29 @@ func (c* Controller) cmdEval(msg *server.Message) (res string, err error) {
 	switch msg.OutputType {
 	case server.JSON:
 		var buf bytes.Buffer
-		if msg.OutputType == server.JSON {
-			buf.WriteString(`{"ok":true`)
-		}
+		buf.WriteString(`{"ok":true`)
 		buf.WriteString(`,"result":"` + ConvertToJson(ret) + `"`)
 		buf.WriteString(`,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
-		return buf.String(), nil
+		return resp.StringValue(buf.String()), nil
 	case server.RESP:
-		oval := ConvertToResp(ret)
-		data, err := oval.MarshalRESP()
-		if err != nil {
-			return "", err
-		}
-		return string(data), nil
+		return ConvertToResp(ret), nil
 	}
-	return "", nil
+	return empty_response, nil
 }
 
-func (c* Controller) cmdEvalSha(msg *server.Message) (res string, err error) {
+func (c* Controller) cmdEvalSha(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 
+	empty_response := resp.SimpleStringValue("")
 	var ok bool
 	var sha_sum, numkeys_str, key, arg string
 	if vs, sha_sum, ok = tokenval(vs); !ok || sha_sum == "" {
-		return "", errInvalidNumberOfArguments
+		return empty_response, errInvalidNumberOfArguments
 	}
 
 	if vs, numkeys_str, ok = tokenval(vs); !ok || numkeys_str == "" {
-		return "", errInvalidNumberOfArguments
+		return empty_response, errInvalidNumberOfArguments
 	}
 
 	var i, numkeys uint64
@@ -253,7 +248,7 @@ func (c* Controller) cmdEvalSha(msg *server.Message) (res string, err error) {
 	fmt.Printf("RETRIEVED %s\n", sha_sum)
 	c.luastate.Push(fn)
 	if err := c.luastate.PCall(0, 1, nil); err != nil {
-		return "", errLuaRunFailure
+		return empty_response, errLuaRunFailure
 	}
 	ret := c.luastate.Get(-1) // returned value
 	c.luastate.Pop(1)  // remove received value
@@ -263,31 +258,25 @@ func (c* Controller) cmdEvalSha(msg *server.Message) (res string, err error) {
 	switch msg.OutputType {
 	case server.JSON:
 		var buf bytes.Buffer
-		if msg.OutputType == server.JSON {
-			buf.WriteString(`{"ok":true`)
-		}
+		buf.WriteString(`{"ok":true`)
 		buf.WriteString(`,"result":` + ConvertToJson(ret))
 		buf.WriteString(`,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
-		return buf.String(), nil
+		return resp.StringValue(buf.String()), nil
 	case server.RESP:
-		oval := ConvertToResp(ret)
-		data, err := oval.MarshalRESP()
-		if err != nil {
-			return "", err
-		}
-		return string(data), nil
+		return ConvertToResp(ret), nil
 	}
-	return "", nil
+	return empty_response, nil
 }
 
-func (c* Controller) cmdScriptLoad(msg *server.Message) (res string, err error) {
+func (c* Controller) cmdScriptLoad(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 
+	empty_response := resp.SimpleStringValue("")
 	var ok bool
 	var script string
 	if vs, script, ok = tokenval(vs); !ok || script == "" {
-		return "", errInvalidNumberOfArguments
+		return empty_response, errInvalidNumberOfArguments
 	}
 
 	fmt.Printf("SCRIPT source:\n%s\n\n", script)
@@ -295,7 +284,7 @@ func (c* Controller) cmdScriptLoad(msg *server.Message) (res string, err error) 
 
 	fn, err := c.luastate.Load(strings.NewReader(script), sha_sum)
 	if err != nil {
-		return "", errLuaCompileFailure
+		return empty_response, errLuaCompileFailure
 	}
 	c.luascripts[sha_sum] = fn.Proto
 	fmt.Printf("STORED %s\n", sha_sum)
@@ -306,19 +295,14 @@ func (c* Controller) cmdScriptLoad(msg *server.Message) (res string, err error) 
 		buf.WriteString(`{"ok":true`)
 		buf.WriteString(`,"result":"` + sha_sum + `"`)
 		buf.WriteString(`,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
-		return buf.String(), nil
+		return resp.StringValue(buf.String()), nil
 	case server.RESP:
-		oval := resp.StringValue(sha_sum)
-		data, err := oval.MarshalRESP()
-		if err != nil {
-			return "", err
-		}
-		return string(data), nil
+		return resp.StringValue(sha_sum), nil
 	}
-	return "", nil
+	return empty_response, nil
 }
 
-func (c* Controller) cmdScriptExists(msg *server.Message) (res string, err error) {
+func (c* Controller) cmdScriptExists(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 
@@ -350,23 +334,18 @@ func (c* Controller) cmdScriptExists(msg *server.Message) (res string, err error
 		}
 		buf.WriteString(`,"result":[` + strings.Join(res_array, ",") + `]`)
 		buf.WriteString(`,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
-		return buf.String(), nil
+		return resp.StringValue(buf.String()), nil
 	case server.RESP:
 		var res_array []resp.Value
 		for _, ires := range results {
 			res_array = append(res_array, resp.IntegerValue(ires))
 		}
-		oval := resp.ArrayValue(res_array)
-		data, err := oval.MarshalRESP()
-		if err != nil {
-			return "", err
-		}
-		return string(data), nil
+		return resp.ArrayValue(res_array), nil
 	}
-	return "", nil
+	return resp.SimpleStringValue(""), nil
 }
 
-func (c* Controller) cmdScriptFlush(msg *server.Message) (res string, err error) {
+func (c* Controller) cmdScriptFlush(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	c.luascripts = make(map[string]*lua.FunctionProto)
 
@@ -375,14 +354,9 @@ func (c* Controller) cmdScriptFlush(msg *server.Message) (res string, err error)
 		var buf bytes.Buffer
 		buf.WriteString(`{"ok":true`)
 		buf.WriteString(`,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
-		return buf.String(), nil
+		return resp.StringValue(buf.String()), nil
 	case server.RESP:
-		oval := resp.StringValue("OK")
-		data, err := oval.MarshalRESP()
-		if err != nil {
-			return "", err
-		}
-		return string(data), nil
+		return resp.StringValue("OK"), nil
 	}
-	return "", nil
+	return resp.SimpleStringValue(""), nil
 }

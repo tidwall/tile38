@@ -16,10 +16,8 @@ import (
 	"github.com/yuin/gopher-lua"
 )
 
-var errLuaCompileFailure = errors.New("LUA script compilation error")
-var errLuaRunFailure = errors.New("LUA script runtime error")
-var errShaNotFound = errors.New("SHA not found")
-var errCmdNotSupported = errors.New("Command not support in scripts")
+var errShaNotFound = errors.New("sha not found")
+var errCmdNotSupported = errors.New("command not supported in scripts")
 var errNotLeader = errors.New("not the leader")
 var errReadOnly = errors.New("read only")
 var errCatchingUp = errors.New("catching up to leader")
@@ -75,7 +73,11 @@ func ConvertToResp(val lua.LValue) resp.Value {
 			return resp.NullValue()
 		}
 	case lua.LTNumber:
-		return resp.IntegerValue(int(math.Ceil(float64(val.(lua.LNumber)))))
+		if float := float64(val.(lua.LNumber)); math.IsNaN(float) || math.IsInf(float, 0) {
+			return resp.FloatValue(float)
+		} else {
+			return resp.IntegerValue(int(math.Floor(float)))
+		}
 	case lua.LTString:
 		return resp.StringValue(val.String())
 	case lua.LTTable:
@@ -188,14 +190,14 @@ func (c* Controller) cmdEval(msg *server.Message) (res resp.Value, err error) {
 	} else {
 		fn, err = c.luastate.Load(strings.NewReader(script), "f_" + sha_sum)
 		if err != nil {
-			return empty_response, errLuaCompileFailure
+			return empty_response, err
 		}
 		c.luascripts[sha_sum] = fn.Proto
 		log.Debugf("STORED %s\n", sha_sum)
 	}
 	c.luastate.Push(fn)
 	if err := c.luastate.PCall(0, 1, nil); err != nil {
-		return empty_response, errLuaRunFailure
+		return empty_response, err
 	}
 	ret := c.luastate.Get(-1) // returned value
 	c.luastate.Pop(1)  // remove received value
@@ -273,7 +275,7 @@ func (c* Controller) cmdEvalSha(msg *server.Message) (res resp.Value, err error)
 	log.Debugf("RETRIEVED %s\n", sha_sum)
 	c.luastate.Push(fn)
 	if err := c.luastate.PCall(0, 1, nil); err != nil {
-		return empty_response, errLuaRunFailure
+		return empty_response, err
 	}
 	ret := c.luastate.Get(-1) // returned value
 	c.luastate.Pop(1)  // remove received value
@@ -309,7 +311,7 @@ func (c* Controller) cmdScriptLoad(msg *server.Message) (res resp.Value, err err
 
 	fn, err := c.luastate.Load(strings.NewReader(script), "f_" + sha_sum)
 	if err != nil {
-		return empty_response, errLuaCompileFailure
+		return empty_response, err
 	}
 	c.luascripts[sha_sum] = fn.Proto
 	log.Debugf("STORED %s\n", sha_sum)
@@ -438,7 +440,7 @@ func (c *Controller) commandInScript(msg *server.Message) (
 	return
 }
 
-func (c *Controller) handleCommandInScript(cmd string, args ...string) (result resp.Value, errval resp.Value) {
+func (c *Controller) handleCommandInScript(cmd string, args ...string) (result resp.Value, err error) {
 	msg := &server.Message{}
 	msg.OutputType = server.RESP
 	msg.Command = strings.ToLower(cmd)
@@ -459,17 +461,17 @@ func (c *Controller) handleCommandInScript(cmd string, args ...string) (result r
 		"follow", "readonly", "config", "output", "client",
 		"aofshrink",
 		"eval", "evalsha", "script load", "script exists", "script flush":
-		return resp.NullValue(), resp.ErrorValue(errCmdNotSupported)
+		return resp.NullValue(), errCmdNotSupported
 	case "set", "del", "drop", "fset", "flushdb", "expire", "persist", "jset", "pdel":
 		// write operations
 		write = true
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		if c.config.FollowHost != "" {
-			return resp.NullValue(), resp.ErrorValue(errNotLeader)
+			return resp.NullValue(), errNotLeader
 		}
 		if c.config.ReadOnly {
-			return resp.NullValue(), resp.ErrorValue(errReadOnly)
+			return resp.NullValue(), errReadOnly
 		}
 	case "get", "keys", "scan", "nearby", "within", "intersects", "hooks", "search",
 		"ttl", "bounds", "server", "info", "type", "jget":
@@ -477,20 +479,20 @@ func (c *Controller) handleCommandInScript(cmd string, args ...string) (result r
 		c.mu.RLock()
 		defer c.mu.RUnlock()
 		if c.config.FollowHost != "" && !c.fcuponce {
-			return resp.NullValue(), resp.ErrorValue(errCatchingUp)
+			return resp.NullValue(), errCatchingUp
 		}
 	}
 
 	res, d, err := c.commandInScript(msg)
 	if err != nil {
-		return resp.NullValue(), resp.ErrorValue(err)
+		return resp.NullValue(), err
 	}
 
 	if write {
 		if err := c.writeAOF(resp.ArrayValue(msg.Values), &d); err != nil {
-			return resp.NullValue(), resp.ErrorValue(err)
+			return resp.NullValue(), err
 		}
 	}
 
-	return res, resp.NullValue()
+	return res, nil
 }

@@ -154,16 +154,15 @@ func ListenAndServeEx(host string, port int, dir string, ln *net.Listener, http 
 			}
 		}
 		log.Debugf("ARGS %s\n", args)
-		res, err := c.handleCommandInScript(args[0], args[1:]...)
-		log.Debugf("RES %s/%s ERR %s/%s\n", res.Type(), res.String(), err.Type(), err.String())
-		var ret resp.Value
-		if err.IsNull() {
-			ret = res
+		if res, err := c.handleCommandInScript(args[0], args[1:]...); err != nil {
+			log.Debugf("RES %s/%s ERR %s\n", res.Type(), res.String(), err);
+			L.RaiseError("ERR %s", err.Error())
+			return 0
 		} else {
-			ret = err
+			log.Debugf("RES %s/%s ERR %s\n", res.Type(), res.String(), err);
+			L.Push(ConvertToLua(L, res))
+			return 1
 		}
-		L.Push(ConvertToLua(L, ret))
-		return 1
 	}
 	var exports = map[string]lua.LGFunction {
 		"call": Tile38Call,

@@ -142,7 +142,8 @@ func ListenAndServeEx(host string, port int, dir string, ln *net.Listener, http 
 		luastate: lua.NewState(),
 	}
 
-	Tile38 := func(L *lua.LState) int {
+	// Set things up in a new Lua state
+	Tile38Call := func(L *lua.LState) int {
 		// Trying to work with unknown number of args.  When we see empty arg we call it enough.
 		var args []string
 		for i := 1; ; i++ {
@@ -164,7 +165,10 @@ func ListenAndServeEx(host string, port int, dir string, ln *net.Listener, http 
 		L.Push(ConvertToLua(L, ret))
 		return 1
 	}
-	c.luastate.SetGlobal("tile38", c.luastate.NewFunction(Tile38))
+	var exports = map[string]lua.LGFunction {
+		"call": Tile38Call,
+	}
+	c.luastate.SetGlobal("tile38", c.luastate.SetFuncs(c.luastate.NewTable(), exports))
 
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err

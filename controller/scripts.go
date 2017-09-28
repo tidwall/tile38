@@ -307,7 +307,7 @@ func (c* Controller) cmdScriptLoad(msg *server.Message) (res resp.Value, err err
 	log.Debugf("SCRIPT source:\n%s\n\n", script)
 	sha_sum := fmt.Sprintf("%x", sha1.Sum([]byte(script)))
 
-	fn, err := c.luastate.Load(strings.NewReader(script), sha_sum)
+	fn, err := c.luastate.Load(strings.NewReader(script), "f_" + sha_sum)
 	if err != nil {
 		return empty_response, errLuaCompileFailure
 	}

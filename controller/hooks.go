@@ -46,16 +46,14 @@ func (a hooksByName) Swap(i, j int) {
 func (c *Controller) cmdSetHook(msg *server.Message) (res resp.Value, d commandDetailsT, err error) {
 	start := time.Now()
 
-	empty_response := resp.SimpleStringValue("")
-
 	vs := msg.Values[1:]
 	var name, urls, cmd string
 	var ok bool
 	if vs, name, ok = tokenval(vs); !ok || name == "" {
-		return empty_response, d, errInvalidNumberOfArguments
+		return server.NOMessage, d, errInvalidNumberOfArguments
 	}
 	if vs, urls, ok = tokenval(vs); !ok || urls == "" {
-		return empty_response, d, errInvalidNumberOfArguments
+		return server.NOMessage, d, errInvalidNumberOfArguments
 	}
 	var endpoints []string
 	for _, url := range strings.Split(urls, ",") {
@@ -74,20 +72,20 @@ func (c *Controller) cmdSetHook(msg *server.Message) (res resp.Value, d commandD
 	for {
 		commandvs = vs
 		if vs, cmd, ok = tokenval(vs); !ok || cmd == "" {
-			return empty_response, d, errInvalidNumberOfArguments
+			return server.NOMessage, d, errInvalidNumberOfArguments
 		}
 		cmdlc = strings.ToLower(cmd)
 		switch cmdlc {
 		default:
-			return empty_response, d, errInvalidArgument(cmd)
+			return server.NOMessage, d, errInvalidArgument(cmd)
 		case "meta":
 			var metakey string
 			var metaval string
 			if vs, metakey, ok = tokenval(vs); !ok || metakey == "" {
-				return empty_response, d, errInvalidNumberOfArguments
+				return server.NOMessage, d, errInvalidNumberOfArguments
 			}
 			if vs, metaval, ok = tokenval(vs); !ok || metaval == "" {
-				return empty_response, d, errInvalidNumberOfArguments
+				return server.NOMessage, d, errInvalidNumberOfArguments
 			}
 			metaMap[metakey] = metaval
 			continue
@@ -100,10 +98,10 @@ func (c *Controller) cmdSetHook(msg *server.Message) (res resp.Value, d commandD
 	}
 	s, err := c.cmdSearchArgs(cmdlc, vs, types)
 	if err != nil {
-		return empty_response, d, err
+		return server.NOMessage, d, err
 	}
 	if !s.fence {
-		return empty_response, d, errors.New("missing FENCE argument")
+		return server.NOMessage, d, errors.New("missing FENCE argument")
 	}
 	s.cmd = cmdlc
 
@@ -136,7 +134,7 @@ func (c *Controller) cmdSetHook(msg *server.Message) (res resp.Value, d commandD
 	var wr bytes.Buffer
 	hook.ScanWriter, err = c.newScanWriter(&wr, cmsg, s.key, s.output, s.precision, s.glob, false, s.cursor, s.limit, s.wheres, s.whereins, s.nofields)
 	if err != nil {
-		return empty_response, d, err
+		return server.NOMessage, d, err
 	}
 
 	if h, ok := c.hooks[name]; ok {
@@ -174,22 +172,20 @@ func (c *Controller) cmdSetHook(msg *server.Message) (res resp.Value, d commandD
 	case server.RESP:
 		return resp.IntegerValue(1), d, nil
 	}
-	return empty_response, d, nil
+	return server.NOMessage, d, nil
 }
 
 func (c *Controller) cmdDelHook(msg *server.Message) (res resp.Value, d commandDetailsT, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 
-	empty_response := resp.SimpleStringValue("")
-
 	var name string
 	var ok bool
 	if vs, name, ok = tokenval(vs); !ok || name == "" {
-		return empty_response, d, errInvalidNumberOfArguments
+		return server.NOMessage, d, errInvalidNumberOfArguments
 	}
 	if len(vs) != 0 {
-		return empty_response, d, errInvalidNumberOfArguments
+		return server.NOMessage, d, errInvalidNumberOfArguments
 	}
 	if h, ok := c.hooks[name]; ok {
 		h.Close()
@@ -217,14 +213,13 @@ func (c *Controller) cmdPDelHook(msg *server.Message) (res resp.Value, d command
 	start := time.Now()
 	vs := msg.Values[1:]
 
-	empty_response := resp.SimpleStringValue("")
 	var pattern string
 	var ok bool
 	if vs, pattern, ok = tokenval(vs); !ok || pattern == "" {
-		return empty_response, d, errInvalidNumberOfArguments
+		return server.NOMessage, d, errInvalidNumberOfArguments
 	}
 	if len(vs) != 0 {
-		return empty_response, d, errInvalidNumberOfArguments
+		return server.NOMessage, d, errInvalidNumberOfArguments
 	}
 
 	count := 0
@@ -258,12 +253,12 @@ func (c *Controller) cmdHooks(msg *server.Message) (res resp.Value, err error) {
 
 	var pattern string
 	var ok bool
-	empty_response := resp.SimpleStringValue("")
+
 	if vs, pattern, ok = tokenval(vs); !ok || pattern == "" {
-		return empty_response, errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	if len(vs) != 0 {
-		return empty_response, errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 
 	var hooks []*Hook

@@ -15,14 +15,13 @@ func (c *Controller) cmdKeys(msg *server.Message) (res resp.Value, err error) {
 	var start = time.Now()
 	vs := msg.Values[1:]
 
-	empty_response := resp.SimpleStringValue("")
 	var pattern string
 	var ok bool
 	if vs, pattern, ok = tokenval(vs); !ok || pattern == "" {
-		return empty_response, errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	if len(vs) != 0 {
-		return empty_response, errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 
 	var wr = &bytes.Buffer{}

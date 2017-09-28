@@ -52,14 +52,13 @@ func (c *Controller) cmdBounds(msg *server.Message) (resp.Value, error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 
-	empty_response := resp.SimpleStringValue("")
 	var ok bool
 	var key string
 	if vs, key, ok = tokenval(vs); !ok || key == "" {
-		return empty_response, errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	if len(vs) != 0 {
-		return empty_response, errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 
 	col := c.getCol(key)
@@ -67,7 +66,7 @@ func (c *Controller) cmdBounds(msg *server.Message) (resp.Value, error) {
 		if msg.OutputType == server.RESP {
 			return resp.NullValue(), nil
 		}
-		return empty_response, errKeyNotFound
+		return server.NOMessage, errKeyNotFound
 	}
 
 	vals := make([]resp.Value, 0, 2)
@@ -100,18 +99,17 @@ func (c *Controller) cmdBounds(msg *server.Message) (resp.Value, error) {
 	case server.RESP:
 		return vals[0], nil
 	}
-	return empty_response, nil
+	return server.NOMessage, nil
 }
 
 func (c *Controller) cmdType(msg *server.Message) (resp.Value, error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 
-	empty_response := resp.SimpleStringValue("")
 	var ok bool
 	var key string
 	if vs, key, ok = tokenval(vs); !ok || key == "" {
-		return empty_response, errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 
 	col := c.getCol(key)
@@ -119,7 +117,7 @@ func (c *Controller) cmdType(msg *server.Message) (resp.Value, error) {
 		if msg.OutputType == server.RESP {
 			return resp.SimpleStringValue("none"), nil
 		}
-		return empty_response, errKeyNotFound
+		return server.NOMessage, errKeyNotFound
 	}
 
 	typ := "hash"
@@ -130,21 +128,20 @@ func (c *Controller) cmdType(msg *server.Message) (resp.Value, error) {
 	case server.RESP:
 		return resp.SimpleStringValue(typ), nil
 	}
-	return empty_response, nil
+	return server.NOMessage, nil
 }
 
 func (c *Controller) cmdGet(msg *server.Message) (resp.Value, error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 
-	empty_response := resp.SimpleStringValue("")
 	var ok bool
 	var key, id, typ, sprecision string
 	if vs, key, ok = tokenval(vs); !ok || key == "" {
-		return empty_response, errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	if vs, id, ok = tokenval(vs); !ok || id == "" {
-		return empty_response, errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 
 	withfields := false
@@ -158,7 +155,7 @@ func (c *Controller) cmdGet(msg *server.Message) (resp.Value, error) {
 		if msg.OutputType == server.RESP {
 			return resp.NullValue(), nil
 		}
-		return empty_response, errKeyNotFound
+		return server.NOMessage, errKeyNotFound
 	}
 	o, fields, ok := col.Get(id)
 	ok = ok && !c.hasExpired(key, id)
@@ -166,7 +163,7 @@ func (c *Controller) cmdGet(msg *server.Message) (resp.Value, error) {
 		if msg.OutputType == server.RESP {
 			return resp.NullValue(), nil
 		}
-		return empty_response, errIDNotFound
+		return server.NOMessage, errIDNotFound
 	}
 
 	vals := make([]resp.Value, 0, 2)
@@ -181,7 +178,7 @@ func (c *Controller) cmdGet(msg *server.Message) (resp.Value, error) {
 	}
 	switch typ {
 	default:
-		return empty_response, errInvalidArgument(typ)
+		return server.NOMessage, errInvalidArgument(typ)
 	case "object":
 		if msg.OutputType == server.JSON {
 			buf.WriteString(`,"object":`)
@@ -210,18 +207,18 @@ func (c *Controller) cmdGet(msg *server.Message) (resp.Value, error) {
 		}
 	case "hash":
 		if vs, sprecision, ok = tokenval(vs); !ok || sprecision == "" {
-			return empty_response, errInvalidNumberOfArguments
+			return server.NOMessage, errInvalidNumberOfArguments
 		}
 		if msg.OutputType == server.JSON {
 			buf.WriteString(`,"hash":`)
 		}
 		precision, err := strconv.ParseInt(sprecision, 10, 64)
 		if err != nil || precision < 1 || precision > 64 {
-			return empty_response, errInvalidArgument(sprecision)
+			return server.NOMessage, errInvalidArgument(sprecision)
 		}
 		p, err := o.Geohash(int(precision))
 		if err != nil {
-			return empty_response, err
+			return server.NOMessage, err
 		}
 		if msg.OutputType == server.JSON {
 			buf.WriteString(`"` + p + `"`)
@@ -248,7 +245,7 @@ func (c *Controller) cmdGet(msg *server.Message) (resp.Value, error) {
 	}
 
 	if len(vs) != 0 {
-		return empty_response, errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	if withfields {
 		fvs := orderFields(col.FieldMap(), fields)
@@ -288,7 +285,7 @@ func (c *Controller) cmdGet(msg *server.Message) (resp.Value, error) {
 		}
 		return oval, nil
 	}
-	return empty_response, nil
+	return server.NOMessage, nil
 }
 
 func (c *Controller) cmdDel(msg *server.Message) (res resp.Value, d commandDetailsT, err error) {

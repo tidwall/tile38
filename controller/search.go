@@ -286,20 +286,19 @@ var withinOrIntersectsTypes = []string{"geo", "bounds", "hash", "tile", "quadkey
 func (c *Controller) cmdNearby(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
-	empty_response := resp.SimpleStringValue("")
 	wr := &bytes.Buffer{}
 	s, err := c.cmdSearchArgs("nearby", vs, nearbyTypes)
 	if err != nil {
-		return empty_response, err
+		return server.NOMessage, err
 	}
 	s.cmd = "nearby"
 	if s.fence {
-		return empty_response, s
+		return server.NOMessage, s
 	}
 	minZ, maxZ := zMinMaxFromWheres(s.wheres)
 	sw, err := c.newScanWriter(wr, msg, s.key, s.output, s.precision, s.glob, false, s.cursor, s.limit, s.wheres, s.whereins, s.nofields)
 	if err != nil {
-		return empty_response, err
+		return server.NOMessage, err
 	}
 	if msg.OutputType == server.JSON {
 		wr.WriteString(`{"ok":true`)
@@ -389,20 +388,19 @@ func (c *Controller) cmdIntersects(msg *server.Message) (res resp.Value, err err
 func (c *Controller) cmdWithinOrIntersects(cmd string, msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
-	empty_response := resp.SimpleStringValue("")
 
 	wr := &bytes.Buffer{}
 	s, err := c.cmdSearchArgs(cmd, vs, withinOrIntersectsTypes)
 	if err != nil {
-		return empty_response, err
+		return server.NOMessage, err
 	}
 	s.cmd = cmd
 	if s.fence {
-		return empty_response, s
+		return server.NOMessage, s
 	}
 	sw, err := c.newScanWriter(wr, msg, s.key, s.output, s.precision, s.glob, false, s.cursor, s.limit, s.wheres, s.whereins, s.nofields)
 	if err != nil {
-		return empty_response, err
+		return server.NOMessage, err
 	}
 	if msg.OutputType == server.JSON {
 		wr.WriteString(`{"ok":true`)
@@ -462,16 +460,15 @@ func cmdSeachValuesArgs(vs []resp.Value) (s liveFenceSwitches, err error) {
 func (c *Controller) cmdSearch(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
-	empty_response := resp.SimpleStringValue("")
 
 	wr := &bytes.Buffer{}
 	s, err := cmdSeachValuesArgs(vs)
 	if err != nil {
-		return empty_response, err
+		return server.NOMessage, err
 	}
 	sw, err := c.newScanWriter(wr, msg, s.key, s.output, s.precision, s.glob, true, s.cursor, s.limit, s.wheres, s.whereins, s.nofields)
 	if err != nil {
-		return empty_response, err
+		return server.NOMessage, err
 	}
 	if msg.OutputType == server.JSON {
 		wr.WriteString(`{"ok":true`)

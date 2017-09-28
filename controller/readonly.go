@@ -14,18 +14,18 @@ func (c *Controller) cmdReadOnly(msg *server.Message) (res resp.Value, err error
 	vs := msg.Values[1:]
 	var arg string
 	var ok bool
-	empty_response := resp.SimpleStringValue("")
+
 	if vs, arg, ok = tokenval(vs); !ok || arg == "" {
-		return empty_response, errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	if len(vs) != 0 {
-		return empty_response, errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	update := false
 	backup := c.config
 	switch strings.ToLower(arg) {
 	default:
-		return empty_response, errInvalidArgument(arg)
+		return server.NOMessage, errInvalidArgument(arg)
 	case "yes":
 		if !c.config.ReadOnly {
 			update = true
@@ -43,7 +43,7 @@ func (c *Controller) cmdReadOnly(msg *server.Message) (res resp.Value, err error
 		err := c.writeConfig(false)
 		if err != nil {
 			c.config = backup
-			return empty_response, err
+			return server.NOMessage, err
 		}
 	}
 	return server.OKMessage(msg, start), nil

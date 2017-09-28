@@ -61,17 +61,17 @@ func (arr byID) Swap(a, b int) {
 }
 func (c *Controller) cmdClient(msg *server.Message, conn *server.Conn) (resp.Value, error) {
 	start := time.Now()
-	empty_response := resp.SimpleStringValue("")
+
 	if len(msg.Values) == 1 {
-		return empty_response, errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	switch strings.ToLower(msg.Values[1].String()) {
 	default:
-		return empty_response, errors.New("Syntax error, try CLIENT " +
+		return server.NOMessage, errors.New("Syntax error, try CLIENT " +
 			"(LIST | KILL | GETNAME | SETNAME)")
 	case "list":
 		if len(msg.Values) != 2 {
-			return empty_response, errInvalidNumberOfArguments
+			return server.NOMessage, errInvalidNumberOfArguments
 		}
 		var list []*clientConn
 		for _, cc := range c.conns {
@@ -95,10 +95,10 @@ func (c *Controller) cmdClient(msg *server.Message, conn *server.Conn) (resp.Val
 		case server.RESP:
 			return resp.BytesValue(buf), nil
 		}
-		return empty_response, nil
+		return server.NOMessage, nil
 	case "getname":
 		if len(msg.Values) != 2 {
-			return empty_response, errInvalidNumberOfArguments
+			return server.NOMessage, errInvalidNumberOfArguments
 		}
 		name := ""
 		if cc, ok := c.conns[conn]; ok {
@@ -112,12 +112,12 @@ func (c *Controller) cmdClient(msg *server.Message, conn *server.Conn) (resp.Val
 		}
 	case "setname":
 		if len(msg.Values) != 3 {
-			return empty_response, errInvalidNumberOfArguments
+			return server.NOMessage, errInvalidNumberOfArguments
 		}
 		name := msg.Values[2].String()
 		for i := 0; i < len(name); i++ {
 			if name[i] < '!' || name[i] > '~' {
-				return empty_response, errors.New("Client names cannot contain spaces, newlines or special characters.")
+				return server.NOMessage, errors.New("Client names cannot contain spaces, newlines or special characters.")
 			}
 		}
 		if cc, ok := c.conns[conn]; ok {
@@ -131,7 +131,7 @@ func (c *Controller) cmdClient(msg *server.Message, conn *server.Conn) (resp.Val
 		}
 	case "kill":
 		if len(msg.Values) < 3 {
-			return empty_response, errInvalidNumberOfArguments
+			return server.NOMessage, errInvalidNumberOfArguments
 		}
 		var useAddr bool
 		var addr string
@@ -146,18 +146,18 @@ func (c *Controller) cmdClient(msg *server.Message, conn *server.Conn) (resp.Val
 			}
 			switch strings.ToLower(arg) {
 			default:
-				return empty_response, errors.New("No such client")
+				return server.NOMessage, errors.New("No such client")
 			case "addr":
 				i++
 				if i == len(msg.Values) {
-					return empty_response, errors.New("syntax error")
+					return server.NOMessage, errors.New("syntax error")
 				}
 				addr = msg.Values[i].String()
 				useAddr = true
 			case "id":
 				i++
 				if i == len(msg.Values) {
-					return empty_response, errors.New("syntax error")
+					return server.NOMessage, errors.New("syntax error")
 				}
 				id = msg.Values[i].String()
 				useID = true
@@ -174,7 +174,7 @@ func (c *Controller) cmdClient(msg *server.Message, conn *server.Conn) (resp.Val
 			}
 		}
 		if cclose == nil {
-			return empty_response, errors.New("No such client")
+			return server.NOMessage, errors.New("No such client")
 		}
 
 		var res resp.Value
@@ -200,7 +200,7 @@ func (c *Controller) cmdClient(msg *server.Message, conn *server.Conn) (resp.Val
 		cclose.conn.Close()
 		return res, nil
 	}
-	return empty_response, errors.New("invalid output type")
+	return server.NOMessage, errors.New("invalid output type")
 }
 
 /*

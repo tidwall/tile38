@@ -294,27 +294,27 @@ func (c *Controller) cmdAOFMD5(msg *server.Message) (res resp.Value, err error) 
 	vs := msg.Values[1:]
 	var ok bool
 	var spos, ssize string
-	empty_response := resp.SimpleStringValue("")
+
 	if vs, spos, ok = tokenval(vs); !ok || spos == "" {
-		return empty_response, errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	if vs, ssize, ok = tokenval(vs); !ok || ssize == "" {
-		return empty_response, errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	if len(vs) != 0 {
-		return empty_response, errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	pos, err := strconv.ParseInt(spos, 10, 64)
 	if err != nil || pos < 0 {
-		return empty_response, errInvalidArgument(spos)
+		return server.NOMessage, errInvalidArgument(spos)
 	}
 	size, err := strconv.ParseInt(ssize, 10, 64)
 	if err != nil || size < 0 {
-		return empty_response, errInvalidArgument(ssize)
+		return server.NOMessage, errInvalidArgument(ssize)
 	}
 	sum, err := c.checksum(pos, size)
 	if err != nil {
-		return empty_response, err
+		return server.NOMessage, err
 	}
 	switch msg.OutputType {
 	case server.JSON:
@@ -328,34 +328,34 @@ func (c *Controller) cmdAOFMD5(msg *server.Message) (res resp.Value, err error) 
 
 func (c *Controller) cmdAOF(msg *server.Message) (res resp.Value, err error) {
 	vs := msg.Values[1:]
-	empty_response := resp.SimpleStringValue("")
+
 	var ok bool
 	var spos string
 	if vs, spos, ok = tokenval(vs); !ok || spos == "" {
-		return empty_response, errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	if len(vs) != 0 {
-		return empty_response, errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	pos, err := strconv.ParseInt(spos, 10, 64)
 	if err != nil || pos < 0 {
-		return empty_response, errInvalidArgument(spos)
+		return server.NOMessage, errInvalidArgument(spos)
 	}
 	f, err := os.Open(c.f.Name())
 	if err != nil {
-		return empty_response, err
+		return server.NOMessage, err
 	}
 	defer f.Close()
 	n, err := f.Seek(0, 2)
 	if err != nil {
-		return empty_response, err
+		return server.NOMessage, err
 	}
 	if n < pos {
-		return empty_response, errors.New("pos is too big, must be less that the aof_size of leader")
+		return server.NOMessage, errors.New("pos is too big, must be less that the aof_size of leader")
 	}
 	var s liveAOFSwitches
 	s.pos = pos
-	return empty_response, s
+	return server.NOMessage, s
 }
 
 func (c *Controller) liveAOF(pos int64, conn net.Conn, rd *server.AnyReaderWriter, msg *server.Message) error {

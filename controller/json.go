@@ -44,12 +44,12 @@ func jsonString(s string) string {
 
 func (c *Controller) cmdJget(msg *server.Message) (resp.Value, error) {
 	start := time.Now()
-	empty_response := resp.SimpleStringValue("")
+
 	if len(msg.Values) < 3 {
-		return empty_response, errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	if len(msg.Values) > 5 {
-		return empty_response, errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	key := msg.Values[1].String()
 	id := msg.Values[2].String()
@@ -63,7 +63,7 @@ func (c *Controller) cmdJget(msg *server.Message) (resp.Value, error) {
 			if strings.ToLower(msg.Values[4].String()) == "raw" {
 				raw = true
 			} else {
-				return empty_response, errInvalidArgument(msg.Values[4].String())
+				return server.NOMessage, errInvalidArgument(msg.Values[4].String())
 			}
 		}
 	}
@@ -72,14 +72,14 @@ func (c *Controller) cmdJget(msg *server.Message) (resp.Value, error) {
 		if msg.OutputType == server.RESP {
 			return resp.NullValue(), nil
 		}
-		return empty_response, errKeyNotFound
+		return server.NOMessage, errKeyNotFound
 	}
 	o, _, ok := col.Get(id)
 	if !ok {
 		if msg.OutputType == server.RESP {
 			return resp.NullValue(), nil
 		}
-		return empty_response, errIDNotFound
+		return server.NOMessage, errIDNotFound
 	}
 	var res gjson.Result
 	if doget {
@@ -110,22 +110,22 @@ func (c *Controller) cmdJget(msg *server.Message) (resp.Value, error) {
 		}
 		return resp.StringValue(val), nil
 	}
-	return empty_response, nil
+	return server.NOMessage, nil
 }
 
 func (c *Controller) cmdJset(msg *server.Message) (res resp.Value, d commandDetailsT, err error) {
 	// JSET key path value [RAW]
 	start := time.Now()
-	empty_response := resp.SimpleStringValue("")
+
 	var raw, str bool
 	switch len(msg.Values) {
 	default:
-		return empty_response, d, errInvalidNumberOfArguments
+		return server.NOMessage, d, errInvalidNumberOfArguments
 	case 5:
 	case 6:
 		switch strings.ToLower(msg.Values[5].String()) {
 		default:
-			return empty_response, d, errInvalidArgument(msg.Values[5].String())
+			return server.NOMessage, d, errInvalidArgument(msg.Values[5].String())
 		case "raw":
 			raw = true
 		case "str":
@@ -174,7 +174,7 @@ func (c *Controller) cmdJset(msg *server.Message) (res resp.Value, d commandDeta
 		json, err = sjson.Set(json, path, val)
 	}
 	if err != nil {
-		return empty_response, d, err
+		return server.NOMessage, d, err
 	}
 
 	if geoobj {
@@ -210,14 +210,14 @@ func (c *Controller) cmdJset(msg *server.Message) (res resp.Value, d commandDeta
 	case server.RESP:
 		return resp.SimpleStringValue("OK"), d, nil
 	}
-	return empty_response, d, nil
+	return server.NOMessage, d, nil
 }
 
 func (c *Controller) cmdJdel(msg *server.Message) (res resp.Value, d commandDetailsT, err error) {
 	start := time.Now()
-	empty_response := resp.SimpleStringValue("")
+
 	if len(msg.Values) != 4 {
-		return empty_response, d, errInvalidNumberOfArguments
+		return server.NOMessage, d, errInvalidNumberOfArguments
 	}
 	key := msg.Values[1].String()
 	id := msg.Values[2].String()
@@ -228,7 +228,7 @@ func (c *Controller) cmdJdel(msg *server.Message) (res resp.Value, d commandDeta
 		if msg.OutputType == server.RESP {
 			return resp.IntegerValue(0), d, nil
 		}
-		return empty_response, d, errKeyNotFound
+		return server.NOMessage, d, errKeyNotFound
 	}
 
 	var json string
@@ -242,16 +242,16 @@ func (c *Controller) cmdJdel(msg *server.Message) (res resp.Value, d commandDeta
 	}
 	njson, err := sjson.Delete(json, path)
 	if err != nil {
-		return empty_response, d, err
+		return server.NOMessage, d, err
 	}
 	if njson == json {
 		switch msg.OutputType {
 		case server.JSON:
-			return empty_response, d, errPathNotFound
+			return server.NOMessage, d, errPathNotFound
 		case server.RESP:
 			return resp.IntegerValue(0), d, nil
 		}
-		return empty_response, d, nil
+		return server.NOMessage, d, nil
 	}
 	json = njson
 	if geoobj {
@@ -284,5 +284,5 @@ func (c *Controller) cmdJdel(msg *server.Message) (res resp.Value, d commandDeta
 	case server.RESP:
 		return resp.IntegerValue(1), d, nil
 	}
-	return empty_response, d, nil
+	return server.NOMessage, d, nil
 }

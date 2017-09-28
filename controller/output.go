@@ -13,16 +13,16 @@ func (c *Controller) cmdOutput(msg *server.Message) (res resp.Value, err error) 
 	vs := msg.Values[1:]
 	var arg string
 	var ok bool
-	empty_response := resp.SimpleStringValue("")
+
 	if len(vs) != 0 {
 		if _, arg, ok = tokenval(vs); !ok || arg == "" {
-			return empty_response, errInvalidNumberOfArguments
+			return server.NOMessage, errInvalidNumberOfArguments
 		}
 		// Setting the original message output type will be picked up by the
 		// server prior to the next command being executed.
 		switch strings.ToLower(arg) {
 		default:
-			return empty_response, errInvalidArgument(arg)
+			return server.NOMessage, errInvalidArgument(arg)
 		case "json":
 			msg.OutputType = server.JSON
 		case "resp":
@@ -33,7 +33,7 @@ func (c *Controller) cmdOutput(msg *server.Message) (res resp.Value, err error) 
 	// return the output
 	switch msg.OutputType {
 	default:
-		return empty_response, nil
+		return server.NOMessage, nil
 	case server.JSON:
 		return resp.StringValue(`{"ok":true,"output":"json","elapsed":` + time.Now().Sub(start).String() + `}`), nil
 	case server.RESP:

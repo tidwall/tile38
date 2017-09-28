@@ -126,32 +126,10 @@ func ConvertToJson(val lua.LValue) string {
 	return "Unsupported lua type: " + val.Type().String()
 }
 
-func (c* Controller) initLua (L *lua.LState) {
-	Tile38Call := func(ls *lua.LState) int {
-		// Trying to work with unknown number of args.  When we see empty arg we call it enough.
-		var args []string
-		for i := 1; ; i++ {
-			if arg := ls.ToString(i); arg == "" {
-				break
-			} else {
-				args = append(args, arg)
-			}
-		}
-		log.Debugf("ARGS %s\n", args)
-		if res, err := c.handleCommandInScript(args[0], args[1:]...); err != nil {
-			log.Debugf("RES type: %s value: %s ERR %s\n", res.Type(), res.String(), err);
-			ls.RaiseError("ERR %s", err.Error())
-			return 0
-		} else {
-			log.Debugf("RES type: %s value: %s\n", res.Type(), res.String(), err);
-			ls.Push(ConvertToLua(ls, res))
-			return 1
-		}
-	}
-	var exports = map[string]lua.LGFunction {
-		"call": Tile38Call,
-	}
-	L.SetGlobal("tile38", L.SetFuncs(L.NewTable(), exports))
+func luaStateCleanup(ls *lua.LState) {
+	ls.SetGlobal("KEYS", lua.LNil)
+	ls.SetGlobal("ARGS", lua.LNil)
+	ls.Pop(1)
 }
 
 // TODO: Refactor common bits from all these functions
@@ -159,15 +137,14 @@ func (c* Controller) cmdEval(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 
-	empty_response := resp.SimpleStringValue("")
 	var ok bool
 	var script, numkeys_str, key, arg string
 	if vs, script, ok = tokenval(vs); !ok || script == "" {
-		return empty_response, errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 
 	if vs, numkeys_str, ok = tokenval(vs); !ok || numkeys_str == "" {
-		return empty_response, errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 
 	var i, numkeys uint64
@@ -176,8 +153,8 @@ func (c* Controller) cmdEval(msg *server.Message) (res resp.Value, err error) {
 		return
 	}
 
-	luaState := c.GetLuaState()
-	defer c.PutLuaState(luaState)
+	luaState := c.luapool.Get()
+	defer c.luapool.Put(luaState)
 
 	keys_tbl := luaState.CreateTable(int(numkeys), 0)
 	for i = 0; i < numkeys; i++ {
@@ -217,17 +194,18 @@ func (c* Controller) cmdEval(msg *server.Message) (res resp.Value, err error) {
 	} else {
 		fn, err = luaState.Load(strings.NewReader(script), "f_" + sha_sum)
 		if err != nil {
-			return empty_response, err
+			return server.NOMessage, err
 		}
 		c.luascripts[sha_sum] = fn.Proto
 		log.Debugf("STORED %s\n", sha_sum)
 	}
 	luaState.Push(fn)
+	defer luaStateCleanup(luaState)
+
 	if err := luaState.PCall(0, 1, nil); err != nil {
-		return empty_response, err
+		return server.NOMessage, err
 	}
 	ret := luaState.Get(-1) // returned value
-	luaState.Pop(1)  // remove received value
 
 	log.Debugf("RET type %s, val %s\n", ret.Type(), ret.String())
 
@@ -241,22 +219,21 @@ func (c* Controller) cmdEval(msg *server.Message) (res resp.Value, err error) {
 	case server.RESP:
 		return ConvertToResp(ret), nil
 	}
-	return empty_response, nil
+	return server.NOMessage, nil
 }
 
 func (c* Controller) cmdEvalSha(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 
-	empty_response := resp.SimpleStringValue("")
 	var ok bool
 	var sha_sum, numkeys_str, key, arg string
 	if vs, sha_sum, ok = tokenval(vs); !ok || sha_sum == "" {
-		return empty_response, errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 
 	if vs, numkeys_str, ok = tokenval(vs); !ok || numkeys_str == "" {
-		return empty_response, errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 
 	var i, numkeys uint64
@@ -265,8 +242,8 @@ func (c* Controller) cmdEvalSha(msg *server.Message) (res resp.Value, err error)
 		return
 	}
 
-	luaState := c.GetLuaState()
-	defer c.PutLuaState(luaState)
+	luaState := c.luapool.Get()
+	defer c.luapool.Put(luaState)
 
 	keys_tbl := luaState.CreateTable(int(numkeys), 0)
 	for i = 0; i < numkeys; i++ {
@@ -304,11 +281,12 @@ func (c* Controller) cmdEvalSha(msg *server.Message) (res resp.Value, err error)
 	}
 	log.Debugf("RETRIEVED %s\n", sha_sum)
 	luaState.Push(fn)
+	defer luaStateCleanup(luaState)
+
 	if err := luaState.PCall(0, 1, nil); err != nil {
-		return empty_response, err
+		return server.NOMessage, err
 	}
 	ret := luaState.Get(-1) // returned value
-	luaState.Pop(1)  // remove received value
 
 	log.Debugf("RET type %s, val %s\n", ret.Type(), ret.String())
 
@@ -322,29 +300,28 @@ func (c* Controller) cmdEvalSha(msg *server.Message) (res resp.Value, err error)
 	case server.RESP:
 		return ConvertToResp(ret), nil
 	}
-	return empty_response, nil
+	return server.NOMessage, nil
 }
 
 func (c* Controller) cmdScriptLoad(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 
-	empty_response := resp.SimpleStringValue("")
 	var ok bool
 	var script string
 	if vs, script, ok = tokenval(vs); !ok || script == "" {
-		return empty_response, errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 
 	log.Debugf("SCRIPT source:\n%s\n\n", script)
 	sha_sum := fmt.Sprintf("%x", sha1.Sum([]byte(script)))
 
-	luaState := c.GetLuaState()
-	defer c.PutLuaState(luaState)
+	luaState := c.luapool.Get()
+	defer c.luapool.Put(luaState)
 
 	fn, err := luaState.Load(strings.NewReader(script), "f_" + sha_sum)
 	if err != nil {
-		return empty_response, err
+		return server.NOMessage, err
 	}
 	c.luascripts[sha_sum] = fn.Proto
 	log.Debugf("STORED %s\n", sha_sum)
@@ -359,7 +336,7 @@ func (c* Controller) cmdScriptLoad(msg *server.Message) (res resp.Value, err err
 	case server.RESP:
 		return resp.StringValue(sha_sum), nil
 	}
-	return empty_response, nil
+	return server.NOMessage, nil
 }
 
 func (c* Controller) cmdScriptExists(msg *server.Message) (res resp.Value, err error) {

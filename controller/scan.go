@@ -25,15 +25,14 @@ func (c *Controller) cmdScan(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 
-	empty_response := resp.SimpleStringValue("")
 	s, err := cmdScanArgs(vs)
 	if err != nil {
-		return empty_response, err
+		return server.NOMessage, err
 	}
 	wr := &bytes.Buffer{}
 	sw, err := c.newScanWriter(wr, msg, s.key, s.output, s.precision, s.glob, false, s.cursor, s.limit, s.wheres, s.whereins, s.nofields)
 	if err != nil {
-		return empty_response, err
+		return server.NOMessage, err
 	}
 	if msg.OutputType == server.JSON {
 		wr.WriteString(`{"ok":true`)

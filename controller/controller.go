@@ -98,7 +98,7 @@ type Controller struct {
 	http      bool
 
 	luascripts map[string]*lua.FunctionProto
-	luastate   *lua.LState
+	luapool   *lStatePool
 
 	epc *endpoint.EndpointManager
 
@@ -139,11 +139,10 @@ func ListenAndServeEx(host string, port int, dir string, ln *net.Listener, http 
 		epc:      endpoint.NewEndpointManager(),
 		http:     http,
 		luascripts: make(map[string]*lua.FunctionProto),
-		luastate: lua.NewState(),
 	}
 
-	// Set things up in a new Lua state
-	c.initLua(c.luastate)
+	c.luapool = c.InitPool()
+	defer c.luapool.Shutdown()
 
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
@@ -209,7 +208,6 @@ func ListenAndServeEx(host string, port int, dir string, ln *net.Listener, http 
 		c.stopWatchingAutoGC = true
 		c.mu.Unlock()
 	}()
-	defer c.luastate.Close()
 	handler := func(conn *server.Conn, msg *server.Message, rd *server.AnyReaderWriter, w io.Writer, websocket bool) error {
 		c.mu.Lock()
 		if cc, ok := c.conns[conn]; ok {
@@ -267,16 +265,6 @@ func ListenAndServeEx(host string, port int, dir string, ln *net.Listener, http 
 		c.mu.Unlock()
 	}
 	return server.ListenAndServe(host, port, protected, handler, opened, closed, ln, http)
-}
-
-// Get lua state from to the pool
-func (c *Controller) GetLuaState() *lua.LState {
-	// TODO: do the pool
-	return c.luastate
-}
-// Return lua state back to the pool
-func (c *Controller) PutLuaState(L *lua.LState) {
-	// TODO: do the pool
 }
 
 func (c *Controller) watchGC() {

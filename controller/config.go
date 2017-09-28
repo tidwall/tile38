@@ -273,19 +273,19 @@ func (c *Controller) cmdConfigGet(msg *server.Message) (res resp.Value, err erro
 	vs := msg.Values[1:]
 	var ok bool
 	var name string
-	empty_response := resp.SimpleStringValue("")
+
 	if vs, name, ok = tokenval(vs); !ok {
-		return empty_response, errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	if len(vs) != 0 {
-		return empty_response, errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	m := c.getConfigProperties(name)
 	switch msg.OutputType {
 	case server.JSON:
 		data, err := json.Marshal(m)
 		if err != nil {
-			return empty_response, err
+			return server.NOMessage, err
 		}
 		res = resp.StringValue(`{"ok":true,"properties":` + string(data) + `,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
 	case server.RESP:
@@ -299,33 +299,33 @@ func (c *Controller) cmdConfigSet(msg *server.Message) (res resp.Value, err erro
 	vs := msg.Values[1:]
 	var ok bool
 	var name string
-	empty_response := resp.SimpleStringValue("")
+
 	if vs, name, ok = tokenval(vs); !ok {
-		return empty_response, errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	var value string
 	if vs, value, ok = tokenval(vs); !ok {
 		if strings.ToLower(name) != RequirePass {
-			return empty_response, errInvalidNumberOfArguments
+			return server.NOMessage, errInvalidNumberOfArguments
 		}
 	}
 	if len(vs) != 0 {
-		return empty_response, errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	if err := c.setConfigProperty(name, value, false); err != nil {
-		return empty_response, err
+		return server.NOMessage, err
 	}
 	return server.OKMessage(msg, start), nil
 }
 func (c *Controller) cmdConfigRewrite(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
-	empty_response := resp.SimpleStringValue("")
+
 	if len(vs) != 0 {
-		return empty_response, errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	if err := c.writeConfig(true); err != nil {
-		return empty_response, err
+		return server.NOMessage, err
 	}
 	return server.OKMessage(msg, start), nil
 }

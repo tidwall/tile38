@@ -204,4 +204,4 @@ func OKMessage(msg *Message, start time.Time) resp.Value {
 	return resp.SimpleStringValue("")
 }
 
-var empty_response = resp.SimpleStringValue("")
+var NOMessage = resp.SimpleStringValue("")

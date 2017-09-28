@@ -141,6 +141,31 @@ func ListenAndServeEx(host string, port int, dir string, ln *net.Listener, http 
 		luascripts: make(map[string]*lua.FunctionProto),
 		luastate: lua.NewState(),
 	}
+
+	Tile38 := func(L *lua.LState) int {
+		// Trying to work with unknown number of args.  When we see empty arg we call it enough.
+		var args []string
+		for i := 1; ; i++ {
+			if arg := L.ToString(i); arg == "" {
+				break
+			} else {
+				args = append(args, arg)
+			}
+		}
+		log.Debugf("ARGS %s\n", args)
+		res, err := c.handleCommandInScript(args[0], args[1:]...)
+		log.Debugf("RES %s/%s ERR %s/%s\n", res.Type(), res.String(), err.Type(), err.String())
+		var ret resp.Value
+		if err.IsNull() {
+			ret = res
+		} else {
+			ret = err
+		}
+		L.Push(ConvertToLua(L, ret))
+		return 1
+	}
+	c.luastate.SetGlobal("tile38", c.luastate.NewFunction(Tile38))
+
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}

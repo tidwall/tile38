@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tidwall/tile38/controller/server"
+	"github.com/tidwall/tile38/controller/log"
 	"github.com/tidwall/resp"
 	"github.com/yuin/gopher-lua"
 )
@@ -18,7 +19,32 @@ import (
 var errLuaCompileFailure = errors.New("LUA script compilation error")
 var errLuaRunFailure = errors.New("LUA script runtime error")
 var errShaNotFound = errors.New("SHA not found")
+var errCmdNotSupported = errors.New("Command not support in scripts")
+var errNotLeader = errors.New("not the leader")
+var errReadOnly = errors.New("read only")
+var errCatchingUp = errors.New("catching up to leader")
 
+
+func ConvertToLua(L *lua.LState, val resp.Value) lua.LValue {
+	if val.IsNull() {
+		return lua.LNil
+	}
+	switch val.Type() {
+	case resp.Integer:
+		return lua.LNumber(val.Integer())
+	case resp.SimpleString, resp.BulkString:
+		return lua.LString(val.String())
+	case resp.Error:
+		return lua.LString("ERR: " + val.String())
+	case resp.Array:
+		tbl := L.CreateTable(len(val.Array()), 0)
+		for _, item := range val.Array() {
+			tbl.Append(ConvertToLua(L, item))
+		}
+		return tbl
+	}
+	return lua.LNil
+}
 
 func ConvertTableToResp(tbl *lua.LTable) resp.Value {
 	var values []resp.Value
@@ -142,7 +168,6 @@ func (c* Controller) cmdEval(msg *server.Message) (res resp.Value, err error) {
 		args_tbl.Append(lua.LString(arg))
 	}
 
-	fmt.Printf("SCRIPT source:\n%s\n\n", script)
 	sha_sum := fmt.Sprintf("%x", sha1.Sum([]byte(script)))
 
 	c.luastate.SetGlobal("KEYS", keys_tbl)
@@ -159,14 +184,14 @@ func (c* Controller) cmdEval(msg *server.Message) (res resp.Value, err error) {
 			GFunction: nil,
 			Upvalues:  make([]*lua.Upvalue, 0),
 		}
-		fmt.Printf("RETRIEVED %s\n", sha_sum)
+		log.Debugf("RETRIEVED %s\n", sha_sum)
 	} else {
-		fn, err = c.luastate.Load(strings.NewReader(script), sha_sum)
+		fn, err = c.luastate.Load(strings.NewReader(script), "f_" + sha_sum)
 		if err != nil {
 			return empty_response, errLuaCompileFailure
 		}
 		c.luascripts[sha_sum] = fn.Proto
-		fmt.Printf("STORED %s\n", sha_sum)
+		log.Debugf("STORED %s\n", sha_sum)
 	}
 	c.luastate.Push(fn)
 	if err := c.luastate.PCall(0, 1, nil); err != nil {
@@ -175,7 +200,7 @@ func (c* Controller) cmdEval(msg *server.Message) (res resp.Value, err error) {
 	ret := c.luastate.Get(-1) // returned value
 	c.luastate.Pop(1)  // remove received value
 
-	fmt.Printf("RET type %s, val %s\n", ret.Type(), ret.String())
+	log.Debugf("RET type %s, val %s\n", ret.Type(), ret.String())
 
 	switch msg.OutputType {
 	case server.JSON:
@@ -245,7 +270,7 @@ func (c* Controller) cmdEvalSha(msg *server.Message) (res resp.Value, err error)
 		GFunction: nil,
 		Upvalues:  make([]*lua.Upvalue, 0),
 	}
-	fmt.Printf("RETRIEVED %s\n", sha_sum)
+	log.Debugf("RETRIEVED %s\n", sha_sum)
 	c.luastate.Push(fn)
 	if err := c.luastate.PCall(0, 1, nil); err != nil {
 		return empty_response, errLuaRunFailure
@@ -253,7 +278,7 @@ func (c* Controller) cmdEvalSha(msg *server.Message) (res resp.Value, err error)
 	ret := c.luastate.Get(-1) // returned value
 	c.luastate.Pop(1)  // remove received value
 
-	fmt.Printf("RET type %s, val %s\n", ret.Type(), ret.String())
+	log.Debugf("RET type %s, val %s\n", ret.Type(), ret.String())
 
 	switch msg.OutputType {
 	case server.JSON:
@@ -279,7 +304,7 @@ func (c* Controller) cmdScriptLoad(msg *server.Message) (res resp.Value, err err
 		return empty_response, errInvalidNumberOfArguments
 	}
 
-	fmt.Printf("SCRIPT source:\n%s\n\n", script)
+	log.Debugf("SCRIPT source:\n%s\n\n", script)
 	sha_sum := fmt.Sprintf("%x", sha1.Sum([]byte(script)))
 
 	fn, err := c.luastate.Load(strings.NewReader(script), sha_sum)
@@ -287,7 +312,7 @@ func (c* Controller) cmdScriptLoad(msg *server.Message) (res resp.Value, err err
 		return empty_response, errLuaCompileFailure
 	}
 	c.luascripts[sha_sum] = fn.Proto
-	fmt.Printf("STORED %s\n", sha_sum)
+	log.Debugf("STORED %s\n", sha_sum)
 
 	switch msg.OutputType {
 	case server.JSON:
@@ -359,4 +384,113 @@ func (c* Controller) cmdScriptFlush(msg *server.Message) (res resp.Value, err er
 		return resp.StringValue("OK"), nil
 	}
 	return resp.SimpleStringValue(""), nil
+}
+
+func (c *Controller) commandInScript(msg *server.Message) (
+	res resp.Value, d commandDetailsT, err error,
+) {
+	switch msg.Command {
+	default:
+		err = fmt.Errorf("unknown command '%s'", msg.Values[0])
+	case "set":
+		res, d, err = c.cmdSet(msg)
+	case "fset":
+		res, d, err = c.cmdFset(msg)
+	case "del":
+		res, d, err = c.cmdDel(msg)
+	case "pdel":
+		res, d, err = c.cmdPdel(msg)
+	case "drop":
+		res, d, err = c.cmdDrop(msg)
+	case "expire":
+		res, d, err = c.cmdExpire(msg)
+	case "persist":
+		res, d, err = c.cmdPersist(msg)
+	case "ttl":
+		res, err = c.cmdTTL(msg)
+	case "stats":
+		res, err = c.cmdStats(msg)
+	case "scan":
+		res, err = c.cmdScan(msg)
+	case "nearby":
+		res, err = c.cmdNearby(msg)
+	case "within":
+		res, err = c.cmdWithin(msg)
+	case "intersects":
+		res, err = c.cmdIntersects(msg)
+	case "search":
+		res, err = c.cmdSearch(msg)
+	case "bounds":
+		res, err = c.cmdBounds(msg)
+	case "get":
+		res, err = c.cmdGet(msg)
+	case "jget":
+		res, err = c.cmdJget(msg)
+	case "jset":
+		res, d, err = c.cmdJset(msg)
+	case "jdel":
+		res, d, err = c.cmdJdel(msg)
+	case "type":
+		res, err = c.cmdType(msg)
+	case "keys":
+		res, err = c.cmdKeys(msg)
+	}
+	return
+}
+
+func (c *Controller) handleCommandInScript(cmd string, args ...string) (result resp.Value, errval resp.Value) {
+	msg := &server.Message{}
+	msg.OutputType = server.RESP
+	msg.Command = strings.ToLower(cmd)
+	msg.Values = append(msg.Values, resp.StringValue(msg.Command))
+	for _, arg := range args {
+		msg.Values = append(msg.Values, resp.StringValue(arg))
+	}
+
+	var write bool
+
+	// choose the locking strategy
+	switch msg.Command {
+	default:
+		c.mu.RLock()
+		defer c.mu.RUnlock()
+	case "ping", "echo", "auth", "massinsert", "shutdown", "gc",
+		"sethook", "pdelhook", "delhook",
+		"follow", "readonly", "config", "output", "client",
+		"aofshrink",
+		"eval", "evalsha", "script load", "script exists", "script flush":
+		return resp.NullValue(), resp.ErrorValue(errCmdNotSupported)
+	case "set", "del", "drop", "fset", "flushdb", "expire", "persist", "jset", "pdel":
+		// write operations
+		write = true
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if c.config.FollowHost != "" {
+			return resp.NullValue(), resp.ErrorValue(errNotLeader)
+		}
+		if c.config.ReadOnly {
+			return resp.NullValue(), resp.ErrorValue(errReadOnly)
+		}
+	case "get", "keys", "scan", "nearby", "within", "intersects", "hooks", "search",
+		"ttl", "bounds", "server", "info", "type", "jget":
+		// read operations
+		c.mu.RLock()
+		defer c.mu.RUnlock()
+		if c.config.FollowHost != "" && !c.fcuponce {
+			return resp.NullValue(), resp.ErrorValue(errCatchingUp)
+		}
+	}
+
+	res, d, err := c.commandInScript(msg)
+	if err != nil {
+		return resp.NullValue(), resp.ErrorValue(err)
+	}
+
+	if write {
+		if err := c.writeAOF(resp.ArrayValue(msg.Values), &d); err != nil {
+			return resp.NullValue(), resp.ErrorValue(err)
+		}
+	}
+
+	return res, resp.NullValue()
 }

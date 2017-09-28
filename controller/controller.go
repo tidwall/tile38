@@ -269,6 +269,16 @@ func ListenAndServeEx(host string, port int, dir string, ln *net.Listener, http 
 	return server.ListenAndServe(host, port, protected, handler, opened, closed, ln, http)
 }
 
+// Get lua state from to the pool
+func (c *Controller) GetLuaState() *lua.LState {
+	// TODO: do the pool
+	return c.luastate
+}
+// Return lua state back to the pool
+func (c *Controller) PutLuaState(L *lua.LState) {
+	// TODO: do the pool
+}
+
 func (c *Controller) watchGC() {
 	t := time.NewTicker(time.Second)
 	defer t.Stop()

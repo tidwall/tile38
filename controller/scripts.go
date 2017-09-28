@@ -129,6 +129,34 @@ func ConvertToJson(val lua.LValue) string {
 	return "ERROR"
 }
 
+func (c* Controller) initLua (L *lua.LState) {
+	Tile38Call := func(ls *lua.LState) int {
+		// Trying to work with unknown number of args.  When we see empty arg we call it enough.
+		var args []string
+		for i := 1; ; i++ {
+			if arg := ls.ToString(i); arg == "" {
+				break
+			} else {
+				args = append(args, arg)
+			}
+		}
+		log.Debugf("ARGS %s\n", args)
+		if res, err := c.handleCommandInScript(args[0], args[1:]...); err != nil {
+			log.Debugf("RES type: %s value: %s ERR %s\n", res.Type(), res.String(), err);
+			ls.RaiseError("ERR %s", err.Error())
+			return 0
+		} else {
+			log.Debugf("RES type: %s value: %s\n", res.Type(), res.String(), err);
+			ls.Push(ConvertToLua(ls, res))
+			return 1
+		}
+	}
+	var exports = map[string]lua.LGFunction {
+		"call": Tile38Call,
+	}
+	L.SetGlobal("tile38", L.SetFuncs(L.NewTable(), exports))
+
+}
 
 // TODO: Refactor common bits from all these functions
 func (c* Controller) cmdEval(msg *server.Message) (res resp.Value, err error) {

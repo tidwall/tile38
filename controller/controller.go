@@ -143,31 +143,7 @@ func ListenAndServeEx(host string, port int, dir string, ln *net.Listener, http 
 	}
 
 	// Set things up in a new Lua state
-	Tile38Call := func(L *lua.LState) int {
-		// Trying to work with unknown number of args.  When we see empty arg we call it enough.
-		var args []string
-		for i := 1; ; i++ {
-			if arg := L.ToString(i); arg == "" {
-				break
-			} else {
-				args = append(args, arg)
-			}
-		}
-		log.Debugf("ARGS %s\n", args)
-		if res, err := c.handleCommandInScript(args[0], args[1:]...); err != nil {
-			log.Debugf("RES %s/%s ERR %s\n", res.Type(), res.String(), err);
-			L.RaiseError("ERR %s", err.Error())
-			return 0
-		} else {
-			log.Debugf("RES %s/%s ERR %s\n", res.Type(), res.String(), err);
-			L.Push(ConvertToLua(L, res))
-			return 1
-		}
-	}
-	var exports = map[string]lua.LGFunction {
-		"call": Tile38Call,
-	}
-	c.luastate.SetGlobal("tile38", c.luastate.SetFuncs(c.luastate.NewTable(), exports))
+	c.initLua(c.luastate)
 
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
@@ -567,6 +543,8 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 	case "client":
 		c.mu.Lock()
 		defer c.mu.Unlock()
+	case "eval", "evalsha":
+		// No locking for scripts, otherwise writes cannot happen within scripts
 	}
 
 	res, d, err := c.command(msg, w, conn)

@@ -54,6 +54,9 @@ func (pl *lStatePool) New() *lua.LState {
 	L := lua.NewState()
 
 	Tile38Call := func(ls *lua.LState) int {
+		evalCmd := ls.GetGlobal("EVAL_CMD").String()
+		log.Debugf("EVAL_CMD %s\n", evalCmd)
+
 		// Trying to work with unknown number of args.  When we see empty arg we call it enough.
 		var args []string
 		for i := 1; ; i++ {
@@ -64,7 +67,7 @@ func (pl *lStatePool) New() *lua.LState {
 			}
 		}
 		log.Debugf("ARGS %s\n", args)
-		if res, err := pl.c.handleCommandInScript(args[0], args[1:]...); err != nil {
+		if res, err := pl.c.luaTile38Call(evalCmd, args[0], args[1:]...); err != nil {
 			log.Debugf("RES type: %s value: %s ERR %s\n", res.Type(), res.String(), err);
 			ls.RaiseError("ERR %s", err.Error())
 			return 0

@@ -130,7 +130,7 @@ func ConvertToJson(val lua.LValue) string {
 func luaStateCleanup(ls *lua.LState) {
 	ls.SetGlobal("KEYS", lua.LNil)
 	ls.SetGlobal("ARGS", lua.LNil)
-	ls.Pop(1)
+	ls.SetGlobal("EVAL_CMD", lua.LNil)
 }
 
 // TODO: Refactor common bits from all these functions
@@ -171,7 +171,7 @@ func (c* Controller) cmdEval(msg *server.Message) (res resp.Value, err error) {
 
 	args_tbl := luaState.CreateTable(len(vs), 0)
 	for len(vs) > 0 {
-		if vs, arg, ok = tokenval(vs); !ok || key == "" {
+		if vs, arg, ok = tokenval(vs); !ok || arg == "" {
 			err = errInvalidNumberOfArguments
 			return
 		}
@@ -182,6 +182,7 @@ func (c* Controller) cmdEval(msg *server.Message) (res resp.Value, err error) {
 
 	luaState.SetGlobal("KEYS", keys_tbl)
 	luaState.SetGlobal("ARGS", args_tbl)
+	luaState.SetGlobal("EVAL_CMD", lua.LString(msg.Command))
 
 	compiled, ok := c.luascripts.Get(sha_sum)
 	var fn *lua.LFunction
@@ -210,6 +211,7 @@ func (c* Controller) cmdEval(msg *server.Message) (res resp.Value, err error) {
 		return server.NOMessage, err
 	}
 	ret := luaState.Get(-1) // returned value
+	luaState.Pop(1)
 
 	log.Debugf("RET type %s, val %s\n", ret.Type(), ret.String())
 
@@ -272,6 +274,7 @@ func (c* Controller) cmdEvalSha(msg *server.Message) (res resp.Value, err error)
 
 	luaState.SetGlobal("KEYS", keys_tbl)
 	luaState.SetGlobal("ARGS", args_tbl)
+	luaState.SetGlobal("EVAL_CMD", lua.LString(msg.Command))
 
 	compiled, ok := c.luascripts.Get(sha_sum)
 	if !ok {
@@ -294,6 +297,7 @@ func (c* Controller) cmdEvalSha(msg *server.Message) (res resp.Value, err error)
 		return server.NOMessage, err
 	}
 	ret := luaState.Get(-1) // returned value
+	luaState.Pop(1)
 
 	log.Debugf("RET type %s, val %s\n", ret.Type(), ret.String())
 
@@ -460,7 +464,7 @@ func (c *Controller) commandInScript(msg *server.Message) (
 	return
 }
 
-func (c *Controller) handleCommandInScript(cmd string, args ...string) (result resp.Value, err error) {
+func (c *Controller) luaTile38Call(evalcmd string, cmd string, args ...string) (result resp.Value, err error) {
 	msg := &server.Message{}
 	msg.OutputType = server.RESP
 	msg.Command = strings.ToLower(cmd)
@@ -469,18 +473,97 @@ func (c *Controller) handleCommandInScript(cmd string, args ...string) (result r
 		msg.Values = append(msg.Values, resp.StringValue(arg))
 	}
 
+	switch msg.Command {
+	case "ping", "echo", "auth", "massinsert", "shutdown", "gc",
+		"sethook", "pdelhook", "delhook",
+		"follow", "readonly", "config", "output", "client",
+		"aofshrink",
+		"script load", "script exists", "script flush",
+		"eval", "evalsha", "evalro", "evalrosha", "evalna", "evalnasha":
+		return resp.NullValue(), errCmdNotSupported
+	}
+
+	switch evalcmd {
+	case "eval", "evalsha":
+		return c.luaTile38AtomicRW(msg)
+	case "evalro", "evalrosha":
+		return c.luaTile38AtomicRO(msg)
+	case "evalna", "evalnasha":
+		return c.luaTile38NonAtomic(msg)
+	}
+
+	return resp.NullValue(), errCmdNotSupported
+}
+
+
+// The eval command has already got the lock. No locking on the call from within the script.
+func (c *Controller) luaTile38AtomicRW(msg *server.Message) (result resp.Value, err error) {
+	var write bool
+
+	switch msg.Command {
+	default:
+		return resp.NullValue(), errCmdNotSupported
+	case "set", "del", "drop", "fset", "flushdb", "expire", "persist", "jset", "pdel":
+		// write operations
+		write = true
+		if c.config.FollowHost != "" {
+			return resp.NullValue(), errNotLeader
+		}
+		if c.config.ReadOnly {
+			return resp.NullValue(), errReadOnly
+		}
+	case "get", "keys", "scan", "nearby", "within", "intersects", "hooks", "search",
+		"ttl", "bounds", "server", "info", "type", "jget":
+		// read operations
+		if c.config.FollowHost != "" && !c.fcuponce {
+			return resp.NullValue(), errCatchingUp
+		}
+	}
+
+	res, d, err := c.commandInScript(msg)
+	if err != nil {
+		return resp.NullValue(), err
+	}
+
+	if write {
+		if err := c.writeAOF(resp.ArrayValue(msg.Values), &d); err != nil {
+			return resp.NullValue(), err
+		}
+	}
+
+	return res, nil
+}
+
+func (c *Controller) luaTile38AtomicRO(msg *server.Message) (result resp.Value, err error) {
+	switch msg.Command {
+	default:
+		return resp.NullValue(), errCmdNotSupported
+
+	case "set", "del", "drop", "fset", "flushdb", "expire", "persist", "jset", "pdel":
+		return resp.NullValue(), errReadOnly
+
+	case "get", "keys", "scan", "nearby", "within", "intersects", "hooks", "search",
+		"ttl", "bounds", "server", "info", "type", "jget":
+		// read operations
+		if c.config.FollowHost != "" && !c.fcuponce {
+			return resp.NullValue(), errCatchingUp
+		}
+	}
+
+	res, _, err := c.commandInScript(msg)
+	if err != nil {
+		return resp.NullValue(), err
+	}
+
+	return res, nil
+}
+
+func (c *Controller) luaTile38NonAtomic(msg *server.Message) (result resp.Value, err error){
 	var write bool
 
 	// choose the locking strategy
 	switch msg.Command {
 	default:
-		c.mu.RLock()
-		defer c.mu.RUnlock()
-	case "ping", "echo", "auth", "massinsert", "shutdown", "gc",
-		"sethook", "pdelhook", "delhook",
-		"follow", "readonly", "config", "output", "client",
-		"aofshrink",
-		"eval", "evalsha", "script load", "script exists", "script flush":
 		return resp.NullValue(), errCmdNotSupported
 	case "set", "del", "drop", "fset", "flushdb", "expire", "persist", "jset", "pdel":
 		// write operations

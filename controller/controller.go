@@ -499,7 +499,7 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 		c.mu.RLock()
 		defer c.mu.RUnlock()
 	case "set", "del", "drop", "fset", "flushdb", "sethook", "pdelhook", "delhook",
-		"expire", "persist", "jset", "pdel":
+		"expire", "persist", "jset", "pdel", "eval", "evalsha":
 		// write operations
 		write = true
 		c.mu.Lock()
@@ -511,7 +511,7 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 			return writeErr(errors.New("read only"))
 		}
 	case "get", "keys", "scan", "nearby", "within", "intersects", "hooks", "search",
-		"ttl", "bounds", "server", "info", "type", "jget":
+		"ttl", "bounds", "server", "info", "type", "jget", "evalro", "evalrosha":
 		// read operations
 		c.mu.RLock()
 		defer c.mu.RUnlock()
@@ -540,7 +540,7 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 	case "client":
 		c.mu.Lock()
 		defer c.mu.Unlock()
-	case "eval", "evalsha":
+	case "evalna", "evalnasha":
 		// No locking for scripts, otherwise writes cannot happen within scripts
 	}
 
@@ -708,9 +708,9 @@ func (c *Controller) command(
 		}
 	case "client":
 		res, err = c.cmdClient(msg, conn)
-	case "eval":
+	case "eval", "evalro", "evalna":
 		res, err = c.cmdEval(msg)
-	case "evalsha":
+	case "evalsha", "evalrosha", "evalnasha":
 		res, err = c.cmdEvalSha(msg)
 	case "script load":
 		res, err = c.cmdScriptLoad(msg)

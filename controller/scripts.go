@@ -21,6 +21,7 @@ var errCmdNotSupported = errors.New("command not supported in scripts")
 var errNotLeader = errors.New("not the leader")
 var errReadOnly = errors.New("read only")
 var errCatchingUp = errors.New("catching up to leader")
+var errNoLuasAvailable = errors.New("no interpreters available")
 
 
 // Convert RESP value to lua LValue

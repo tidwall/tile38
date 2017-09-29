@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"errors"
 	"sync"
 
 	"github.com/tidwall/tile38/controller/log"
@@ -13,7 +12,6 @@ const (
 	MAX_LUA_POOL_SIZE = 1000
 )
 
-var errTooManyLuaStates = errors.New("too many lua states used")
 
 type lStatePool struct {
 	m     sync.Mutex
@@ -42,7 +40,7 @@ func (pl *lStatePool) Get() (*lua.LState, error) {
 	n := len(pl.saved)
 	if n == 0 {
 		if pl.total >= MAX_LUA_POOL_SIZE {
-			return nil, errTooManyLuaStates
+			return nil, errNoLuasAvailable
 		}
 		pl.total += 1
 		return pl.New(), nil

@@ -153,7 +153,10 @@ func (c* Controller) cmdEval(msg *server.Message) (res resp.Value, err error) {
 		return
 	}
 
-	luaState := c.luapool.Get()
+	luaState, err := c.luapool.Get()
+	if err != nil {
+		return
+	}
 	defer c.luapool.Put(luaState)
 
 	keys_tbl := luaState.CreateTable(int(numkeys), 0)
@@ -179,7 +182,7 @@ func (c* Controller) cmdEval(msg *server.Message) (res resp.Value, err error) {
 	luaState.SetGlobal("KEYS", keys_tbl)
 	luaState.SetGlobal("ARGS", args_tbl)
 
-	compiled, ok := c.luascripts[sha_sum]
+	compiled, ok := c.luascripts.Get(sha_sum)
 	var fn *lua.LFunction
 	if ok {
 		fn = &lua.LFunction{
@@ -196,7 +199,7 @@ func (c* Controller) cmdEval(msg *server.Message) (res resp.Value, err error) {
 		if err != nil {
 			return server.NOMessage, err
 		}
-		c.luascripts[sha_sum] = fn.Proto
+		c.luascripts.Put(sha_sum, fn.Proto)
 		log.Debugf("STORED %s\n", sha_sum)
 	}
 	luaState.Push(fn)
@@ -242,7 +245,10 @@ func (c* Controller) cmdEvalSha(msg *server.Message) (res resp.Value, err error)
 		return
 	}
 
-	luaState := c.luapool.Get()
+	luaState, err := c.luapool.Get()
+	if err != nil {
+		return
+	}
 	defer c.luapool.Put(luaState)
 
 	keys_tbl := luaState.CreateTable(int(numkeys), 0)
@@ -266,7 +272,7 @@ func (c* Controller) cmdEvalSha(msg *server.Message) (res resp.Value, err error)
 	luaState.SetGlobal("KEYS", keys_tbl)
 	luaState.SetGlobal("ARGS", args_tbl)
 
-	compiled, ok := c.luascripts[sha_sum]
+	compiled, ok := c.luascripts.Get(sha_sum)
 	if !ok {
 		err = errShaNotFound
 		return
@@ -316,14 +322,17 @@ func (c* Controller) cmdScriptLoad(msg *server.Message) (res resp.Value, err err
 	log.Debugf("SCRIPT source:\n%s\n\n", script)
 	sha_sum := fmt.Sprintf("%x", sha1.Sum([]byte(script)))
 
-	luaState := c.luapool.Get()
+	luaState, err := c.luapool.Get()
+	if err != nil {
+		return
+	}
 	defer c.luapool.Put(luaState)
 
 	fn, err := luaState.Load(strings.NewReader(script), "f_" + sha_sum)
 	if err != nil {
 		return server.NOMessage, err
 	}
-	c.luascripts[sha_sum] = fn.Proto
+	c.luascripts.Put(sha_sum, fn.Proto)
 	log.Debugf("STORED %s\n", sha_sum)
 
 	switch msg.OutputType {
@@ -352,7 +361,7 @@ func (c* Controller) cmdScriptExists(msg *server.Message) (res resp.Value, err e
 			err = errInvalidNumberOfArguments
 			return
 		}
-		_, ok = c.luascripts[sha_sum]
+		_, ok = c.luascripts.Get(sha_sum)
 		if ok {
 			ires = 1
 		} else {
@@ -384,7 +393,7 @@ func (c* Controller) cmdScriptExists(msg *server.Message) (res resp.Value, err e
 
 func (c* Controller) cmdScriptFlush(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
-	c.luascripts = make(map[string]*lua.FunctionProto)
+	c.luascripts.Flush()
 
 	switch msg.OutputType {
 	case server.JSON:

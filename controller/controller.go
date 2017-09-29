@@ -24,7 +24,6 @@ import (
 	"github.com/tidwall/tile38/controller/server"
 	"github.com/tidwall/tile38/core"
 	"github.com/tidwall/tile38/geojson"
-	"github.com/yuin/gopher-lua"
 )
 
 var errOOM = errors.New("OOM command not allowed when used memory > 'maxmemory'")
@@ -97,7 +96,7 @@ type Controller struct {
 	started   time.Time
 	http      bool
 
-	luascripts map[string]*lua.FunctionProto
+	luascripts *lScriptMap
 	luapool   *lStatePool
 
 	epc *endpoint.EndpointManager
@@ -138,9 +137,9 @@ func ListenAndServeEx(host string, port int, dir string, ln *net.Listener, http 
 		conns:    make(map[*server.Conn]*clientConn),
 		epc:      endpoint.NewEndpointManager(),
 		http:     http,
-		luascripts: make(map[string]*lua.FunctionProto),
 	}
 
+	c.luascripts = c.InitScriptMap()
 	c.luapool = c.InitPool()
 	defer c.luapool.Shutdown()
 

@@ -1,42 +1,55 @@
 package controller
 
 import (
+	"errors"
 	"sync"
 
 	"github.com/tidwall/tile38/controller/log"
 	"github.com/yuin/gopher-lua"
 )
 
+const (
+	INI_LUA_POOL_SIZE = 5
+	MAX_LUA_POOL_SIZE = 1000
+)
+
+var errTooManyLuaStates = errors.New("too many lua states used")
+
 type lStatePool struct {
 	m     sync.Mutex
-	saved []*lua.LState
 	c     *Controller
+	saved []*lua.LState
+	total int
 }
-
 
 func (c *Controller) InitPool() *lStatePool {
 	pl := &lStatePool{
 		saved: make([]*lua.LState, 0),
 		c: c,
 	}
-	// Fill the pool with 5 ready handlers
-	for i := 0; i < 5; i++ {
+	// Fill the pool with some ready handlers
+	for i := 0; i < INI_LUA_POOL_SIZE; i++ {
 		pl.Put(pl.New())
+		pl.total += 1
 	}
 	return pl
 }
 
 
-func (pl *lStatePool) Get() *lua.LState {
+func (pl *lStatePool) Get() (*lua.LState, error) {
 	pl.m.Lock()
 	defer pl.m.Unlock()
 	n := len(pl.saved)
 	if n == 0 {
-		return pl.New()
+		if pl.total >= MAX_LUA_POOL_SIZE {
+			return nil, errTooManyLuaStates
+		}
+		pl.total += 1
+		return pl.New(), nil
 	}
 	x := pl.saved[n-1]
 	pl.saved = pl.saved[0 : n-1]
-	return x
+	return x, nil
 }
 
 func (pl *lStatePool) New() *lua.LState {
@@ -72,12 +85,45 @@ func (pl *lStatePool) New() *lua.LState {
 
 func (pl *lStatePool) Put(L *lua.LState) {
 	pl.m.Lock()
-	defer pl.m.Unlock()
 	pl.saved = append(pl.saved, L)
+	pl.m.Unlock()
 }
 
 func (pl *lStatePool) Shutdown() {
+	pl.m.Lock()
 	for _, L := range pl.saved {
 		L.Close()
+	}
+	pl.m.Unlock()
+}
+
+// Go-routine-safe map of compiled scripts
+type lScriptMap struct {
+	m       sync.Mutex
+	scripts map[string]*lua.FunctionProto
+}
+
+func (sm *lScriptMap) Get(key string) (script *lua.FunctionProto, ok bool) {
+	sm.m.Lock()
+	script, ok = sm.scripts[key]
+	sm.m.Unlock()
+	return
+}
+
+func (sm *lScriptMap) Put(key string, script *lua.FunctionProto) {
+	sm.m.Lock()
+	sm.scripts[key] = script
+	sm.m.Unlock()
+}
+
+func (sm *lScriptMap) Flush() {
+	sm.m.Lock()
+	sm.scripts = make(map[string]*lua.FunctionProto)
+	sm.m.Unlock()
+}
+
+func (c *Controller) InitScriptMap() *lScriptMap {
+	return &lScriptMap{
+		scripts: make(map[string]*lua.FunctionProto),
 	}
 }

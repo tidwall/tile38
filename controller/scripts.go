@@ -208,7 +208,9 @@ func (c* Controller) cmdEval(msg *server.Message) (res resp.Value, err error) {
 	defer luaStateCleanup(luaState)
 
 	if err := luaState.PCall(0, 1, nil); err != nil {
-		return server.NOMessage, err
+		//return server.NOMessage, err
+		// TODO: Replacing newlines with literal \n to have the tests working, looks like a bug in redigo
+		return server.NOMessage, errors.New(strings.Replace(err.Error(), "\n", `\n`, -1))
 	}
 	ret := luaState.Get(-1) // returned value
 	luaState.Pop(1)
@@ -294,7 +296,9 @@ func (c* Controller) cmdEvalSha(msg *server.Message) (res resp.Value, err error)
 	defer luaStateCleanup(luaState)
 
 	if err := luaState.PCall(0, 1, nil); err != nil {
-		return server.NOMessage, err
+		//return server.NOMessage, err
+		// TODO: Replacing newlines with literal \n to have the tests working, looks like a bug in redigo
+		return server.NOMessage, errors.New(strings.Replace(err.Error(), "\n", `\n`, -1))
 	}
 	ret := luaState.Get(-1) // returned value
 	luaState.Pop(1)

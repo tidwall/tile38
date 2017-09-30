@@ -133,6 +133,12 @@ func luaStateCleanup(ls *lua.LState) {
 	ls.SetGlobal("EVAL_CMD", lua.LNil)
 }
 
+
+// Replace newlines with literal \n since RESP errors cannot have newlines
+func makeSafeErr(err error) error {
+	return errors.New(strings.Replace(err.Error(), "\n", `\n`, -1))
+}
+
 // TODO: Refactor common bits from all these functions
 func (c* Controller) cmdEval(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
@@ -199,7 +205,7 @@ func (c* Controller) cmdEval(msg *server.Message) (res resp.Value, err error) {
 	} else {
 		fn, err = luaState.Load(strings.NewReader(script), "f_" + sha_sum)
 		if err != nil {
-			return server.NOMessage, err
+			return server.NOMessage, makeSafeErr(err)
 		}
 		c.luascripts.Put(sha_sum, fn.Proto)
 		log.Debugf("STORED %s\n", sha_sum)
@@ -208,9 +214,7 @@ func (c* Controller) cmdEval(msg *server.Message) (res resp.Value, err error) {
 	defer luaStateCleanup(luaState)
 
 	if err := luaState.PCall(0, 1, nil); err != nil {
-		//return server.NOMessage, err
-		// TODO: Replacing newlines with literal \n to have the tests working, looks like a bug in redigo
-		return server.NOMessage, errors.New(strings.Replace(err.Error(), "\n", `\n`, -1))
+		return server.NOMessage, makeSafeErr(err)
 	}
 	ret := luaState.Get(-1) // returned value
 	luaState.Pop(1)
@@ -296,9 +300,7 @@ func (c* Controller) cmdEvalSha(msg *server.Message) (res resp.Value, err error)
 	defer luaStateCleanup(luaState)
 
 	if err := luaState.PCall(0, 1, nil); err != nil {
-		//return server.NOMessage, err
-		// TODO: Replacing newlines with literal \n to have the tests working, looks like a bug in redigo
-		return server.NOMessage, errors.New(strings.Replace(err.Error(), "\n", `\n`, -1))
+		return server.NOMessage, makeSafeErr(err)
 	}
 	ret := luaState.Get(-1) // returned value
 	luaState.Pop(1)
@@ -339,7 +341,7 @@ func (c* Controller) cmdScriptLoad(msg *server.Message) (res resp.Value, err err
 
 	fn, err := luaState.Load(strings.NewReader(script), "f_" + sha_sum)
 	if err != nil {
-		return server.NOMessage, err
+		return server.NOMessage, makeSafeErr(err)
 	}
 	c.luascripts.Put(sha_sum, fn.Proto)
 	log.Debugf("STORED %s\n", sha_sum)

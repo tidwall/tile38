@@ -23,7 +23,7 @@ var (
 	pipeline = 1
 	csv      = false
 	json     = false
-	tests    = "PING,SET,GET,SEARCH"
+	tests    = "PING,SET,GET,SEARCH,EVAL"
 	redis    = false
 )
 
@@ -296,6 +296,27 @@ func main() {
 							strconv.FormatFloat(lat, 'f', 5, 64),
 							strconv.FormatFloat(lon, 'f', 5, 64),
 							"100000")
+					},
+				)
+			}
+		case "EVAL":
+			if !redis{
+				var i int64
+				redbench.Bench("EVAL (get point)", addr, fillOpts(), prepFn,
+					func(buf []byte) []byte {
+						i := atomic.AddInt64(&i, 1)
+						script := fmt.Sprintf("return tile38.call('GET, 'KEYS[1]', 'id:%d', 'point')", i)
+						return redbench.AppendCommand(buf, "EVAL", script, "1", "key:bench")
+					},
+				)
+				redbench.Bench("EVAL (set point)", addr, fillOpts(), prepFn,
+					func(buf []byte) []byte {
+						i := atomic.AddInt64(&i, 1)
+						lat, lon := randPoint()
+						script := fmt.Sprintf(
+							"return tile38.call('SET, 'KEYS[1]', 'id:%d', 'point', %.5f', '%.5f)",
+							i, lat, lon)
+						return redbench.AppendCommand(buf, "EVAL", script, "1", "key:bench")
 					},
 				)
 			}

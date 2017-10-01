@@ -263,7 +263,7 @@ func (c *Controller) aofshrink() {
 
 			// anything below this point is unrecoverable. just log and exit process
 			// back up the live aof, just in case of fatal error
-			if err := c.f.Close(); err != nil {
+			if err := c.aof.Close(); err != nil {
 				log.Fatalf("shink live aof close fatal operation: %v", err)
 			}
 			if err := os.Rename(path.Join(c.dir, "appendonly.aof"), path.Join(c.dir, "appendonly.bak")); err != nil {
@@ -272,12 +272,12 @@ func (c *Controller) aofshrink() {
 			if err := os.Rename(path.Join(c.dir, "shrink"), path.Join(c.dir, "appendonly.aof")); err != nil {
 				log.Fatalf("shink rename fatal operation: %v", err)
 			}
-			c.f, err = os.OpenFile(path.Join(c.dir, "appendonly.aof"), os.O_CREATE|os.O_RDWR, 0600)
+			c.aof, err = os.OpenFile(path.Join(c.dir, "appendonly.aof"), os.O_CREATE|os.O_RDWR, 0600)
 			if err != nil {
 				log.Fatalf("shink openfile fatal operation: %v", err)
 			}
 			var n int64
-			n, err = c.f.Seek(0, 2)
+			n, err = c.aof.Seek(0, 2)
 			if err != nil {
 				log.Fatalf("shink seek end fatal operation: %v", err)
 			}

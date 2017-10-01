@@ -130,3 +130,16 @@ func (c *Controller) cmdMassInsert(msg *server.Message) (res resp.Value, err err
 	log.Infof("massinsert: done %d objects", atomic.LoadUint64(&k))
 	return server.OKMessage(msg, start), nil
 }
+
+func (c *Controller) cmdSleep(msg *server.Message) (res resp.Value, err error) {
+	start := time.Now()
+	vs := msg.Values[1:]
+	var sduration string
+	var ok bool
+	if vs, sduration, ok = tokenval(vs); !ok || sduration == "" {
+		return server.NOMessage, errInvalidNumberOfArguments
+	}
+	d, _ := strconv.Atoi(sduration)
+	time.Sleep(time.Duration(d) * time.Second)
+	return server.OKMessage(msg, start), nil
+}

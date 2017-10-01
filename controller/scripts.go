@@ -512,16 +512,16 @@ func (c *Controller) luaTile38AtomicRW(msg *server.Message) (result resp.Value, 
 	case "set", "del", "drop", "fset", "flushdb", "expire", "persist", "jset", "pdel":
 		// write operations
 		write = true
-		if c.config.FollowHost != "" {
+		if c.config.followHost() != "" {
 			return resp.NullValue(), errNotLeader
 		}
-		if c.config.ReadOnly {
+		if c.config.readOnly() {
 			return resp.NullValue(), errReadOnly
 		}
 	case "get", "keys", "scan", "nearby", "within", "intersects", "hooks", "search",
 		"ttl", "bounds", "server", "info", "type", "jget":
 		// read operations
-		if c.config.FollowHost != "" && !c.fcuponce {
+		if c.config.followHost() != "" && !c.fcuponce {
 			return resp.NullValue(), errCatchingUp
 		}
 	}
@@ -551,7 +551,7 @@ func (c *Controller) luaTile38AtomicRO(msg *server.Message) (result resp.Value, 
 	case "get", "keys", "scan", "nearby", "within", "intersects", "hooks", "search",
 		"ttl", "bounds", "server", "info", "type", "jget":
 		// read operations
-		if c.config.FollowHost != "" && !c.fcuponce {
+		if c.config.followHost() != "" && !c.fcuponce {
 			return resp.NullValue(), errCatchingUp
 		}
 	}
@@ -576,10 +576,10 @@ func (c *Controller) luaTile38NonAtomic(msg *server.Message) (result resp.Value,
 		write = true
 		c.mu.Lock()
 		defer c.mu.Unlock()
-		if c.config.FollowHost != "" {
+		if c.config.followHost() != "" {
 			return resp.NullValue(), errNotLeader
 		}
-		if c.config.ReadOnly {
+		if c.config.readOnly() {
 			return resp.NullValue(), errReadOnly
 		}
 	case "get", "keys", "scan", "nearby", "within", "intersects", "hooks", "search",
@@ -587,7 +587,7 @@ func (c *Controller) luaTile38NonAtomic(msg *server.Message) (result resp.Value,
 		// read operations
 		c.mu.RLock()
 		defer c.mu.RUnlock()
-		if c.config.FollowHost != "" && !c.fcuponce {
+		if c.config.followHost() != "" && !c.fcuponce {
 			return resp.NullValue(), errCatchingUp
 		}
 	}

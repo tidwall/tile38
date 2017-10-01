@@ -22,29 +22,24 @@ func (c *Controller) cmdReadOnly(msg *server.Message) (res resp.Value, err error
 		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	update := false
-	backup := c.config
 	switch strings.ToLower(arg) {
 	default:
 		return server.NOMessage, errInvalidArgument(arg)
 	case "yes":
-		if !c.config.ReadOnly {
+		if !c.config.readOnly() {
 			update = true
-			c.config.ReadOnly = true
+			c.config.setReadOnly(true)
 			log.Info("read only")
 		}
 	case "no":
-		if c.config.ReadOnly {
+		if c.config.readOnly() {
 			update = true
-			c.config.ReadOnly = false
+			c.config.setReadOnly(false)
 			log.Info("read write")
 		}
 	}
 	if update {
-		err := c.writeConfig(false)
-		if err != nil {
-			c.config = backup
-			return server.NOMessage, err
-		}
+		c.config.write(false)
 	}
 	return server.OKMessage(msg, start), nil
 }

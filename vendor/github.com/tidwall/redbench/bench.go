@@ -30,8 +30,10 @@ func readResp(rd *bufio.Reader, n int) error {
 			if err != nil {
 				return err
 			}
-			if _, err = io.CopyN(ioutil.Discard, rd, n+2); err != nil {
-				return err
+			if n >= 0 {
+				if _, err = io.CopyN(ioutil.Discard, rd, n+2); err != nil {
+					return err
+				}
 			}
 		case '*':
 			n, err := strconv.ParseInt(string(line[1:len(line)-2]), 10, 64)

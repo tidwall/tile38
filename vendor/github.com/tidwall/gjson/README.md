@@ -3,17 +3,17 @@
     src="logo.png" 
     width="240" height="78" border="0" alt="GJSON">
 <br>
-<a href="https://travis-ci.org/tidwall/gjson"><img src="https://img.shields.io/travis/tidwall/gjson.svg?style=flat-square" alt="Build Status"></a><!--
-<a href="http://gocover.io/github.com/tidwall/gjson"><img src="https://img.shields.io/badge/coverage-97%25-brightgreen.svg?style=flat-square" alt="Code Coverage"></a>
--->
+<a href="https://travis-ci.org/tidwall/gjson"><img src="https://img.shields.io/travis/tidwall/gjson.svg?style=flat-square" alt="Build Status"></a>
 <a href="https://godoc.org/github.com/tidwall/gjson"><img src="https://img.shields.io/badge/api-reference-blue.svg?style=flat-square" alt="GoDoc"></a>
+<a href="http://tidwall.com/gjson-play"><img src="https://img.shields.io/badge/play-ground-orange.svg?style=flat-square" alt="GJSON Playground"></a>
 </p>
+
+
 
 <p align="center">get a json value quickly</a></p>
 
-GJSON is a Go package that provides a [very fast](#performance) and simple way to get a value from a json document. The purpose for this library it to give efficient json indexing for the [BuntDB](https://github.com/tidwall/buntdb) project. 
-
-For a command line interface check out [JSONed](https://github.com/tidwall/jsoned).
+GJSON is a Go package that provides a [fast](#performance) and [simple](#get-a-value) way to get values from a json document.
+It has features such as [one line retrieval](#get-a-value), [dot notation paths](#path-syntax), [iteration](#iterate-through-an-object-or-array).
 
 Getting Started
 ===============
@@ -29,7 +29,7 @@ $ go get -u github.com/tidwall/gjson
 This will retrieve the library.
 
 ## Get a value
-Get searches json for the specified path. A path is in dot syntax, such as "name.last" or "age". This function expects that the json is well-formed and validates. Invalid json will not panic, but it may return back unexpected results. When the value is found it's returned immediately. 
+Get searches json for the specified path. A path is in dot syntax, such as "name.last" or "age". This function expects that the json is well-formed. Bad json will not panic, but it may return back unexpected results. When the value is found it's returned immediately. 
 
 ```go
 package main
@@ -57,7 +57,7 @@ A path is a series of keys separated by a dot.
 A key may contain special wildcard characters '\*' and '?'.
 To access an array value use the index as the key.
 To get the number of elements in an array or to access a child path, use the '#' character.
-The dot and wildcard characters can be escaped with '\'.
+The dot and wildcard characters can be escaped with '\\'.
 
 ```json
 {
@@ -122,12 +122,14 @@ result.Index   // index of raw value in original json, zero means index unknown
 There are a variety of handy functions that work on a result:
 
 ```go
+result.Exists() bool
 result.Value() interface{}
 result.Int() int64
 result.Uint() uint64
 result.Float() float64
 result.String() string
 result.Bool() bool
+result.Time() time.Time
 result.Array() []gjson.Result
 result.Map() map[string]gjson.Result
 result.Get(path string) Result
@@ -136,8 +138,6 @@ result.Less(token Result, caseSensitive bool) bool
 ```
 
 The `result.Value()` function returns an `interface{}` which requires type assertion and is one of the following Go types:
-
-
 
 The `result.Array()` function returns back an array of values.
 If the result represents a non-existent value, then an empty array will be returned.
@@ -170,14 +170,14 @@ Suppose you want all the last names from the following json:
       "lastName": "Harold", 
     }
   ]
-}`
+}
 ```
 
 You would use the path "programmers.#.lastName" like such:
 
 ```go
 result := gjson.Get(json, "programmers.#.lastName")
-for _,name := range result.Array() {
+for _, name := range result.Array() {
 	println(name.String())
 }
 ```
@@ -198,7 +198,7 @@ Returning `false` from an iterator will stop iteration.
 
 ```go
 result := gjson.Get(json, "programmers")
-result.ForEach(func(key, value Result) bool{
+result.ForEach(func(key, value gjson.Result) bool {
 	println(value.String()) 
 	return true // keep iterating
 })
@@ -229,9 +229,56 @@ if !value.Exists() {
 }
 
 // Or as one step
-if gjson.Get(json, "name.last").Exists(){
+if gjson.Get(json, "name.last").Exists() {
 	println("has a last name")
 }
+```
+
+## Unmarshalling
+
+There's a `gjson.Unmarshal` function which loads json data into a value.
+It's a general replacement for `json.Unmarshal` and you can typically
+see a 2-3x boost in performance without the need for external generators.
+
+This function works almost identically to `json.Unmarshal` except that 
+`gjson.Unmarshal` will automatically attempt to convert JSON values to any
+Go type. For example, the JSON string "100" or the JSON number 100 can be
+equally assigned to Go string, int, byte, uint64, etc. This rule applies to
+all types.
+
+
+```go
+package main
+
+import (
+	"fmt"
+
+	"github.com/tidwall/gjson"
+)
+
+type Animal struct {
+	Type  string `json:"type"`
+	Sound string `json:"sound"`
+	Age   int    `json:"age"`
+}
+
+var json = `{
+	"type": "Dog",
+	"Sound": "Bark",
+	"Age": "11"
+}`
+
+func main() {
+	var dog Animal
+	gjson.Unmarshal([]byte(json), &dog)
+	fmt.Printf("type: %s, sound: %s, age: %d\n", dog.Type, dog.Sound, dog.Age)
+}
+```
+
+This will print:
+
+```
+type: Dog, sound: Bark, age: 11
 ```
 
 ## Unmarshal to a map
@@ -240,7 +287,7 @@ To unmarshal to a `map[string]interface{}`:
 
 ```go
 m, ok := gjson.Parse(json).Value().(map[string]interface{})
-if !ok{
+if !ok {
 	// not a map
 }
 ```
@@ -284,28 +331,30 @@ The return value is a `[]Result`, which will always contain exactly the same num
 Benchmarks of GJSON alongside [encoding/json](https://golang.org/pkg/encoding/json/), 
 [ffjson](https://github.com/pquerna/ffjson), 
 [EasyJSON](https://github.com/mailru/easyjson),
-and [jsonparser](https://github.com/buger/jsonparser)
+[jsonparser](https://github.com/buger/jsonparser),
+and [json-iterator](https://github.com/json-iterator/go)
 
 ```
-BenchmarkGJSONGet-8              	15000000	       333 ns/op	       0 B/op	       0 allocs/op
-BenchmarkGJSONUnmarshalMap-8     	  900000	      4188 ns/op	    1920 B/op	      26 allocs/op
-BenchmarkJSONUnmarshalMap-8      	  600000	      8908 ns/op	    3048 B/op	      69 allocs/op
-BenchmarkJSONUnmarshalStruct-8   	  600000	      9026 ns/op	    1832 B/op	      69 allocs/op
-BenchmarkJSONDecoder-8           	  300000	     14339 ns/op	    4224 B/op	     184 allocs/op
-BenchmarkFFJSONLexer-8           	 1500000	      3156 ns/op	     896 B/op	       8 allocs/op
-BenchmarkEasyJSONLexer-8         	 3000000	       938 ns/op	     613 B/op	       6 allocs/op
-BenchmarkJSONParserGet-8         	 3000000	       442 ns/op	      21 B/op	       0 allocs/op
+BenchmarkGJSONGet-8                  3000000        372 ns/op          0 B/op         0 allocs/op
+BenchmarkGJSONUnmarshalMap-8          900000       4154 ns/op       1920 B/op        26 allocs/op
+BenchmarkJSONUnmarshalMap-8           600000       9019 ns/op       3048 B/op        69 allocs/op
+BenchmarkJSONUnmarshalStruct-8        600000       9268 ns/op       1832 B/op        69 allocs/op
+BenchmarkJSONDecoder-8                300000      14120 ns/op       4224 B/op       184 allocs/op
+BenchmarkFFJSONLexer-8               1500000       3111 ns/op        896 B/op         8 allocs/op
+BenchmarkEasyJSONLexer-8             3000000        887 ns/op        613 B/op         6 allocs/op
+BenchmarkJSONParserGet-8             3000000        499 ns/op         21 B/op         0 allocs/op
+BenchmarkJSONIterator-8              3000000        812 ns/op        544 B/op         9 allocs/op
 ```
 
 Benchmarks for the `GetMany` function:
 
 ```
-BenchmarkGJSONGetMany4Paths-8     	 4000000	       319 ns/op	     112 B/op	       0 allocs/op
-BenchmarkGJSONGetMany8Paths-8     	 8000000	       218 ns/op	      56 B/op	       0 allocs/op
-BenchmarkGJSONGetMany16Paths-8    	16000000	       160 ns/op	      56 B/op	       0 allocs/op
-BenchmarkGJSONGetMany32Paths-8    	32000000	       130 ns/op	      64 B/op	       0 allocs/op
-BenchmarkGJSONGetMany64Paths-8    	64000000	       117 ns/op	      64 B/op	       0 allocs/op
-BenchmarkGJSONGetMany128Paths-8    128000000	       109 ns/op	      64 B/op	       0 allocs/op
+BenchmarkGJSONGetMany4Paths-8        4000000       303 ns/op         112 B/op         0 allocs/op
+BenchmarkGJSONGetMany8Paths-8        8000000       208 ns/op          56 B/op         0 allocs/op
+BenchmarkGJSONGetMany16Paths-8      16000000       156 ns/op          56 B/op         0 allocs/op
+BenchmarkGJSONGetMany32Paths-8      32000000       127 ns/op          64 B/op         0 allocs/op
+BenchmarkGJSONGetMany64Paths-8      64000000       117 ns/op          64 B/op         0 allocs/op
+BenchmarkGJSONGetMany128Paths-8    128000000       109 ns/op          64 B/op         0 allocs/op
 ```
 
 JSON document used:
@@ -361,7 +410,8 @@ widget.text.data
 widget.text.size
 ```
 
-*These benchmarks were run on a MacBook Pro 15" 2.8 GHz Intel Core i7 using Go 1.7.*
+*These benchmarks were run on a MacBook Pro 15" 2.8 GHz Intel Core i7 using Go 1.8 and can be be found [here](https://github.com/tidwall/gjson-benchmarks).*
+
 
 ## Contact
 Josh Baker [@tidwall](http://twitter.com/tidwall)

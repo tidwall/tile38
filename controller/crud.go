@@ -456,7 +456,10 @@ func (c *Controller) cmdFlushDB(msg *server.Message) (res resp.Value, d commandD
 		return
 	}
 	c.cols = btree.New(16, 0)
-	c.clearAllExpires()
+	c.exlistmu.Lock()
+	c.exlist = nil
+	c.exlistmu.Unlock()
+	c.expires = make(map[string]map[string]time.Time)
 	c.hooks = make(map[string]*Hook)
 	c.hookcols = make(map[string]map[string]*Hook)
 	d.command = "flushdb"
@@ -707,7 +710,7 @@ func (c *Controller) parseSetArgs(vs []resp.Value) (
 }
 
 func (c *Controller) cmdSet(msg *server.Message) (res resp.Value, d commandDetailsT, err error) {
-	if c.config.MaxMemory > 0 && c.outOfMemory {
+	if c.config.maxMemory() > 0 && c.outOfMemory.on() {
 		err = errOOM
 		return
 	}

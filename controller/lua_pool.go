@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/tidwall/tile38/controller/log"
+	"github.com/tidwall/resp"
 	"github.com/yuin/gopher-lua"
 )
 
@@ -53,12 +54,12 @@ func (pl *lStatePool) Get() (*lua.LState, error) {
 func (pl *lStatePool) New() *lua.LState {
 	L := lua.NewState()
 
-	Tile38Call := func(ls *lua.LState) int {
-		evalCmd := ls.GetGlobal("EVAL_CMD").String()
+	get_args := func(ls *lua.LState) (evalCmd string, args []string) {
+		evalCmd = ls.GetGlobal("EVAL_CMD").String()
 		log.Debugf("EVAL_CMD %s\n", evalCmd)
 
-		// Trying to work with unknown number of args.  When we see empty arg we call it enough.
-		var args []string
+		// Trying to work with unknown number of args.
+		// When we see empty arg we call it enough.
 		for i := 1; ; i++ {
 			if arg := ls.ToString(i); arg == "" {
 				break
@@ -67,6 +68,10 @@ func (pl *lStatePool) New() *lua.LState {
 			}
 		}
 		log.Debugf("ARGS %s\n", args)
+		return
+	}
+	call := func(ls *lua.LState) int {
+		evalCmd, args := get_args(ls)
 		if res, err := pl.c.luaTile38Call(evalCmd, args[0], args[1:]...); err != nil {
 			log.Debugf("RES type: %s value: %s ERR %s\n", res.Type(), res.String(), err);
 			ls.RaiseError("ERR %s", err.Error())
@@ -77,8 +82,41 @@ func (pl *lStatePool) New() *lua.LState {
 			return 1
 		}
 	}
+	pcall := func(ls *lua.LState) int {
+		evalCmd, args := get_args(ls)
+		if res, err := pl.c.luaTile38Call(evalCmd, args[0], args[1:]...); err != nil {
+			log.Debugf("RES type: %s value: %s ERR %s\n", res.Type(), res.String(), err);
+			ls.Push(ConvertToLua(ls, resp.ErrorValue(err)))
+			return 1
+		} else {
+			log.Debugf("RES type: %s value: %s\n", res.Type(), res.String());
+			ls.Push(ConvertToLua(ls, res))
+			return 1
+		}
+	}
+	error_reply := func(ls *lua.LState) int {
+		tbl := L.CreateTable(0, 1)
+		tbl.RawSetString("err", lua.LString(ls.ToString(1)))
+		ls.Push(tbl)
+		return 1
+	}
+	status_reply := func(ls *lua.LState) int {
+		tbl := L.CreateTable(0, 1)
+		tbl.RawSetString("ok", lua.LString(ls.ToString(1)))
+		ls.Push(tbl)
+		return 1
+	}
+	sha1hex := func(ls *lua.LState) int {
+		sha_sum := Sha1Sum(ls.ToString(1))
+		ls.Push(lua.LString(sha_sum))
+		return 1
+	}
 	var exports = map[string]lua.LGFunction {
-		"call": Tile38Call,
+		"call": call,
+		"pcall": pcall,
+		"error_reply": error_reply,
+		"status_reply": status_reply,
+		"sha1hex": sha1hex,
 	}
 	L.SetGlobal("tile38", L.SetFuncs(L.NewTable(), exports))
 	return L

@@ -27,15 +27,21 @@ var errNoLuasAvailable = errors.New("no interpreters available")
 // Convert RESP value to lua LValue
 func ConvertToLua(L *lua.LState, val resp.Value) lua.LValue {
 	if val.IsNull() {
-		return lua.LNil
+		return lua.LFalse
 	}
 	switch val.Type() {
 	case resp.Integer:
 		return lua.LNumber(val.Integer())
-	case resp.SimpleString, resp.BulkString:
+	case resp.BulkString:
 		return lua.LString(val.String())
 	case resp.Error:
-		return lua.LString("ERR: " + val.String())
+		tbl := L.CreateTable(0, 1)
+		tbl.RawSetString("err", lua.LString(val.String()))
+		return tbl
+	case resp.SimpleString:
+		tbl := L.CreateTable(0, 1)
+		tbl.RawSetString("ok", lua.LString(val.String()))
+		return tbl
 	case resp.Array:
 		tbl := L.CreateTable(len(val.Array()), 0)
 		for _, item := range val.Array() {
@@ -67,6 +73,7 @@ func ConvertToResp(val lua.LValue) resp.Value {
 		return resp.StringValue(val.String())
 	case lua.LTTable:
 		var values []resp.Value
+		var specialValues []resp.Value
 		var cb func(lk lua.LValue, lv lua.LValue)
 		tbl := val.(*lua.LTable)
 
@@ -76,11 +83,23 @@ func ConvertToResp(val lua.LValue) resp.Value {
 			}
 		} else { // map
 			cb = func(lk lua.LValue, lv lua.LValue){
+				if lk.Type() == lua.LTString {
+					lks := lk.String()
+					switch lks {
+					case "ok":
+						specialValues = append(specialValues, resp.SimpleStringValue(lv.String()))
+					case "err":
+						specialValues = append(specialValues, resp.ErrorValue(errors.New(lv.String())))
+					}
+				}
 				values = append(values, resp.ArrayValue(
 					[]resp.Value{ConvertToResp(lk), ConvertToResp(lv)}))
 			}
 		}
 		tbl.ForEach(cb)
+		if len(values) == 1 && len(specialValues) == 1 {
+			return specialValues[0]
+		}
 		return resp.ArrayValue(values)
 	}
 	return resp.ErrorValue(errors.New("Unsupported lua type: " + val.Type().String()))
@@ -134,6 +153,10 @@ func luaStateCleanup(ls *lua.LState) {
 }
 
 
+func Sha1Sum(s string) string {
+	return fmt.Sprintf("%x", sha1.Sum([]byte(s)))
+}
+
 // Replace newlines with literal \n since RESP errors cannot have newlines
 func makeSafeErr(err error) error {
 	return errors.New(strings.Replace(err.Error(), "\n", `\n`, -1))
@@ -184,7 +207,7 @@ func (c* Controller) cmdEval(msg *server.Message) (res resp.Value, err error) {
 		args_tbl.Append(lua.LString(arg))
 	}
 
-	sha_sum := fmt.Sprintf("%x", sha1.Sum([]byte(script)))
+	sha_sum := Sha1Sum(script)
 
 	luaState.SetGlobal("KEYS", keys_tbl)
 	luaState.SetGlobal("ARGS", args_tbl)
@@ -331,7 +354,7 @@ func (c* Controller) cmdScriptLoad(msg *server.Message) (res resp.Value, err err
 	}
 
 	log.Debugf("SCRIPT source:\n%s\n\n", script)
-	sha_sum := fmt.Sprintf("%x", sha1.Sum([]byte(script)))
+	sha_sum := Sha1Sum(script)
 
 	luaState, err := c.luapool.Get()
 	if err != nil {

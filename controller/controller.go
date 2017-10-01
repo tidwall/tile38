@@ -474,9 +474,19 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 		c.mu.RLock()
 		defer c.mu.RUnlock()
 	case "set", "del", "drop", "fset", "flushdb", "sethook", "pdelhook", "delhook",
-		"expire", "persist", "jset", "pdel", "eval", "evalsha":
+		"expire", "persist", "jset", "pdel":
 		// write operations
 		write = true
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if c.config.followHost() != "" {
+			return writeErr("not the leader")
+		}
+		if c.config.readOnly() {
+			return writeErr("read only")
+		}
+	case "eval", "evalsha":
+		// write operations (potentially) but no AOF for the script command itself
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		if c.config.followHost() != "" {
@@ -533,7 +543,7 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 		}
 		return writeErr(err.Error())
 	}
-	if write { // TODO: script commands themselves should not write AOF!
+	if write {
 		if err := c.writeAOF(resp.ArrayValue(msg.Values), &d); err != nil {
 			if _, ok := err.(errAOFHook); ok {
 				return writeErr(err.Error())

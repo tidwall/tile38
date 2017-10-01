@@ -425,15 +425,15 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 		}
 		return nil
 	}
-	writeErr := func(err error) error {
+	writeErr := func(errMsg string) error {
 		switch msg.OutputType {
 		case server.JSON:
-			return writeOutput(`{"ok":false,"err":` + jsonString(err.Error()) + `,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
+			return writeOutput(`{"ok":false,"err":` + jsonString(errMsg) + `,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
 		case server.RESP:
-			if err == errInvalidNumberOfArguments {
+			if errMsg == errInvalidNumberOfArguments.Error() {
 				return writeOutput("-ERR wrong number of arguments for '" + msg.Command + "' command\r\n")
 			}
-			v, _ := resp.ErrorValue(errors.New("ERR " + err.Error())).MarshalRESP()
+			v, _ := resp.ErrorValue(errors.New("ERR " + errMsg)).MarshalRESP()
 			return writeOutput(string(v))
 		}
 		return nil
@@ -447,7 +447,7 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 			// This better be an AUTH command or the Message should contain an Auth
 			if msg.Command != "auth" && msg.Auth == "" {
 				// Just shut down the pipeline now. The less the client connection knows the better.
-				return writeErr(errors.New("authentication required"))
+				return writeErr("authentication required")
 			}
 			if msg.Auth != "" {
 				password = msg.Auth
@@ -457,7 +457,7 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 				}
 			}
 			if c.config.requirePass() != strings.TrimSpace(password) {
-				return writeErr(errors.New("invalid password"))
+				return writeErr("invalid password")
 			}
 			conn.Authenticated = true
 			if msg.ConnType != server.HTTP {
@@ -465,7 +465,7 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 				return writeOutput(res_str)
 			}
 		} else if msg.Command == "auth" {
-			return writeErr(errors.New("invalid password"))
+			return writeErr("invalid password")
 		}
 	}
 	// choose the locking strategy
@@ -480,10 +480,10 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		if c.config.followHost() != "" {
-			return writeErr(errors.New("not the leader"))
+			return writeErr("not the leader")
 		}
 		if c.config.readOnly() {
-			return writeErr(errors.New("read only"))
+			return writeErr("read only")
 		}
 	case "get", "keys", "scan", "nearby", "within", "intersects", "hooks", "search",
 		"ttl", "bounds", "server", "info", "type", "jget", "evalro", "evalrosha":
@@ -491,7 +491,7 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 		c.mu.RLock()
 		defer c.mu.RUnlock()
 		if c.config.followHost() != "" && !c.fcuponce {
-			return writeErr(errors.New("catching up to leader"))
+			return writeErr("catching up to leader")
 		}
 	case "follow", "readonly", "config":
 		// system operations
@@ -524,16 +524,19 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 	}
 
 	res, d, err := c.command(msg, w, conn)
+	if res.Type() == resp.Error {
+		return writeErr(res.String())
+	}
 	if err != nil {
 		if err.Error() == "going live" {
 			return err
 		}
-		return writeErr(err)
+		return writeErr(err.Error())
 	}
 	if write { // TODO: script commands themselves should not write AOF!
 		if err := c.writeAOF(resp.ArrayValue(msg.Values), &d); err != nil {
 			if _, ok := err.(errAOFHook); ok {
-				return writeErr(err)
+				return writeErr(err.Error())
 			}
 			log.Fatal(err)
 			return err

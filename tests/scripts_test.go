@@ -47,6 +47,7 @@ func scripts_READONLY_test(mc *mockServer) error {
 				return v, "A lua stack containing 'ERR read only'"
 			},
 		},
+		{"EVALRO", "return tile38.pcall('set', KEYS[1], ARGS[1], 'point', 33, -115)", "1", "mykey", "myid1"},  {"ERR read only"},
 		{"SET", "mykey", "myid1", "POINT", 33, -115}, {"OK"},
 		{"EVALRO", "return tile38.call('get', KEYS[1], ARGS[1], ARGS[2])", "1", "mykey", "myid1", "point"}, {"[33 -115]"},
 	})

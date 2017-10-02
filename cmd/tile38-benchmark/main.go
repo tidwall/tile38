@@ -302,50 +302,67 @@ func main() {
 		case "EVAL":
 			if !redis{
 				var i int64
-				get_script := "return tile38.call('GET', KEYS[1], 'id:%d', 'point')"
-				get4_script := strings.Repeat("a = tile38.call('GET', KEYS[1], 'id:%d', 'point');", 4) + "return a"
-				set_script := "return tile38.call('SET', KEYS[1], 'id:%d', 'point', '%.5f', '%.5f')"
-				if false { // TODO: remove this debugging info when done
-					fmt.Printf("GET SCRIPT: "+get_script+"\n", 12345)
-					fmt.Printf("GET FOUR SCRIPT: "+get4_script+"\n", 1, 2, 3, 4)
-					fmt.Printf("SET SCRIPT: "+set_script+"\n", 12345, 0.123456789, 9.87654321)
+				get_script := "return tile38.call('GET', KEYS[1], ARGS[1], 'point')"
+				get4_script :=
+					"a = tile38.call('GET', KEYS[1], ARGS[1], 'point');" +
+					"b = tile38.call('GET', KEYS[1], ARGS[2], 'point');" +
+					"c = tile38.call('GET', KEYS[1], ARGS[3], 'point');" +
+					"d = tile38.call('GET', KEYS[1], ARGS[4], 'point');" +
+					"return d"
+
+				set_script := "return tile38.call('SET', KEYS[1], ARGS[1], 'point', ARGS[2], ARGS[3])"
+				if true { // TODO: remove this debugging info when done
+					fmt.Printf("GET SCRIPT: " + get_script + "\n")
+					fmt.Printf("GET FOUR SCRIPT: "+ get4_script + "\n")
+					fmt.Printf("SET SCRIPT: " + set_script + "\n")
 				}
 
 				redbench.Bench("EVALRO (get point)", addr, fillOpts(), prepFn,
 					func(buf []byte) []byte {
 						i := atomic.AddInt64(&i, 1)
-						script := fmt.Sprintf(get_script, i)
-						return redbench.AppendCommand(buf, "EVALRO", script, "1", "key:bench")
+						return redbench.AppendCommand(buf, "EVALRO", get_script, "1", "key:bench", "id:"+strconv.FormatInt(i, 10))
 					},
 				)
 				redbench.Bench("EVALRO (get 4 points)", addr, fillOpts(), prepFn,
 					func(buf []byte) []byte {
 						i := atomic.AddInt64(&i, 1)
-						script := fmt.Sprintf(get4_script, i, i + 1, i + 2, i + 3)
-						return redbench.AppendCommand(buf, "EVALRO", script, "1", "key:bench")
+						return redbench.AppendCommand(buf, "EVALRO", get4_script, "1",
+							"key:bench",
+							"id:"+strconv.FormatInt(i, 10),
+							"id:"+strconv.FormatInt(i + 1, 10),
+							"id:"+strconv.FormatInt(i + 2, 10),
+							"id:"+strconv.FormatInt(i + 3, 10),
+						)
 					},
 				)
 				redbench.Bench("EVALNA (get point)", addr, fillOpts(), prepFn,
 					func(buf []byte) []byte {
 						i := atomic.AddInt64(&i, 1)
-						script := fmt.Sprintf(get_script, i)
-						return redbench.AppendCommand(buf, "EVALNA", script, "1", "key:bench")
+						return redbench.AppendCommand(buf, "EVALNA", get_script, "1", "key:bench","id:"+strconv.FormatInt(i, 10))
 					},
 				)
 				redbench.Bench("EVAL (set point)", addr, fillOpts(), prepFn,
 					func(buf []byte) []byte {
 						i := atomic.AddInt64(&i, 1)
 						lat, lon := randPoint()
-						script := fmt.Sprintf(set_script, i, lat, lon)
-						return redbench.AppendCommand(buf, "EVAL", script, "1", "key:bench")
+						return redbench.AppendCommand(buf, "EVAL", set_script, "1",
+							"key:bench",
+							"id:"+strconv.FormatInt(i, 10),
+							strconv.FormatFloat(lat, 'f', 5, 64),
+							strconv.FormatFloat(lon, 'f', 5, 64),
+						)
 					},
 				)
 				redbench.Bench("EVALNA (set point)", addr, fillOpts(), prepFn,
 					func(buf []byte) []byte {
 						i := atomic.AddInt64(&i, 1)
 						lat, lon := randPoint()
-						script := fmt.Sprintf(set_script, i, lat, lon)
-						return redbench.AppendCommand(buf, "EVALNA", script, "1", "key:bench")
+						return redbench.AppendCommand(buf, "EVALNA", set_script, "1",
+							"key:bench",
+							"id:"+strconv.FormatInt(i, 10),
+							strconv.FormatFloat(lat, 'f', 5, 64),
+							strconv.FormatFloat(lon, 'f', 5, 64),
+						)
 					},
 				)
 			}

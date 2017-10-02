@@ -136,8 +136,8 @@ func ListenAndServeEx(host string, port int, dir string, ln *net.Listener, http 
 		http:     http,
 	}
 
-	c.luascripts = c.InitScriptMap()
-	c.luapool = c.InitPool()
+	c.luascripts = c.NewScriptMap()
+	c.luapool = c.NewPool()
 	defer c.luapool.Shutdown()
 
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -533,7 +533,10 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 		// No locking for scripts, otherwise writes cannot happen within scripts
 	}
 
+	//s := time.Now()
 	res, d, err := c.command(msg, w, conn)
+	//log.Debugf("COMMAND TOOK %v\n", time.Since(s))
+
 	if res.Type() == resp.Error {
 		return writeErr(res.String())
 	}
@@ -707,9 +710,9 @@ func (c *Controller) command(
 	case "client":
 		res, err = c.cmdClient(msg, conn)
 	case "eval", "evalro", "evalna":
-		res, err = c.cmdEval(msg)
+		res, err = c.cmdEvalUnified(false, msg)
 	case "evalsha", "evalrosha", "evalnasha":
-		res, err = c.cmdEvalSha(msg)
+		res, err = c.cmdEvalUnified(true, msg)
 	case "script load":
 		res, err = c.cmdScriptLoad(msg)
 	case "script exists":

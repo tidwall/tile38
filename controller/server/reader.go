@@ -39,10 +39,10 @@ type Message struct {
 
 // PipelineReader ...
 type PipelineReader struct {
-	rd   io.Reader
-	wr   io.Writer
-	pbuf [0xFFFF]byte
-	rbuf []byte
+	rd     io.Reader
+	wr     io.Writer
+	packet [0xFFFF]byte
+	buf    []byte
 }
 
 const kindHTTP redcon.Kind = 9999
@@ -202,7 +202,7 @@ func readNextCommand(packet []byte, argsIn [][]byte, msg *Message, wr io.Writer)
 func (rd *PipelineReader) ReadMessages() ([]*Message, error) {
 	var msgs []*Message
 moreData:
-	n, err := rd.rd.Read(rd.pbuf[:])
+	n, err := rd.rd.Read(rd.packet[:])
 	if err != nil {
 		return nil, err
 	}
@@ -210,17 +210,13 @@ moreData:
 		// need more data
 		goto moreData
 	}
-	var packet []byte
-	if len(rd.rbuf) == 0 {
-		packet = rd.pbuf[:n]
-	} else {
-		rd.rbuf = append(rd.rbuf, rd.pbuf[:n]...)
-		packet = rd.rbuf
+	data := rd.packet[:n]
+	if len(rd.buf) > 0 {
+		data = append(rd.buf, data...)
 	}
-
-	for len(packet) > 0 {
+	for len(data) > 0 {
 		msg := &Message{}
-		complete, args, kind, leftover, err := readNextCommand(packet, nil, msg, rd.wr)
+		complete, args, kind, leftover, err := readNextCommand(data, nil, msg, rd.wr)
 		if err != nil {
 			break
 		}
@@ -247,12 +243,12 @@ moreData:
 			return nil, errInvalidHTTP
 		}
 		msgs = append(msgs, msg)
-		packet = leftover
+		data = leftover
 	}
-	if len(packet) > 0 {
-		rd.rbuf = append(rd.rbuf[:0], packet...)
-	} else if rd.rbuf != nil {
-		rd.rbuf = rd.rbuf[:0]
+	if len(data) > 0 {
+		rd.buf = append(rd.buf[:0], data...)
+	} else if len(rd.buf) > 0 {
+		rd.buf = rd.buf[:0]
 	}
 	if err != nil && len(msgs) == 0 {
 		return nil, err

@@ -88,10 +88,7 @@ func (c *Controller) cmdMassInsert(msg *server.Message) (res resp.Value, err err
 		if err != nil {
 			return err
 		}
-		if err := c.writeAOF(resp.ArrayValue(nmsg.Values), &d); err != nil {
-			return err
-		}
-		return nil
+		return c.writeAOF(resp.ArrayValue(nmsg.Values), &d)
 	}
 	rand.Seed(time.Now().UnixNano())
 	objs = int(n)

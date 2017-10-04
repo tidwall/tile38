@@ -20,8 +20,8 @@ import (
 )
 
 const (
-	INI_LUA_POOL_SIZE = 5
-	MAX_LUA_POOL_SIZE = 1000
+	iniLuaPoolSize = 5
+	maxLuaPoolSize = 1000
 )
 
 var errShaNotFound = errors.New("sha not found")
@@ -39,15 +39,16 @@ type lStatePool struct {
 	total int
 }
 
+// NewPool returns a new pool of lua states
 func (c *Controller) NewPool() *lStatePool {
 	pl := &lStatePool{
 		saved: make([]*lua.LState, 0),
 		c: c,
 	}
 	// Fill the pool with some ready handlers
-	for i := 0; i < INI_LUA_POOL_SIZE; i++ {
+	for i := 0; i < iniLuaPoolSize; i++ {
 		pl.Put(pl.New())
-		pl.total += 1
+		pl.total ++
 	}
 	return pl
 }
@@ -57,10 +58,10 @@ func (pl *lStatePool) Get() (*lua.LState, error) {
 	defer pl.m.Unlock()
 	n := len(pl.saved)
 	if n == 0 {
-		if pl.total >= MAX_LUA_POOL_SIZE {
+		if pl.total >= maxLuaPoolSize {
 			return nil, errNoLuasAvailable
 		}
-		pl.total += 1
+		pl.total ++
 		return pl.New(), nil
 	}
 	x := pl.saved[n-1]
@@ -71,7 +72,7 @@ func (pl *lStatePool) Get() (*lua.LState, error) {
 func (pl *lStatePool) New() *lua.LState {
 	L := lua.NewState()
 
-	get_args := func(ls *lua.LState) (evalCmd string, args []string) {
+	getArgs := func(ls *lua.LState) (evalCmd string, args []string) {
 		evalCmd = ls.GetGlobal("EVAL_CMD").String()
 		//log.Debugf("EVAL_CMD %s\n", evalCmd)
 
@@ -88,52 +89,54 @@ func (pl *lStatePool) New() *lua.LState {
 		return
 	}
 	call := func(ls *lua.LState) int {
-		evalCmd, args := get_args(ls)
+		evalCmd, args := getArgs(ls)
+		var numRet int
 		if res, err := pl.c.luaTile38Call(evalCmd, args[0], args[1:]...); err != nil {
 			//log.Debugf("RES type: %s value: %s ERR %s\n", res.Type(), res.String(), err);
 			ls.RaiseError("ERR %s", err.Error())
-			return 0
+			numRet = 0
 		} else {
 			//log.Debugf("RES type: %s value: %s\n", res.Type(), res.String());
 			ls.Push(ConvertToLua(ls, res))
-			return 1
+			numRet = 1
 		}
+		return numRet
 	}
 	pcall := func(ls *lua.LState) int {
-		evalCmd, args := get_args(ls)
+		evalCmd, args := getArgs(ls)
 		if res, err := pl.c.luaTile38Call(evalCmd, args[0], args[1:]...); err != nil {
 			//log.Debugf("RES type: %s value: %s ERR %s\n", res.Type(), res.String(), err);
 			ls.Push(ConvertToLua(ls, resp.ErrorValue(err)))
-			return 1
 		} else {
 			//log.Debugf("RES type: %s value: %s\n", res.Type(), res.String());
 			ls.Push(ConvertToLua(ls, res))
-			return 1
 		}
+		return 1
+
 	}
-	error_reply := func(ls *lua.LState) int {
+	errorReply := func(ls *lua.LState) int {
 		tbl := L.CreateTable(0, 1)
 		tbl.RawSetString("err", lua.LString(ls.ToString(1)))
 		ls.Push(tbl)
 		return 1
 	}
-	status_reply := func(ls *lua.LState) int {
+	statusReply := func(ls *lua.LState) int {
 		tbl := L.CreateTable(0, 1)
 		tbl.RawSetString("ok", lua.LString(ls.ToString(1)))
 		ls.Push(tbl)
 		return 1
 	}
 	sha1hex := func(ls *lua.LState) int {
-		sha_sum := Sha1Sum(ls.ToString(1))
-		ls.Push(lua.LString(sha_sum))
+		shaSum := Sha1Sum(ls.ToString(1))
+		ls.Push(lua.LString(shaSum))
 		return 1
 	}
 	var exports = map[string]lua.LGFunction {
-		"call": call,
-		"pcall": pcall,
-		"error_reply": error_reply,
-		"status_reply": status_reply,
-		"sha1hex": sha1hex,
+		"call":         call,
+		"pcall":        pcall,
+		"error_reply":  errorReply,
+		"status_reply": statusReply,
+		"sha1hex":      sha1hex,
 	}
 	L.SetGlobal("tile38", L.SetFuncs(L.NewTable(), exports))
 	return L
@@ -178,6 +181,7 @@ func (sm *lScriptMap) Flush() {
 	sm.m.Unlock()
 }
 
+// NewScriptMap returns a new map with lua scripts
 func (c *Controller) NewScriptMap() *lScriptMap {
 	return &lScriptMap{
 		scripts: make(map[string]*lua.FunctionProto),
@@ -185,7 +189,7 @@ func (c *Controller) NewScriptMap() *lScriptMap {
 }
 
 
-// Convert RESP value to lua LValue
+// ConvertToLua converts RESP value to lua LValue
 func ConvertToLua(L *lua.LState, val resp.Value) lua.LValue {
 	if val.IsNull() {
 		return lua.LFalse
@@ -213,23 +217,22 @@ func ConvertToLua(L *lua.LState, val resp.Value) lua.LValue {
 	return lua.LString("ERR: unknown RESP type: " + val.Type().String())
 }
 
-// Convert lua LValue to RESP value
-func ConvertToResp(val lua.LValue) resp.Value {
+// ConvertToRESP convert lua LValue to RESP value
+func ConvertToRESP(val lua.LValue) resp.Value {
 	switch val.Type() {
 	case lua.LTNil:
 		return resp.NullValue()
 	case lua.LTBool:
 		if val == lua.LTrue {
 			return resp.IntegerValue(1)
-		} else {
-			return resp.NullValue()
 		}
+		return resp.NullValue()
 	case lua.LTNumber:
-		if float := float64(val.(lua.LNumber)); math.IsNaN(float) || math.IsInf(float, 0) {
+		float := float64(val.(lua.LNumber))
+		if math.IsNaN(float) || math.IsInf(float, 0) {
 			return resp.FloatValue(float)
-		} else {
-			return resp.IntegerValue(int(math.Floor(float)))
 		}
+		return resp.IntegerValue(int(math.Floor(float)))
 	case lua.LTString:
 		return resp.StringValue(val.String())
 	case lua.LTTable:
@@ -240,7 +243,7 @@ func ConvertToResp(val lua.LValue) resp.Value {
 
 		if tbl.Len() != 0 { // list
 			cb = func(lk lua.LValue, lv lua.LValue){
-				values = append(values, ConvertToResp(lv))
+				values = append(values, ConvertToRESP(lv))
 			}
 		} else { // map
 			cb = func(lk lua.LValue, lv lua.LValue){
@@ -254,7 +257,7 @@ func ConvertToResp(val lua.LValue) resp.Value {
 					}
 				}
 				values = append(values, resp.ArrayValue(
-					[]resp.Value{ConvertToResp(lk), ConvertToResp(lv)}))
+					[]resp.Value{ConvertToRESP(lk), ConvertToRESP(lv)}))
 			}
 		}
 		tbl.ForEach(cb)
@@ -266,24 +269,23 @@ func ConvertToResp(val lua.LValue) resp.Value {
 	return resp.ErrorValue(errors.New("Unsupported lua type: " + val.Type().String()))
 }
 
-// Convert lua LValue to JSON string
-func ConvertToJson(val lua.LValue) string {
+// ConvertToJSON converts lua LValue to JSON string
+func ConvertToJSON(val lua.LValue) string {
 	switch val.Type() {
 	case lua.LTNil:
 		return "null"
 	case lua.LTBool:
 		if val == lua.LTrue {
 			return "true"
-		} else {
-			return "false"
 		}
+		return "false"
 	case lua.LTNumber:
 		return val.String()
 	case lua.LTString:
-		if b, err := json.Marshal(val.String()); err == nil {
-			return string(b)
-		} else {
+		if b, err := json.Marshal(val.String()); err != nil {
 			panic(err)
+		} else {
+			return string(b)
 		}
 	case lua.LTTable:
 		var values []string
@@ -295,14 +297,14 @@ func ConvertToJson(val lua.LValue) string {
 			start = `[`
 			end = `]`
 			cb = func(lk lua.LValue, lv lua.LValue){
-				values = append(values, ConvertToJson(lv))
+				values = append(values, ConvertToJSON(lv))
 			}
 		} else { // map
 			start = `{`
 			end=`}`
 			cb = func(lk lua.LValue, lv lua.LValue){
 				values = append(
-					values, ConvertToJson(lk) + `:` + ConvertToJson(lv))
+					values, ConvertToJSON(lk) + `:` + ConvertToJSON(lv))
 			}
 		}
 		tbl.ForEach(cb)
@@ -317,6 +319,7 @@ func luaStateCleanup(ls *lua.LState) {
 	ls.SetGlobal("EVAL_CMD", lua.LNil)
 }
 
+// Sha1Sum returns a string with hex representation of sha1 sum of a given string
 func Sha1Sum(s string) string {
 	h := sha1.New()
 	h.Write([]byte(s))
@@ -334,18 +337,18 @@ func (c* Controller) cmdEvalUnified(scriptIsSha bool, msg *server.Message) (res 
 	vs := msg.Values[1:]
 
 	var ok bool
-	var script, numkeys_str, key, arg string
+	var script, numkeysStr, key, arg string
 	if vs, script, ok = tokenval(vs); !ok || script == "" {
 		return server.NOMessage, errInvalidNumberOfArguments
 	}
 
-	if vs, numkeys_str, ok = tokenval(vs); !ok || numkeys_str == "" {
+	if vs, numkeysStr, ok = tokenval(vs); !ok || numkeysStr == "" {
 		return server.NOMessage, errInvalidNumberOfArguments
 	}
 
 	var i, numkeys uint64
-	if numkeys, err = strconv.ParseUint(numkeys_str, 10, 64); err != nil {
-		err = errInvalidArgument(numkeys_str)
+	if numkeys, err = strconv.ParseUint(numkeysStr, 10, 64); err != nil {
+		err = errInvalidArgument(numkeysStr)
 		return
 	}
 
@@ -355,36 +358,36 @@ func (c* Controller) cmdEvalUnified(scriptIsSha bool, msg *server.Message) (res 
 	}
 	defer c.luapool.Put(luaState)
 
-	keys_tbl := luaState.CreateTable(int(numkeys), 0)
+	keysTbl := luaState.CreateTable(int(numkeys), 0)
 	for i = 0; i < numkeys; i++ {
 		if vs, key, ok = tokenval(vs); !ok || key == "" {
 			err = errInvalidNumberOfArguments
 			return
 		}
-		keys_tbl.Append(lua.LString(key))
+		keysTbl.Append(lua.LString(key))
 	}
 
-	args_tbl := luaState.CreateTable(len(vs), 0)
+	argsTbl := luaState.CreateTable(len(vs), 0)
 	for len(vs) > 0 {
 		if vs, arg, ok = tokenval(vs); !ok || arg == "" {
 			err = errInvalidNumberOfArguments
 			return
 		}
-		args_tbl.Append(lua.LString(arg))
+		argsTbl.Append(lua.LString(arg))
 	}
 
-	var sha_sum string
+	var shaSum string
 	if scriptIsSha {
-		sha_sum = script
+		shaSum = script
 	} else {
-		sha_sum = Sha1Sum(script)
+		shaSum = Sha1Sum(script)
 	}
 
-	luaState.SetGlobal("KEYS", keys_tbl)
-	luaState.SetGlobal("ARGS", args_tbl)
+	luaState.SetGlobal("KEYS", keysTbl)
+	luaState.SetGlobal("ARGS", argsTbl)
 	luaState.SetGlobal("EVAL_CMD", lua.LString(msg.Command))
 
-	compiled, ok := c.luascripts.Get(sha_sum)
+	compiled, ok := c.luascripts.Get(shaSum)
 	var fn *lua.LFunction
 	if ok {
 		fn = &lua.LFunction{
@@ -395,17 +398,17 @@ func (c* Controller) cmdEvalUnified(scriptIsSha bool, msg *server.Message) (res 
 			GFunction: nil,
 			Upvalues:  make([]*lua.Upvalue, 0),
 		}
-		//log.Debugf("RETRIEVED %s\n", sha_sum)
+		//log.Debugf("RETRIEVED %s\n", shaSum)
 	} else if scriptIsSha {
 		err = errShaNotFound
 		return
 	} else {
-		fn, err = luaState.Load(strings.NewReader(script), "f_" + sha_sum)
+		fn, err = luaState.Load(strings.NewReader(script), "f_" +shaSum)
 		if err != nil {
 			return server.NOMessage, makeSafeErr(err)
 		}
-		c.luascripts.Put(sha_sum, fn.Proto)
-		//log.Debugf("STORED %s\n", sha_sum)
+		c.luascripts.Put(shaSum, fn.Proto)
+		//log.Debugf("STORED %s\n", shaSum)
 	}
 	luaState.Push(fn)
 	defer luaStateCleanup(luaState)
@@ -422,11 +425,11 @@ func (c* Controller) cmdEvalUnified(scriptIsSha bool, msg *server.Message) (res 
 	case server.JSON:
 		var buf bytes.Buffer
 		buf.WriteString(`{"ok":true`)
-		buf.WriteString(`,"result":` + ConvertToJson(ret))
+		buf.WriteString(`,"result":` + ConvertToJSON(ret))
 		buf.WriteString(`,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
 		return resp.StringValue(buf.String()), nil
 	case server.RESP:
-		return ConvertToResp(ret), nil
+		return ConvertToRESP(ret), nil
 	}
 	return server.NOMessage, nil
 }
@@ -442,7 +445,7 @@ func (c* Controller) cmdScriptLoad(msg *server.Message) (resp.Value, error) {
 	}
 
 	//log.Debugf("SCRIPT source:\n%s\n\n", script)
-	sha_sum := Sha1Sum(script)
+	shaSum := Sha1Sum(script)
 
 	luaState, err := c.luapool.Get()
 	if err != nil {
@@ -450,22 +453,22 @@ func (c* Controller) cmdScriptLoad(msg *server.Message) (resp.Value, error) {
 	}
 	defer c.luapool.Put(luaState)
 
-	fn, err := luaState.Load(strings.NewReader(script), "f_" + sha_sum)
+	fn, err := luaState.Load(strings.NewReader(script), "f_" +shaSum)
 	if err != nil {
 		return server.NOMessage, makeSafeErr(err)
 	}
-	c.luascripts.Put(sha_sum, fn.Proto)
-	//log.Debugf("STORED %s\n", sha_sum)
+	c.luascripts.Put(shaSum, fn.Proto)
+	//log.Debugf("STORED %s\n", shaSum)
 
 	switch msg.OutputType {
 	case server.JSON:
 		var buf bytes.Buffer
 		buf.WriteString(`{"ok":true`)
-		buf.WriteString(`,"result":"` + sha_sum + `"`)
+		buf.WriteString(`,"result":"` + shaSum + `"`)
 		buf.WriteString(`,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
 		return resp.StringValue(buf.String()), nil
 	case server.RESP:
-		return resp.StringValue(sha_sum), nil
+		return resp.StringValue(shaSum), nil
 	}
 	return server.NOMessage, nil
 }
@@ -475,14 +478,14 @@ func (c* Controller) cmdScriptExists(msg *server.Message) (resp.Value, error) {
 	vs := msg.Values[1:]
 
 	var ok bool
-	var sha_sum string
+	var shaSum string
 	var results []int
 	var ires int
 	for len(vs) > 0 {
-		if vs, sha_sum, ok = tokenval(vs); !ok || sha_sum == "" {
+		if vs, shaSum, ok = tokenval(vs); !ok || shaSum == "" {
 			return server.NOMessage, errInvalidNumberOfArguments
 		}
-		_, ok = c.luascripts.Get(sha_sum)
+		_, ok = c.luascripts.Get(shaSum)
 		if ok {
 			ires = 1
 		} else {
@@ -495,19 +498,19 @@ func (c* Controller) cmdScriptExists(msg *server.Message) (resp.Value, error) {
 	case server.JSON:
 		var buf bytes.Buffer
 		buf.WriteString(`{"ok":true`)
-		var res_array []string
+		var resArray []string
 		for _, ires := range results {
-			res_array = append(res_array, fmt.Sprintf("%d", ires))
+			resArray = append(resArray, fmt.Sprintf("%d", ires))
 		}
-		buf.WriteString(`,"result":[` + strings.Join(res_array, ",") + `]`)
+		buf.WriteString(`,"result":[` + strings.Join(resArray, ",") + `]`)
 		buf.WriteString(`,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
 		return resp.StringValue(buf.String()), nil
 	case server.RESP:
-		var res_array []resp.Value
+		var resArray []resp.Value
 		for _, ires := range results {
-			res_array = append(res_array, resp.IntegerValue(ires))
+			resArray = append(resArray, resp.IntegerValue(ires))
 		}
-		return resp.ArrayValue(res_array), nil
+		return resp.ArrayValue(resArray), nil
 	}
 	return resp.SimpleStringValue(""), nil
 }

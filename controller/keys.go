@@ -89,7 +89,6 @@ func (c *Controller) cmdKeys(msg *server.Message) (res resp.Value, err error) {
 	if msg.OutputType == server.JSON {
 		wr.WriteString(`],"elapsed":"` + time.Now().Sub(start).String() + "\"}")
 		return resp.StringValue(wr.String()), nil
-	} else {
-		return resp.ArrayValue(vals), nil
 	}
+	return resp.ArrayValue(vals), nil
 }

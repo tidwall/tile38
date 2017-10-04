@@ -359,18 +359,18 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 		words = append(words, v.String())
 	}
 	start := time.Now()
-	serialize_output := func(res resp.Value) (string, error) {
-		var res_str string
+	serializeOutput := func(res resp.Value) (string, error) {
+		var resStr string
 		var err error
 		switch msg.OutputType {
 		case server.JSON:
-			res_str = res.String()
+			resStr = res.String()
 		case server.RESP:
-			var res_bytes []byte
-			res_bytes, err = res.MarshalRESP()
-			res_str = string(res_bytes)
+			var resBytes []byte
+			resBytes, err = res.MarshalRESP()
+			resStr = string(resBytes)
 		}
-		return res_str, err
+		return resStr, err
 	}
 	writeOutput := func(res string) error {
 		switch msg.ConnType {
@@ -461,8 +461,8 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 			}
 			conn.Authenticated = true
 			if msg.ConnType != server.HTTP {
-				res_str, _ := serialize_output(server.OKMessage(msg, start))
-				return writeOutput(res_str)
+				resStr, _ := serializeOutput(server.OKMessage(msg, start))
+				return writeOutput(resStr)
 			}
 		} else if msg.Command == "auth" {
 			return writeErr("invalid password")
@@ -557,12 +557,12 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 	}
 
 	if !isRespValueEmptyString(res) {
-		var res_str string
-		res_str, err := serialize_output(res)
+		var resStr string
+		resStr, err := serializeOutput(res)
 		if err != nil {
 			return err
 		}
-		if err := writeOutput(res_str); err != nil {
+		if err := writeOutput(resStr); err != nil {
 			return err
 		}
 	}

@@ -205,14 +205,14 @@ func (c *Controller) cmdClient(msg *server.Message, conn *server.Conn) (resp.Val
 		if cclose.conn == conn {
 			// closing self, return response now
 			// NOTE: This is the only exception where we do convert response to a string
-			var out_bytes []byte
+			var outBytes []byte
 			switch msg.OutputType {
 			case server.JSON:
-				out_bytes = res.Bytes()
+				outBytes = res.Bytes()
 			case server.RESP:
-				out_bytes, _ = res.MarshalRESP()
+				outBytes, _ = res.MarshalRESP()
 			}
-			cclose.conn.Write(out_bytes)
+			cclose.conn.Write(outBytes)
 		}
 		cclose.conn.Close()
 		return res, nil

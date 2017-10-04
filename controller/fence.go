@@ -84,7 +84,7 @@ func fenceMatch(hookName string, sw *scanWriter, fence *liveFenceSwitches, metas
 	}
 	var roamkeys, roamids []string
 	var roammeters []float64
-	var detect string = "outside"
+	var detect = "outside"
 	if fence != nil {
 		if fence.roam.on {
 			if details.command == "set" {

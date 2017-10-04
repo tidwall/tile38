@@ -43,12 +43,12 @@ type lStatePool struct {
 func (c *Controller) NewPool() *lStatePool {
 	pl := &lStatePool{
 		saved: make([]*lua.LState, 0),
-		c: c,
+		c:     c,
 	}
 	// Fill the pool with some ready handlers
 	for i := 0; i < iniLuaPoolSize; i++ {
 		pl.Put(pl.New())
-		pl.total ++
+		pl.total++
 	}
 	return pl
 }
@@ -61,7 +61,7 @@ func (pl *lStatePool) Get() (*lua.LState, error) {
 		if pl.total >= maxLuaPoolSize {
 			return nil, errNoLuasAvailable
 		}
-		pl.total ++
+		pl.total++
 		return pl.New(), nil
 	}
 	x := pl.saved[n-1]
@@ -131,7 +131,7 @@ func (pl *lStatePool) New() *lua.LState {
 		ls.Push(lua.LString(shaSum))
 		return 1
 	}
-	var exports = map[string]lua.LGFunction {
+	var exports = map[string]lua.LGFunction{
 		"call":         call,
 		"pcall":        pcall,
 		"error_reply":  errorReply,
@@ -188,7 +188,6 @@ func (c *Controller) NewScriptMap() *lScriptMap {
 	}
 }
 
-
 // ConvertToLua converts RESP value to lua LValue
 func ConvertToLua(L *lua.LState, val resp.Value) lua.LValue {
 	if val.IsNull() {
@@ -242,11 +241,11 @@ func ConvertToRESP(val lua.LValue) resp.Value {
 		tbl := val.(*lua.LTable)
 
 		if tbl.Len() != 0 { // list
-			cb = func(lk lua.LValue, lv lua.LValue){
+			cb = func(lk lua.LValue, lv lua.LValue) {
 				values = append(values, ConvertToRESP(lv))
 			}
 		} else { // map
-			cb = func(lk lua.LValue, lv lua.LValue){
+			cb = func(lk lua.LValue, lv lua.LValue) {
 				if lk.Type() == lua.LTString {
 					lks := lk.String()
 					switch lks {
@@ -296,15 +295,15 @@ func ConvertToJSON(val lua.LValue) string {
 		if tbl.Len() != 0 { // list
 			start = `[`
 			end = `]`
-			cb = func(lk lua.LValue, lv lua.LValue){
+			cb = func(lk lua.LValue, lv lua.LValue) {
 				values = append(values, ConvertToJSON(lv))
 			}
 		} else { // map
 			start = `{`
-			end=`}`
-			cb = func(lk lua.LValue, lv lua.LValue){
+			end = `}`
+			cb = func(lk lua.LValue, lv lua.LValue) {
 				values = append(
-					values, ConvertToJSON(lk) + `:` + ConvertToJSON(lv))
+					values, ConvertToJSON(lk)+`:`+ConvertToJSON(lv))
 			}
 		}
 		tbl.ForEach(cb)
@@ -323,7 +322,7 @@ func luaStateCleanup(ls *lua.LState) {
 func Sha1Sum(s string) string {
 	h := sha1.New()
 	h.Write([]byte(s))
-    return hex.EncodeToString(h.Sum(nil))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // Replace newlines with literal \n since RESP errors cannot have newlines
@@ -332,7 +331,7 @@ func makeSafeErr(err error) error {
 }
 
 // Run eval/evalro/evalna command or it's -sha variant
-func (c* Controller) cmdEvalUnified(scriptIsSha bool, msg *server.Message) (res resp.Value, err error) {
+func (c *Controller) cmdEvalUnified(scriptIsSha bool, msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 
@@ -403,7 +402,7 @@ func (c* Controller) cmdEvalUnified(scriptIsSha bool, msg *server.Message) (res 
 		err = errShaNotFound
 		return
 	} else {
-		fn, err = luaState.Load(strings.NewReader(script), "f_" +shaSum)
+		fn, err = luaState.Load(strings.NewReader(script), "f_"+shaSum)
 		if err != nil {
 			return server.NOMessage, makeSafeErr(err)
 		}
@@ -434,7 +433,7 @@ func (c* Controller) cmdEvalUnified(scriptIsSha bool, msg *server.Message) (res 
 	return server.NOMessage, nil
 }
 
-func (c* Controller) cmdScriptLoad(msg *server.Message) (resp.Value, error) {
+func (c *Controller) cmdScriptLoad(msg *server.Message) (resp.Value, error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 
@@ -453,7 +452,7 @@ func (c* Controller) cmdScriptLoad(msg *server.Message) (resp.Value, error) {
 	}
 	defer c.luapool.Put(luaState)
 
-	fn, err := luaState.Load(strings.NewReader(script), "f_" +shaSum)
+	fn, err := luaState.Load(strings.NewReader(script), "f_"+shaSum)
 	if err != nil {
 		return server.NOMessage, makeSafeErr(err)
 	}
@@ -473,7 +472,7 @@ func (c* Controller) cmdScriptLoad(msg *server.Message) (resp.Value, error) {
 	return server.NOMessage, nil
 }
 
-func (c* Controller) cmdScriptExists(msg *server.Message) (resp.Value, error) {
+func (c *Controller) cmdScriptExists(msg *server.Message) (resp.Value, error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 
@@ -515,7 +514,7 @@ func (c* Controller) cmdScriptExists(msg *server.Message) (resp.Value, error) {
 	return resp.SimpleStringValue(""), nil
 }
 
-func (c* Controller) cmdScriptFlush(msg *server.Message) (resp.Value, error) {
+func (c *Controller) cmdScriptFlush(msg *server.Message) (resp.Value, error) {
 	start := time.Now()
 	c.luascripts.Flush()
 
@@ -614,7 +613,6 @@ func (c *Controller) luaTile38Call(evalcmd string, cmd string, args ...string) (
 	return resp.NullValue(), errCmdNotSupported
 }
 
-
 // The eval command has already got the lock. No locking on the call from within the script.
 func (c *Controller) luaTile38AtomicRW(msg *server.Message) (resp.Value, error) {
 	var write bool
@@ -677,7 +675,7 @@ func (c *Controller) luaTile38AtomicRO(msg *server.Message) (resp.Value, error) 
 	return res, nil
 }
 
-func (c *Controller) luaTile38NonAtomic(msg *server.Message) (resp.Value, error){
+func (c *Controller) luaTile38NonAtomic(msg *server.Message) (resp.Value, error) {
 	var write bool
 
 	// choose the locking strategy

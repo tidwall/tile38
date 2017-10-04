@@ -64,7 +64,7 @@ func (c *Controller) loadAOF() error {
 			}
 			return err
 		}
-		nn ++
+		nn++
 		if ch != '*' {
 			return errInvalidAOF
 		}

@@ -95,20 +95,20 @@ type Controller struct {
 	cols    *btree.BTree                    // data collections
 	expires map[string]map[string]time.Time // synced with cols
 
-	follows   map[*bytes.Buffer]bool
-	fcond     *sync.Cond
-	lstack    []*commandDetailsT
-	lives     map[*liveBuffer]bool
-	lcond     *sync.Cond
-	fcup      bool                        // follow caught up
-	fcuponce  bool                        // follow caught up once
-	shrinking bool                        // aof shrinking flag
-	shrinklog [][]string                  // aof shrinking log
-	hooks     map[string]*Hook            // hook name
-	hookcols  map[string]map[string]*Hook // col key
-	aofconnM  map[net.Conn]bool
+	follows    map[*bytes.Buffer]bool
+	fcond      *sync.Cond
+	lstack     []*commandDetailsT
+	lives      map[*liveBuffer]bool
+	lcond      *sync.Cond
+	fcup       bool                        // follow caught up
+	fcuponce   bool                        // follow caught up once
+	shrinking  bool                        // aof shrinking flag
+	shrinklog  [][]string                  // aof shrinking log
+	hooks      map[string]*Hook            // hook name
+	hookcols   map[string]map[string]*Hook // col key
+	aofconnM   map[net.Conn]bool
 	luascripts *lScriptMap
-	luapool   *lStatePool
+	luapool    *lStatePool
 }
 
 // ListenAndServe starts a new tile38 server
@@ -570,10 +570,8 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 	return nil
 }
 
-
 func isRespValueEmptyString(val resp.Value) bool {
-	return !val.IsNull() && (
-		val.Type() == resp.SimpleString || val.Type() == resp.BulkString) && len(val.Bytes()) == 0
+	return !val.IsNull() && (val.Type() == resp.SimpleString || val.Type() == resp.BulkString) && len(val.Bytes()) == 0
 }
 
 func randomKey(n int) string {

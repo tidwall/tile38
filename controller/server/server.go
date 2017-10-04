@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tidwall/resp"
 	"github.com/tidwall/tile38/controller/log"
 	"github.com/tidwall/tile38/core"
-	"github.com/tidwall/resp"
 )
 
 // This phrase is copied nearly verbatim from Redis.

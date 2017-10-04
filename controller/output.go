@@ -4,8 +4,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tidwall/tile38/controller/server"
 	"github.com/tidwall/resp"
+	"github.com/tidwall/tile38/controller/server"
 )
 
 func (c *Controller) cmdOutput(msg *server.Message) (res resp.Value, err error) {

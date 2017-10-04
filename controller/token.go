@@ -280,7 +280,7 @@ func parseSearchScanBaseTokens(cmd string, vs []resp.Value) (vsout []resp.Value,
 						err = errInvalidNumberOfArguments
 						return
 					}
-					if val, err = strconv.ParseFloat(valStr, 64); err != nil  {
+					if val, err = strconv.ParseFloat(valStr, 64); err != nil {
 						err = errInvalidArgument(valStr)
 						return
 					}

@@ -1,9 +1,9 @@
 package tests
 
 import (
-	"testing"
 	"fmt"
 	"strings"
+	"testing"
 )
 
 func subTestScripts(t *testing.T, mc *mockServer) {
@@ -38,16 +38,16 @@ func scripts_ATOMIC_test(mc *mockServer) error {
 func scripts_READONLY_test(mc *mockServer) error {
 	return mc.DoBatch([][]interface{}{
 		{"EVALRO", "return tile38.call('get', KEYS[1], ARGS[1])", "1", "mykey", "myid"}, {nil},
-		{"EVALRO", "return tile38.call('set', KEYS[1], ARGS[1], 'point', 33, -115)", "1", "mykey", "myid1"},  {
+		{"EVALRO", "return tile38.call('set', KEYS[1], ARGS[1], 'point', 33, -115)", "1", "mykey", "myid1"}, {
 			func(v interface{}) (resp, expect interface{}) {
 				s := fmt.Sprintf("%v", v)
-				if strings.Contains(s, "ERR read only"){
+				if strings.Contains(s, "ERR read only") {
 					return v, v
 				}
 				return v, "A lua stack containing 'ERR read only'"
 			},
 		},
-		{"EVALRO", "return tile38.pcall('set', KEYS[1], ARGS[1], 'point', 33, -115)", "1", "mykey", "myid1"},  {"ERR read only"},
+		{"EVALRO", "return tile38.pcall('set', KEYS[1], ARGS[1], 'point', 33, -115)", "1", "mykey", "myid1"}, {"ERR read only"},
 		{"SET", "mykey", "myid1", "POINT", 33, -115}, {"OK"},
 		{"EVALRO", "return tile38.call('get', KEYS[1], ARGS[1], ARGS[2])", "1", "mykey", "myid1", "point"}, {"[33 -115]"},
 	})

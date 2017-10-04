@@ -1,10 +1,10 @@
 package main
 
 import (
-	"fmt"
 	"crypto/sha1"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"math"
 	"runtime"
 	"runtime/debug"
@@ -48,11 +48,11 @@ func ConvertToResp(val lua.LValue) resp.Value {
 		tbl := val.(*lua.LTable)
 
 		if tbl.Len() != 0 { // list
-			cb = func(lk lua.LValue, lv lua.LValue){
+			cb = func(lk lua.LValue, lv lua.LValue) {
 				values = append(values, ConvertToResp(lv))
 			}
 		} else { // map
-			cb = func(lk lua.LValue, lv lua.LValue){
+			cb = func(lk lua.LValue, lv lua.LValue) {
 				if lk.Type() == lua.LTString {
 					lks := lk.String()
 					switch lks {
@@ -175,12 +175,12 @@ func NewLuaState() *lua.LState {
 		ls.Push(lua.LString(sha_sum))
 		return 1
 	}
-	var exports = map[string]lua.LGFunction {
-		"call": call,
-		"pcall": pcall,
-		"error_reply": error_reply,
+	var exports = map[string]lua.LGFunction{
+		"call":         call,
+		"pcall":        pcall,
+		"error_reply":  error_reply,
 		"status_reply": status_reply,
-		"sha1hex": sha1hex,
+		"sha1hex":      sha1hex,
 	}
 	L.SetGlobal("tile38", L.SetFuncs(L.NewTable(), exports))
 	return L
@@ -205,7 +205,6 @@ func runLuaFunc(luaState *lua.LState, script string, name string) resp.Value {
 	luaState.SetGlobal("EVAL_CMD", lua.LNil)
 	return ConvertToResp(ret)
 }
-
 
 func runMany(luaState *lua.LState, start int, num int) int {
 	fmt.Printf("\nRunning %d lua calls... ", num)
@@ -249,31 +248,31 @@ func testLua() {
 
 	printMemStats()
 
-	start = runMany(luaState, start,100)
+	start = runMany(luaState, start, 100)
 	printMemStats()
 
-	start = runMany(luaState, start,100)
+	start = runMany(luaState, start, 100)
 	printMemStats()
 
-	start = runMany(luaState, start,100)
+	start = runMany(luaState, start, 100)
 	printMemStats()
 
-	start = runMany(luaState, start,100)
+	start = runMany(luaState, start, 100)
 	printMemStats()
 
-	start = runMany(luaState, start,1000)
+	start = runMany(luaState, start, 1000)
 	printMemStats()
 
-	start = runMany(luaState, start,10000)
+	start = runMany(luaState, start, 10000)
 	printMemStats()
 
-	start = runMany(luaState, start,1000)
+	start = runMany(luaState, start, 1000)
 	printMemStats()
 
-	start = runMany(luaState, start,100)
+	start = runMany(luaState, start, 100)
 	printMemStats()
 
-	start = runMany(luaState, start,1000)
+	start = runMany(luaState, start, 1000)
 	printMemStats()
 
 	luaState.Close()

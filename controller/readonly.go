@@ -4,9 +4,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tidwall/resp"
 	"github.com/tidwall/tile38/controller/log"
 	"github.com/tidwall/tile38/controller/server"
-	"github.com/tidwall/resp"
 )
 
 func (c *Controller) cmdReadOnly(msg *server.Message) (res resp.Value, err error) {

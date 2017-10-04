@@ -422,7 +422,7 @@ func (c* Controller) cmdEvalUnified(scriptIsSha bool, msg *server.Message) (res 
 	case server.JSON:
 		var buf bytes.Buffer
 		buf.WriteString(`{"ok":true`)
-		buf.WriteString(`,"result":"` + ConvertToJson(ret) + `"`)
+		buf.WriteString(`,"result":` + ConvertToJson(ret))
 		buf.WriteString(`,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
 		return resp.StringValue(buf.String()), nil
 	case server.RESP:

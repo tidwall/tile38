@@ -64,7 +64,7 @@ func writeMessage(conn net.Conn, message []byte, wrapRESP bool, connType server.
 	return err
 }
 
-func (c *Controller) goLive(inerr error, conn net.Conn, rd *server.AnyReaderWriter, msg *server.Message, websocket bool) error {
+func (c *Controller) goLive(inerr error, conn net.Conn, rd *server.PipelineReader, msg *server.Message, websocket bool) error {
 	addr := conn.RemoteAddr().String()
 	log.Info("live " + addr)
 	defer func() {
@@ -114,22 +114,24 @@ func (c *Controller) goLive(inerr error, conn net.Conn, rd *server.AnyReaderWrit
 			conn.Close()
 		}()
 		for {
-			v, err := rd.ReadMessage()
+			vs, err := rd.ReadMessages()
 			if err != nil {
 				if err != io.EOF && !(websocket && err == io.ErrUnexpectedEOF) {
 					log.Error(err)
 				}
 				return
 			}
-			if v == nil {
-				continue
-			}
-			switch v.Command {
-			default:
-				log.Error("received a live command that was not QUIT")
-				return
-			case "quit", "":
-				return
+			for _, v := range vs {
+				if v == nil {
+					continue
+				}
+				switch v.Command {
+				default:
+					log.Error("received a live command that was not QUIT")
+					return
+				case "quit", "":
+					return
+				}
 			}
 		}
 	}()

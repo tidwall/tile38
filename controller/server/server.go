@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -14,30 +15,23 @@ import (
 )
 
 // This phrase is copied nearly verbatim from Redis.
-// https://github.com/antirez/redis/blob/cf42c48adcea05c1bd4b939fcd36a01f23ec6303/src/networking.c
-var deniedMessage = []byte(strings.TrimSpace(`
-ACCESS DENIED
-Tile38 is running in protected mode because protected mode is enabled, no host
-address was specified, no authentication password is requested to clients. In
-this mode connections are only accepted from the loopback interface. If you
-want to connect from external computers to Tile38 you may adopt one of the
-following solutions:
-
-1) Disable protected mode by sending the command 'CONFIG SET protected-mode no'
-   from the loopback interface by connecting to Tile38 from the same host
-   the server is running, however MAKE SURE Tile38 is not publicly accessible
-   from internet if you do so. Use CONFIG REWRITE to make this change
-   permanent.
-2) Alternatively you can just disable the protected mode by editing the Tile38
-   configuration file, and setting the 'protected-mode' option to 'no', and
-   then restarting the server.
-3) If you started the server manually just for testing, restart it with the
-   '--protected-mode no' option.
-4) Use a host address or an authentication password.
-
-NOTE: You only need to do one of the above things in order for the server
-to start accepting connections from the outside.
-`) + "\r\n")
+var deniedMessage = []byte(strings.Replace(strings.TrimSpace(`
+-DENIED Tile38 is running in protected mode because protected mode is enabled,
+no bind address was specified, no authentication password is requested to
+clients. In this mode connections are only accepted from the loopback
+interface. If you want to connect from external computers to Tile38 you may
+adopt one of the following solutions: 1) Just disable protected mode sending
+the command 'CONFIG SET protected-mode no' from the loopback interface by
+connecting to Tile38 from the same host the server is running, however MAKE
+SURE Tile38 is not publicly accessible from internet if you do so. Use CONFIG
+REWRITE to make this change permanent. 2) Alternatively you can just disable
+the protected mode by editing the Tile38 configuration file, and setting the
+protected mode option to 'no', and then restarting the server. 3) If you
+started the server manually just for testing, restart it with the
+'--protected-mode no' option. 4) Setup a bind address or an authentication
+password. NOTE: You only need to do one of the above things in order for the
+server to start accepting connections from the outside.
+`), "\n", " ", -1) + "\r\n")
 
 // Conn represents a server connection.
 type Conn struct {
@@ -45,6 +39,7 @@ type Conn struct {
 	Authenticated bool
 }
 
+// SetKeepAlive sets the connection keepalive
 func (conn Conn) SetKeepAlive(period time.Duration) error {
 	if tcp, ok := conn.Conn.(*net.TCPConn); ok {
 		if err := tcp.SetKeepAlive(true); err != nil {
@@ -61,7 +56,7 @@ var errCloseHTTP = errors.New("close http")
 func ListenAndServe(
 	host string, port int,
 	protected func() bool,
-	handler func(conn *Conn, msg *Message, rd *AnyReaderWriter, w io.Writer, websocket bool) error,
+	handler func(conn *Conn, msg *Message, rd *PipelineReader, w io.Writer, websocket bool) error,
 	opened func(conn *Conn),
 	closed func(conn *Conn),
 	lnp *net.Listener,
@@ -85,87 +80,90 @@ func ListenAndServe(
 	}
 }
 
-// func writeCommandErr(proto client.Proto, conn *Conn, err error) error {
-// 	if proto == client.HTTP || proto == client.WebSocket {
-// 		conn.Write([]byte(`HTTP/1.1 500 ` + err.Error() + "\r\nConnection: close\r\n\r\n"))
-// 	}
-// 	return err
-// }
-
 func handleConn(
 	conn *Conn,
 	protected func() bool,
-	handler func(conn *Conn, msg *Message, rd *AnyReaderWriter, w io.Writer, websocket bool) error,
+	handler func(conn *Conn, msg *Message, rd *PipelineReader, w io.Writer, websocket bool) error,
 	opened func(conn *Conn),
 	closed func(conn *Conn),
 	http bool,
 ) {
-	opened(conn)
-	defer closed(conn)
 	addr := conn.RemoteAddr().String()
+	opened(conn)
 	if core.ShowDebugMessages {
 		log.Debugf("opened connection: %s", addr)
-		defer func() {
-			log.Debugf("closed connection: %s", addr)
-		}()
 	}
+	defer func() {
+		conn.Close()
+		closed(conn)
+		if core.ShowDebugMessages {
+			log.Debugf("closed connection: %s", addr)
+		}
+	}()
 	if !strings.HasPrefix(addr, "127.0.0.1:") && !strings.HasPrefix(addr, "[::1]:") {
 		if protected() {
 			// This is a protected server. Only loopback is allowed.
 			conn.Write(deniedMessage)
-			conn.Close()
 			return
 		}
 	}
-	defer conn.Close()
+
+	wr := &bytes.Buffer{}
 	outputType := Null
-	rd := NewAnyReaderWriter(conn)
+	rd := NewPipelineReader(conn)
 	for {
-		msg, err := rd.ReadMessage()
-
-		// Just closing connection if we have deprecated HTTP or WS connection,
-		// And --http-transport = false
-		if !http && (msg.ConnType == WebSocket || msg.ConnType == HTTP) {
-			conn.Close()
-			return
-		}
-
-		if err != nil {
-			if err == io.EOF {
-				return
-			}
-			if err == errCloseHTTP ||
-				strings.Contains(err.Error(), "use of closed network connection") {
-				return
-			}
-			log.Error(err)
-			return
-		}
-		if msg != nil && msg.Command != "" {
-			if outputType != Null {
-				msg.OutputType = outputType
-			}
-			if msg.Command == "quit" {
-				if msg.OutputType == RESP {
-					io.WriteString(conn, "+OK\r\n")
-				}
-				return
-			}
-			err := handler(conn, msg, rd, conn, msg.ConnType == WebSocket)
+		wr.Reset()
+		ok := func() bool {
+			msgs, err := rd.ReadMessages()
 			if err != nil {
+				if err == io.EOF {
+					return false
+				}
+				if err == errCloseHTTP ||
+					strings.Contains(err.Error(), "use of closed network connection") {
+					return false
+				}
 				log.Error(err)
-				return
+				return false
 			}
-			outputType = msg.OutputType
-		} else {
-			conn.Write([]byte("HTTP/1.1 500 Bad Request\r\nConnection: close\r\n\r\n"))
-			return
+			for _, msg := range msgs {
+				// Just closing connection if we have deprecated HTTP or WS connection,
+				// And --http-transport = false
+				if !http && (msg.ConnType == WebSocket || msg.ConnType == HTTP) {
+					return false
+				}
+				if msg != nil && msg.Command != "" {
+					if outputType != Null {
+						msg.OutputType = outputType
+					}
+					if msg.Command == "quit" {
+						if msg.OutputType == RESP {
+							io.WriteString(wr, "+OK\r\n")
+						}
+						return false
+					}
+					err := handler(conn, msg, rd, wr, msg.ConnType == WebSocket)
+					if err != nil {
+						log.Error(err)
+						return false
+					}
+					outputType = msg.OutputType
+				} else {
+					wr.Write([]byte("HTTP/1.1 500 Bad Request\r\nConnection: close\r\n\r\n"))
+					return false
+				}
+				if msg.ConnType == HTTP || msg.ConnType == WebSocket {
+					return false
+				}
+			}
+			return true
+		}()
+		conn.Write(wr.Bytes())
+		if !ok {
+			break
 		}
-		if msg.ConnType == HTTP || msg.ConnType == WebSocket {
-			return
-		}
-
 	}
+	// all done
 }
 
 // WriteWebSocketMessage write a websocket message to an io.Writer.

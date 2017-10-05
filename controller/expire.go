@@ -32,9 +32,16 @@ func (a *exitem) Less(v btree.Item, ctx interface{}) bool {
 	return a.id < b.id
 }
 
-// clearAllExpires removes all items that are marked at expires.
-func (c *Controller) clearAllExpires() {
-	c.expires = make(map[string]map[string]time.Time)
+// fillExpiresList occurs once at startup
+func (c *Controller) fillExpiresList() {
+	c.exlistmu.Lock()
+	c.exlist = c.exlist[:0]
+	for key, m := range c.expires {
+		for id, at := range m {
+			c.exlist = append(c.exlist, exitem{key, id, at})
+		}
+	}
+	c.exlistmu.Unlock()
 }
 
 // clearIDExpires clears a single item from the expires list.
@@ -67,9 +74,9 @@ func (c *Controller) expireAt(key, id string, at time.Time) {
 		c.expires[key] = m
 	}
 	m[id] = at
-	if c.exlist != nil {
-		c.exlist = append(c.exlist, exitem{key, id, at})
-	}
+	c.exlistmu.Lock()
+	c.exlist = append(c.exlist, exitem{key, id, at})
+	c.exlistmu.Unlock()
 }
 
 // getExpires returns the when an item expires.
@@ -94,33 +101,35 @@ func (c *Controller) hasExpired(key, id string) bool {
 	return time.Now().After(at)
 }
 
-func (c *Controller) fillExpiresList() {
-	c.exlist = make([]exitem, 0)
-	for key, m := range c.expires {
-		for id, at := range m {
-			c.exlist = append(c.exlist, exitem{key, id, at})
-		}
-	}
-}
-
 // backgroundExpiring watches for when items that have expired must be purged
 // from the database. It's executes 10 times a seconds.
 func (c *Controller) backgroundExpiring() {
 	rand.Seed(time.Now().UnixNano())
+	var purgelist []exitem
 	for {
-		c.mu.Lock()
-		if c.stopBackgroundExpiring {
-			c.mu.Unlock()
+		if c.stopBackgroundExpiring.on() {
 			return
 		}
 		now := time.Now()
-		var purged int
+		purgelist = purgelist[:0]
+		c.exlistmu.Lock()
 		for i := 0; i < 20 && len(c.exlist) > 0; i++ {
 			ix := rand.Int() % len(c.exlist)
 			if now.After(c.exlist[ix].at) {
-				if c.hasExpired(c.exlist[ix].key, c.exlist[ix].id) {
+				// purge from exlist
+				purgelist = append(purgelist, c.exlist[ix])
+				c.exlist[ix] = c.exlist[len(c.exlist)-1]
+				c.exlist = c.exlist[:len(c.exlist)-1]
+			}
+		}
+		c.exlistmu.Unlock()
+		if len(purgelist) > 0 {
+			c.mu.Lock()
+			for _, item := range purgelist {
+				if c.hasExpired(item.key, item.id) {
+					// purge from database
 					msg := &server.Message{}
-					msg.Values = resp.MultiBulkValue("del", c.exlist[ix].key, c.exlist[ix].id).Array()
+					msg.Values = resp.MultiBulkValue("del", item.key, item.id).Array()
 					msg.Command = "del"
 					_, d, err := c.cmdDel(msg)
 					if err != nil {
@@ -133,15 +142,12 @@ func (c *Controller) backgroundExpiring() {
 						log.Fatal(err)
 						continue
 					}
-					purged++
 				}
-				c.exlist[ix] = c.exlist[len(c.exlist)-1]
-				c.exlist = c.exlist[:len(c.exlist)-1]
 			}
-		}
-		c.mu.Unlock()
-		if purged > 5 {
-			continue
+			c.mu.Unlock()
+			if len(purgelist) > 5 {
+				continue
+			}
 		}
 		time.Sleep(time.Second / 10)
 	}

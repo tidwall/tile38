@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -57,27 +58,43 @@ func (col *collectionT) Less(item btree.Item, ctx interface{}) bool {
 	return col.Key < item.(*collectionT).Key
 }
 
-type clientConn struct {
-	id     uint64
-	name   string
-	opened time.Time
-	last   time.Time
-	conn   *server.Conn
-}
-
 // Controller is a tile38 controller
 type Controller struct {
-	mu        sync.RWMutex
-	host      string
-	port      int
-	f         *os.File
-	qdb       *buntdb.DB // hook queue log
-	qidx      uint64     // hook queue log last idx
-	cols      *btree.BTree
-	aofsz     int
-	dir       string
-	config    Config
-	followc   uint64 // counter increases when follow property changes
+	// static values
+	host    string
+	port    int
+	http    bool
+	dir     string
+	started time.Time
+	config  *Config
+	epc     *endpoint.EndpointManager
+
+	// atomics
+	followc                aint // counter increases when follow property changes
+	statsTotalConns        aint // counter for total connections
+	statsTotalCommands     aint // counter for total commands
+	statsExpired           aint // item expiration counter
+	lastShrinkDuration     aint
+	currentShrinkStart     atime
+	stopBackgroundExpiring abool
+	stopWatchingMemory     abool
+	stopWatchingAutoGC     abool
+	outOfMemory            abool
+
+	connsmu sync.RWMutex
+	conns   map[*server.Conn]*clientConn
+
+	exlistmu sync.RWMutex
+	exlist   []exitem
+
+	mu      sync.RWMutex
+	aof     *os.File                        // active aof file
+	aofsz   int                             // active size of the aof file
+	qdb     *buntdb.DB                      // hook queue log
+	qidx    uint64                          // hook queue log last idx
+	cols    *btree.BTree                    // data collections
+	expires map[string]map[string]time.Time // synced with cols
+
 	follows   map[*bytes.Buffer]bool
 	fcond     *sync.Cond
 	lstack    []*commandDetailsT
@@ -90,25 +107,6 @@ type Controller struct {
 	hooks     map[string]*Hook            // hook name
 	hookcols  map[string]map[string]*Hook // col key
 	aofconnM  map[net.Conn]bool
-	expires   map[string]map[string]time.Time
-	exlist    []exitem
-	conns     map[*server.Conn]*clientConn
-	started   time.Time
-	http      bool
-
-	epc *endpoint.EndpointManager
-
-	statsTotalConns    int
-	statsTotalCommands int
-	statsExpired       int
-
-	lastShrinkDuration time.Duration
-	currentShrinkStart time.Time
-
-	stopBackgroundExpiring bool
-	stopWatchingMemory     bool
-	stopWatchingAutoGC     bool
-	outOfMemory            bool
 }
 
 // ListenAndServe starts a new tile38 server
@@ -138,7 +136,9 @@ func ListenAndServeEx(host string, port int, dir string, ln *net.Listener, http 
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
-	if err := c.loadConfig(); err != nil {
+	var err error
+	c.config, err = loadConfig(filepath.Join(dir, "config"))
+	if err != nil {
 		return err
 	}
 	// load the queue before the aof
@@ -164,6 +164,7 @@ func ListenAndServeEx(host string, port int, dir string, ln *net.Listener, http 
 	if err != nil {
 		return err
 	}
+
 	c.qdb = qdb
 	c.qidx = qidx
 	if err := c.migrateAOF(); err != nil {
@@ -173,39 +174,33 @@ func ListenAndServeEx(host string, port int, dir string, ln *net.Listener, http 
 	if err != nil {
 		return err
 	}
-	c.f = f
+	c.aof = f
 	if err := c.loadAOF(); err != nil {
 		return err
 	}
-	c.mu.Lock()
 	c.fillExpiresList()
-	if c.config.FollowHost != "" {
-		go c.follow(c.config.FollowHost, c.config.FollowPort, c.followc)
+	if c.config.followHost() != "" {
+		go c.follow(c.config.followHost(), c.config.followPort(), c.followc.get())
 	}
-	c.mu.Unlock()
 	defer func() {
-		c.mu.Lock()
-		c.followc++ // this will force any follow communication to die
-		c.mu.Unlock()
+		c.followc.add(1) // this will force any follow communication to die
 	}()
 	go c.processLives()
-	go c.watchMemory()
-	go c.watchGC()
+	go c.watchOutOfMemory()
+	go c.watchAutoGC()
 	go c.backgroundExpiring()
 	defer func() {
-		c.mu.Lock()
-		c.stopBackgroundExpiring = true
-		c.stopWatchingMemory = true
-		c.stopWatchingAutoGC = true
-		c.mu.Unlock()
+		c.stopBackgroundExpiring.set(true)
+		c.stopWatchingMemory.set(true)
+		c.stopWatchingAutoGC.set(true)
 	}()
-	handler := func(conn *server.Conn, msg *server.Message, rd *server.AnyReaderWriter, w io.Writer, websocket bool) error {
-		c.mu.Lock()
+	handler := func(conn *server.Conn, msg *server.Message, rd *server.PipelineReader, w io.Writer, websocket bool) error {
+		c.connsmu.RLock()
 		if cc, ok := c.conns[conn]; ok {
-			cc.last = time.Now()
+			cc.last.set(time.Now())
 		}
-		c.statsTotalCommands++
-		c.mu.Unlock()
+		c.connsmu.RUnlock()
+		c.statsTotalCommands.add(1)
 		err := c.handleInputCommand(conn, msg, w)
 		if err != nil {
 			if err.Error() == "going live" {
@@ -224,64 +219,57 @@ func ListenAndServeEx(host string, port int, dir string, ln *net.Listener, http 
 			// -h address
 			return false
 		}
-		c.mu.RLock()
-		is := c.config.ProtectedMode != "no" && c.config.RequirePass == ""
-		c.mu.RUnlock()
+		is := c.config.protectedMode() != "no" && c.config.requirePass() == ""
 		return is
 	}
-	var clientId uint64
 
+	var clientID aint
 	opened := func(conn *server.Conn) {
-		c.mu.Lock()
-		if c.config.KeepAlive > 0 {
+		if c.config.keepAlive() > 0 {
 			err := conn.SetKeepAlive(
-				time.Duration(c.config.KeepAlive) * time.Second)
+				time.Duration(c.config.keepAlive()) * time.Second)
 			if err != nil {
 				log.Warnf("could not set keepalive for connection: %v",
 					conn.RemoteAddr().String())
 			}
 		}
-		clientId++
-		c.conns[conn] = &clientConn{
-			id:     clientId,
-			opened: time.Now(),
-			conn:   conn,
-		}
-		c.statsTotalConns++
-		c.mu.Unlock()
+
+		cc := &clientConn{}
+		cc.id = clientID.add(1)
+		cc.opened.set(time.Now())
+		cc.conn = conn
+
+		c.connsmu.Lock()
+		c.conns[conn] = cc
+		c.connsmu.Unlock()
+
+		c.statsTotalConns.add(1)
 	}
+
 	closed := func(conn *server.Conn) {
-		c.mu.Lock()
+		c.connsmu.Lock()
 		delete(c.conns, conn)
-		c.mu.Unlock()
+		c.connsmu.Unlock()
 	}
+
 	return server.ListenAndServe(host, port, protected, handler, opened, closed, ln, http)
 }
 
-func (c *Controller) watchGC() {
+func (c *Controller) watchAutoGC() {
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
-
 	s := time.Now()
 	for range t.C {
-		c.mu.RLock()
-
-		if c.stopWatchingAutoGC {
-			c.mu.RUnlock()
+		if c.stopWatchingAutoGC.on() {
 			return
 		}
-
-		autoGC := c.config.AutoGC
-		c.mu.RUnlock()
-
+		autoGC := c.config.autoGC()
 		if autoGC == 0 {
 			continue
 		}
-
 		if time.Now().Sub(s) < time.Second*time.Duration(autoGC) {
 			continue
 		}
-
 		var mem1, mem2 runtime.MemStats
 		runtime.ReadMemStats(&mem1)
 		log.Debugf("autogc(before): "+
@@ -290,7 +278,6 @@ func (c *Controller) watchGC() {
 
 		runtime.GC()
 		debug.FreeOSMemory()
-
 		runtime.ReadMemStats(&mem2)
 		log.Debugf("autogc(after): "+
 			"alloc: %v, heap_alloc: %v, heap_released: %v",
@@ -299,25 +286,19 @@ func (c *Controller) watchGC() {
 	}
 }
 
-func (c *Controller) watchMemory() {
+func (c *Controller) watchOutOfMemory() {
 	t := time.NewTicker(time.Second * 2)
 	defer t.Stop()
 	var mem runtime.MemStats
 	for range t.C {
 		func() {
-			c.mu.RLock()
-			if c.stopWatchingMemory {
-				c.mu.RUnlock()
+			if c.stopWatchingMemory.on() {
 				return
 			}
-			maxmem := c.config.MaxMemory
-			oom := c.outOfMemory
-			c.mu.RUnlock()
-			if maxmem == 0 {
+			oom := c.outOfMemory.on()
+			if c.config.maxMemory() == 0 {
 				if oom {
-					c.mu.Lock()
-					c.outOfMemory = false
-					c.mu.Unlock()
+					c.outOfMemory.set(false)
 				}
 				return
 			}
@@ -325,9 +306,7 @@ func (c *Controller) watchMemory() {
 				runtime.GC()
 			}
 			runtime.ReadMemStats(&mem)
-			c.mu.Lock()
-			c.outOfMemory = int(mem.HeapAlloc) > maxmem
-			c.mu.Unlock()
+			c.outOfMemory.set(int(mem.HeapAlloc) > c.config.maxMemory())
 		}()
 	}
 }
@@ -443,10 +422,7 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 	var write bool
 
 	if !conn.Authenticated || msg.Command == "auth" {
-		c.mu.RLock()
-		requirePass := c.config.RequirePass
-		c.mu.RUnlock()
-		if requirePass != "" {
+		if c.config.requirePass() != "" {
 			password := ""
 			// This better be an AUTH command or the Message should contain an Auth
 			if msg.Command != "auth" && msg.Auth == "" {
@@ -460,7 +436,7 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 					password = msg.Values[1].String()
 				}
 			}
-			if requirePass != strings.TrimSpace(password) {
+			if c.config.requirePass() != strings.TrimSpace(password) {
 				return writeErr(errors.New("invalid password"))
 			}
 			conn.Authenticated = true
@@ -482,10 +458,10 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 		write = true
 		c.mu.Lock()
 		defer c.mu.Unlock()
-		if c.config.FollowHost != "" {
+		if c.config.followHost() != "" {
 			return writeErr(errors.New("not the leader"))
 		}
-		if c.config.ReadOnly {
+		if c.config.readOnly() {
 			return writeErr(errors.New("read only"))
 		}
 	case "get", "keys", "scan", "nearby", "within", "intersects", "hooks", "search",
@@ -493,7 +469,7 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 		// read operations
 		c.mu.RLock()
 		defer c.mu.RUnlock()
-		if c.config.FollowHost != "" && !c.fcuponce {
+		if c.config.followHost() != "" && !c.fcuponce {
 			return writeErr(errors.New("catching up to leader"))
 		}
 	case "follow", "readonly", "config":
@@ -508,6 +484,10 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 		// dev operation
 		c.mu.Lock()
 		defer c.mu.Unlock()
+	case "sleep":
+		// dev operation
+		c.mu.RLock()
+		defer c.mu.RUnlock()
 	case "shutdown":
 		// dev operation
 		c.mu.Lock()
@@ -607,6 +587,12 @@ func (c *Controller) command(
 			return
 		}
 		res, err = c.cmdMassInsert(msg)
+	case "sleep":
+		if !core.DevMode {
+			err = fmt.Errorf("unknown command '%s'", msg.Values[0])
+			return
+		}
+		res, err = c.cmdSleep(msg)
 	case "follow":
 		res, err = c.cmdFollow(msg)
 	case "readonly":

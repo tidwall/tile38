@@ -19,6 +19,14 @@ type Conn struct {
 	wr   *resp.Writer
 }
 
+type clientConn struct {
+	id     int
+	name   astring
+	opened atime
+	last   atime
+	conn   *server.Conn
+}
+
 // DialTimeout dials a resp server.
 func DialTimeout(address string, timeout time.Duration) (*Conn, error) {
 	tcpconn, err := net.DialTimeout("tcp", address, timeout)
@@ -73,18 +81,20 @@ func (c *Controller) cmdClient(msg *server.Message, conn *server.Conn) (string, 
 			return "", errInvalidNumberOfArguments
 		}
 		var list []*clientConn
+		c.connsmu.RLock()
 		for _, cc := range c.conns {
 			list = append(list, cc)
 		}
+		c.connsmu.RUnlock()
 		sort.Sort(byID(list))
 		now := time.Now()
 		var buf []byte
 		for _, cc := range list {
 			buf = append(buf,
 				fmt.Sprintf("id=%d addr=%s name=%s age=%d idle=%d\n",
-					cc.id, cc.conn.RemoteAddr().String(), cc.name,
-					now.Sub(cc.opened)/time.Second,
-					now.Sub(cc.last)/time.Second,
+					cc.id, cc.conn.RemoteAddr().String(), cc.name.get(),
+					now.Sub(cc.opened.get())/time.Second,
+					now.Sub(cc.last.get())/time.Second,
 				)...,
 			)
 		}
@@ -104,9 +114,11 @@ func (c *Controller) cmdClient(msg *server.Message, conn *server.Conn) (string, 
 			return "", errInvalidNumberOfArguments
 		}
 		name := ""
+		c.connsmu.RLock()
 		if cc, ok := c.conns[conn]; ok {
-			name = cc.name
+			name = cc.name.get()
 		}
+		c.connsmu.RUnlock()
 		switch msg.OutputType {
 		case server.JSON:
 			return `{"ok":true,"name":` + jsonString(name) + `,"elapsed":"` + time.Now().Sub(start).String() + "\"}", nil
@@ -124,12 +136,15 @@ func (c *Controller) cmdClient(msg *server.Message, conn *server.Conn) (string, 
 		name := msg.Values[2].String()
 		for i := 0; i < len(name); i++ {
 			if name[i] < '!' || name[i] > '~' {
-				return "", errors.New("Client names cannot contain spaces, newlines or special characters.")
+				errstr := "Client names cannot contain spaces, newlines or special characters."
+				return "", errors.New(errstr)
 			}
 		}
+		c.connsmu.RLock()
 		if cc, ok := c.conns[conn]; ok {
-			cc.name = name
+			cc.name.set(name)
 		}
+		c.connsmu.RUnlock()
 		switch msg.OutputType {
 		case server.JSON:
 			return `{"ok":true,"elapsed":"` + time.Now().Sub(start).String() + "\"}", nil
@@ -171,6 +186,7 @@ func (c *Controller) cmdClient(msg *server.Message, conn *server.Conn) (string, 
 			}
 		}
 		var cclose *clientConn
+		c.connsmu.RLock()
 		for _, cc := range c.conns {
 			if useID && fmt.Sprintf("%d", cc.id) == id {
 				cclose = cc
@@ -180,6 +196,7 @@ func (c *Controller) cmdClient(msg *server.Message, conn *server.Conn) (string, 
 				break
 			}
 		}
+		c.connsmu.RUnlock()
 		if cclose == nil {
 			return "", errors.New("No such client")
 		}

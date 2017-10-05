@@ -2,8 +2,17 @@
 package gjson
 
 import (
+	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"reflect"
 	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+	"unicode/utf16"
+	"unicode/utf8"
 	"unsafe"
 
 	"github.com/tidwall/match"
@@ -65,7 +74,7 @@ type Result struct {
 func (t Result) String() string {
 	switch t.Type {
 	default:
-		return "null"
+		return ""
 	case False:
 		return "false"
 	case Number:
@@ -101,10 +110,20 @@ func (t Result) Int() int64 {
 	case True:
 		return 1
 	case String:
-		n, _ := strconv.ParseInt(t.Str, 10, 64)
+		n, _ := parseInt(t.Str)
 		return n
 	case Number:
-		return int64(t.Num)
+		// try to directly convert the float64 to int64
+		n, ok := floatToInt(t.Num)
+		if !ok {
+			// now try to parse the raw string
+			n, ok = parseInt(t.Raw)
+			if !ok {
+				// fallback to a standard conversion
+				return int64(t.Num)
+			}
+		}
+		return n
 	}
 }
 
@@ -116,10 +135,20 @@ func (t Result) Uint() uint64 {
 	case True:
 		return 1
 	case String:
-		n, _ := strconv.ParseUint(t.Str, 10, 64)
+		n, _ := parseUint(t.Str)
 		return n
 	case Number:
-		return uint64(t.Num)
+		// try to directly convert the float64 to uint64
+		n, ok := floatToUint(t.Num)
+		if !ok {
+			// now try to parse the raw string
+			n, ok = parseUint(t.Raw)
+			if !ok {
+				// fallback to a standard conversion
+				return uint64(t.Num)
+			}
+		}
+		return n
 	}
 }
 
@@ -138,6 +167,12 @@ func (t Result) Float() float64 {
 	}
 }
 
+// Time returns a time.Time representation.
+func (t Result) Time() time.Time {
+	res, _ := time.Parse(time.RFC3339, t.String())
+	return res
+}
+
 // Array returns back an array of values.
 // If the result represents a non-existent value, then an empty array will be returned.
 // If the result is not a JSON array, the return value will be an array containing one result.
@@ -150,6 +185,16 @@ func (t Result) Array() []Result {
 	}
 	r := t.arrayOrMap('[', false)
 	return r.a
+}
+
+// IsObject returns true if the result value is a JSON object.
+func (t Result) IsObject() bool {
+	return t.Type == JSON && len(t.Raw) > 0 && t.Raw[0] == '{'
+}
+
+// IsObject returns true if the result value is a JSON array.
+func (t Result) IsArray() bool {
+	return t.Type == JSON && len(t.Raw) > 0 && t.Raw[0] == '['
 }
 
 // ForEach iterates through values.
@@ -903,7 +948,7 @@ func parseObject(c *parseContext, i int, path string) (int, bool) {
 						break
 					}
 				}
-				i, key, kesc, ok = i, c.json[s:], false, false
+				key, kesc, ok = c.json[s:], false, false
 			parse_key_string_done:
 				break
 			}
@@ -1076,8 +1121,8 @@ func parseArray(c *parseContext, i int, path string) (int, bool) {
 	var multires []byte
 	rp := parseArrayPath(path)
 	if !rp.arrch {
-		n, err := strconv.ParseUint(rp.part, 10, 64)
-		if err != nil {
+		n, ok := parseUint(rp.part)
+		if !ok {
 			partidx = -1
 		} else {
 			partidx = int(n)
@@ -1221,16 +1266,15 @@ func parseArray(c *parseContext, i int, path string) (int, bool) {
 						c.value.Type = JSON
 						c.value.Raw = string(jsons)
 						return i + 1, true
-					} else {
-						if rp.alogok {
-							break
-						}
-						c.value.Raw = val
-						c.value.Type = Number
-						c.value.Num = float64(h - 1)
-						c.calcd = true
-						return i + 1, true
 					}
+					if rp.alogok {
+						break
+					}
+					c.value.Raw = val
+					c.value.Type = Number
+					c.value.Num = float64(h - 1)
+					c.calcd = true
+					return i + 1, true
 				}
 				if len(multires) > 0 && !c.value.Exists() {
 					c.value = Result{
@@ -1357,6 +1401,12 @@ func GetBytes(json []byte, path string) Result {
 	return result
 }
 
+// runeit returns the rune from the the \uXXXX
+func runeit(json string) rune {
+	n, _ := strconv.ParseUint(json[:4], 16, 64)
+	return rune(n)
+}
+
 // unescape unescapes a string
 func unescape(json string) string { //, error) {
 	var str = make([]byte, 0, len(json))
@@ -1365,15 +1415,15 @@ func unescape(json string) string { //, error) {
 		default:
 			str = append(str, json[i])
 		case json[i] < ' ':
-			return "" //, errors.New("invalid character in string")
+			return string(str)
 		case json[i] == '\\':
 			i++
 			if i >= len(json) {
-				return "" //, errors.New("invalid escape sequence")
+				return string(str)
 			}
 			switch json[i] {
 			default:
-				return "" //, errors.New("invalid escape sequence")
+				return string(str)
 			case '\\':
 				str = append(str, '\\')
 			case '/':
@@ -1392,29 +1442,27 @@ func unescape(json string) string { //, error) {
 				str = append(str, '"')
 			case 'u':
 				if i+5 > len(json) {
-					return "" //, errors.New("invalid escape sequence")
+					return string(str)
 				}
-				i++
-				// extract the codepoint
-				var code int
-				for j := i; j < i+4; j++ {
-					switch {
-					default:
-						return "" //, errors.New("invalid escape sequence")
-					case json[j] >= '0' && json[j] <= '9':
-						code += (int(json[j]) - '0') << uint(12-(j-i)*4)
-					case json[j] >= 'a' && json[j] <= 'f':
-						code += (int(json[j]) - 'a' + 10) << uint(12-(j-i)*4)
-					case json[j] >= 'a' && json[j] <= 'f':
-						code += (int(json[j]) - 'a' + 10) << uint(12-(j-i)*4)
+				r := runeit(json[i+1:])
+				i += 5
+				if utf16.IsSurrogate(r) {
+					// need another code
+					if len(json[i:]) >= 6 && json[i] == '\\' && json[i+1] == 'u' {
+						// we expect it to be correct so just consume it
+						r = utf16.DecodeRune(r, runeit(json[i+2:]))
+						i += 6
 					}
 				}
-				str = append(str, []byte(string(code))...)
-				i += 3 // only 3 because we will increment on the for-loop
+				// provide enough space to encode the largest utf8 possible
+				str = append(str, 0, 0, 0, 0, 0, 0, 0, 0)
+				n := utf8.EncodeRune(str[len(str)-8:], r)
+				str = str[:len(str)-8+n]
+				i-- // backtrack index by one
 			}
 		}
 	}
-	return string(str) //, nil
+	return string(str)
 }
 
 // Less return true if a token is less than another token.
@@ -1742,7 +1790,6 @@ next_key:
 					usedPaths++
 					continue
 				}
-
 				// try to match the key to the path
 				// this is spaghetti code but the idea is to minimize
 				// calls and variable assignments when comparing the
@@ -1757,12 +1804,17 @@ next_key:
 					}
 					if i < len(paths[j]) {
 						if paths[j][i] == '.' {
-							// matched, but there still more keys in the path
+							// matched, but there are still more keys in path
 							goto match_not_atend
 						}
 					}
-					// matched and at the end of the path
-					goto match_atend
+					if len(paths[j]) <= len(key) || kplen != 0 {
+						if len(paths[j]) != i {
+							goto nomatch
+						}
+						// matched and at the end of the path
+						goto match_atend
+					}
 				}
 				// no match, jump to the nomatch label
 				goto nomatch
@@ -1798,6 +1850,9 @@ next_key:
 			nomatch: // noop label
 			}
 
+			if !hasMatch && i < len(json) && json[i] == '}' {
+				return i + 1, true
+			}
 			if !parsedVal {
 				if hasMatch {
 					// we found a match and the value has not been parsed yet.
@@ -1939,4 +1994,454 @@ func getMany512(json string, i int, paths []string) ([]Result, bool) {
 	results = results[0:len(paths):max]
 	_, ok := parseGetMany(json, i, 0, 0, paths, completed, matches, results)
 	return results, ok
+}
+
+var fieldsmu sync.RWMutex
+var fields = make(map[string]map[string]int)
+
+func assign(jsval Result, goval reflect.Value) {
+	if jsval.Type == Null {
+		return
+	}
+	switch goval.Kind() {
+	default:
+	case reflect.Ptr:
+		if !goval.IsNil() {
+			newval := reflect.New(goval.Elem().Type())
+			assign(jsval, newval.Elem())
+			goval.Elem().Set(newval.Elem())
+		} else {
+			newval := reflect.New(goval.Type().Elem())
+			assign(jsval, newval.Elem())
+			goval.Set(newval)
+		}
+	case reflect.Struct:
+		fieldsmu.RLock()
+		sf := fields[goval.Type().String()]
+		fieldsmu.RUnlock()
+		if sf == nil {
+			fieldsmu.Lock()
+			sf = make(map[string]int)
+			for i := 0; i < goval.Type().NumField(); i++ {
+				f := goval.Type().Field(i)
+				tag := strings.Split(f.Tag.Get("json"), ",")[0]
+				if tag != "-" {
+					if tag != "" {
+						sf[tag] = i
+						sf[f.Name] = i
+					} else {
+						sf[f.Name] = i
+					}
+				}
+			}
+			fields[goval.Type().String()] = sf
+			fieldsmu.Unlock()
+		}
+		jsval.ForEach(func(key, value Result) bool {
+			if idx, ok := sf[key.Str]; ok {
+				f := goval.Field(idx)
+				if f.CanSet() {
+					assign(value, f)
+				}
+			}
+			return true
+		})
+	case reflect.Slice:
+		if goval.Type().Elem().Kind() == reflect.Uint8 && jsval.Type == String {
+			data, _ := base64.StdEncoding.DecodeString(jsval.String())
+			goval.Set(reflect.ValueOf(data))
+		} else {
+			jsvals := jsval.Array()
+			slice := reflect.MakeSlice(goval.Type(), len(jsvals), len(jsvals))
+			for i := 0; i < len(jsvals); i++ {
+				assign(jsvals[i], slice.Index(i))
+			}
+			goval.Set(slice)
+		}
+	case reflect.Array:
+		i, n := 0, goval.Len()
+		jsval.ForEach(func(_, value Result) bool {
+			if i == n {
+				return false
+			}
+			assign(value, goval.Index(i))
+			i++
+			return true
+		})
+	case reflect.Map:
+		if goval.Type().Key().Kind() == reflect.String && goval.Type().Elem().Kind() == reflect.Interface {
+			goval.Set(reflect.ValueOf(jsval.Value()))
+		}
+	case reflect.Interface:
+		goval.Set(reflect.ValueOf(jsval.Value()))
+	case reflect.Bool:
+		goval.SetBool(jsval.Bool())
+	case reflect.Float32, reflect.Float64:
+		goval.SetFloat(jsval.Float())
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		goval.SetInt(jsval.Int())
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		goval.SetUint(jsval.Uint())
+	case reflect.String:
+		goval.SetString(jsval.String())
+	}
+	if len(goval.Type().PkgPath()) > 0 {
+		v := goval.Addr()
+		if v.Type().NumMethod() > 0 {
+			if u, ok := v.Interface().(json.Unmarshaler); ok {
+				u.UnmarshalJSON([]byte(jsval.Raw))
+			}
+		}
+	}
+}
+
+var validate uintptr = 1
+
+// UnmarshalValidationEnabled provides the option to disable JSON validation
+// during the Unmarshal routine. Validation is enabled by default.
+func UnmarshalValidationEnabled(enabled bool) {
+	if enabled {
+		atomic.StoreUintptr(&validate, 1)
+	} else {
+		atomic.StoreUintptr(&validate, 0)
+	}
+}
+
+// Unmarshal loads the JSON data into the value pointed to by v.
+//
+// This function works almost identically to json.Unmarshal except  that
+// gjson.Unmarshal will automatically attempt to convert JSON values to any Go
+// type. For example, the JSON string "100" or the JSON number 100 can be equally
+// assigned to Go string, int, byte, uint64, etc. This rule applies to all types.
+func Unmarshal(data []byte, v interface{}) error {
+	if atomic.LoadUintptr(&validate) == 1 {
+		_, ok := validpayload(data, 0)
+		if !ok {
+			return errors.New("invalid json")
+		}
+	}
+	if v := reflect.ValueOf(v); v.Kind() == reflect.Ptr {
+		assign(ParseBytes(data), v)
+	}
+	return nil
+}
+
+func validpayload(data []byte, i int) (outi int, ok bool) {
+	for ; i < len(data); i++ {
+		switch data[i] {
+		default:
+			i, ok = validany(data, i)
+			if !ok {
+				return i, false
+			}
+			for ; i < len(data); i++ {
+				switch data[i] {
+				default:
+					return i, false
+				case ' ', '\t', '\n', '\r':
+					continue
+				}
+			}
+			return i, true
+		case ' ', '\t', '\n', '\r':
+			continue
+		}
+	}
+	return i, false
+}
+func validany(data []byte, i int) (outi int, ok bool) {
+	for ; i < len(data); i++ {
+		switch data[i] {
+		default:
+			return i, false
+		case ' ', '\t', '\n', '\r':
+			continue
+		case '{':
+			return validobject(data, i+1)
+		case '[':
+			return validarray(data, i+1)
+		case '"':
+			return validstring(data, i+1)
+		case '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+			return validnumber(data, i+1)
+		case 't':
+			return validtrue(data, i+1)
+		case 'f':
+			return validfalse(data, i+1)
+		case 'n':
+			return validnull(data, i+1)
+		}
+	}
+	return i, false
+}
+func validobject(data []byte, i int) (outi int, ok bool) {
+	for ; i < len(data); i++ {
+		switch data[i] {
+		default:
+			return i, false
+		case ' ', '\t', '\n', '\r':
+			continue
+		case '}':
+			return i + 1, true
+		case '"':
+		key:
+			if i, ok = validstring(data, i+1); !ok {
+				return i, false
+			}
+			if i, ok = validcolon(data, i); !ok {
+				return i, false
+			}
+			if i, ok = validany(data, i); !ok {
+				return i, false
+			}
+			if i, ok = validcomma(data, i, '}'); !ok {
+				return i, false
+			}
+			if data[i] == '}' {
+				return i + 1, true
+			}
+			for ; i < len(data); i++ {
+				if data[i] == '"' {
+					goto key
+				}
+			}
+			return i, false
+		}
+	}
+	return i, false
+}
+func validcolon(data []byte, i int) (outi int, ok bool) {
+	for ; i < len(data); i++ {
+		switch data[i] {
+		default:
+			return i, false
+		case ' ', '\t', '\n', '\r':
+			continue
+		case ':':
+			return i + 1, true
+		}
+	}
+	return i, false
+}
+func validcomma(data []byte, i int, end byte) (outi int, ok bool) {
+	for ; i < len(data); i++ {
+		switch data[i] {
+		default:
+			return i, false
+		case ' ', '\t', '\n', '\r':
+			continue
+		case ',':
+			return i, true
+		case end:
+			return i, true
+		}
+	}
+	return i, false
+}
+func validarray(data []byte, i int) (outi int, ok bool) {
+	for ; i < len(data); i++ {
+		switch data[i] {
+		default:
+			for ; i < len(data); i++ {
+				if i, ok = validany(data, i); !ok {
+					return i, false
+				}
+				if i, ok = validcomma(data, i, ']'); !ok {
+					return i, false
+				}
+				if data[i] == ']' {
+					return i + 1, true
+				}
+			}
+		case ' ', '\t', '\n', '\r':
+			continue
+		case ']':
+			return i + 1, true
+		}
+	}
+	return i, false
+}
+func validstring(data []byte, i int) (outi int, ok bool) {
+	for ; i < len(data); i++ {
+		if data[i] < ' ' {
+			return i, false
+		} else if data[i] == '\\' {
+			i++
+			if i == len(data) {
+				return i, false
+			}
+			switch data[i] {
+			default:
+				return i, false
+			case '"', '\\', '/', 'b', 'f', 'n', 'r', 't':
+			case 'u':
+				for j := 0; j < 4; j++ {
+					i++
+					if i >= len(data) {
+						return i, false
+					}
+					if !((data[i] >= '0' && data[i] <= '9') ||
+						(data[i] >= 'a' && data[i] <= 'f') ||
+						(data[i] >= 'A' && data[i] <= 'F')) {
+						return i, false
+					}
+				}
+			}
+		} else if data[i] == '"' {
+			return i + 1, true
+		}
+	}
+	return i, false
+}
+func validnumber(data []byte, i int) (outi int, ok bool) {
+	i--
+	// sign
+	if data[i] == '-' {
+		i++
+	}
+	// int
+	if i == len(data) {
+		return i, false
+	}
+	if data[i] == '0' {
+		i++
+	} else {
+		for ; i < len(data); i++ {
+			if data[i] >= '0' && data[i] <= '9' {
+				continue
+			}
+			break
+		}
+	}
+	// frac
+	if i == len(data) {
+		return i, true
+	}
+	if data[i] == '.' {
+		i++
+		if i == len(data) {
+			return i, false
+		}
+		if data[i] < '0' || data[i] > '9' {
+			return i, false
+		}
+		i++
+		for ; i < len(data); i++ {
+			if data[i] >= '0' && data[i] <= '9' {
+				continue
+			}
+			break
+		}
+	}
+	// exp
+	if i == len(data) {
+		return i, true
+	}
+	if data[i] == 'e' || data[i] == 'E' {
+		i++
+		if i == len(data) {
+			return i, false
+		}
+		if data[i] == '+' || data[i] == '-' {
+			i++
+		}
+		if i == len(data) {
+			return i, false
+		}
+		if data[i] < '0' || data[i] > '9' {
+			return i, false
+		}
+		i++
+		for ; i < len(data); i++ {
+			if data[i] >= '0' && data[i] <= '9' {
+				continue
+			}
+			break
+		}
+	}
+	return i, true
+}
+
+func validtrue(data []byte, i int) (outi int, ok bool) {
+	if i+3 <= len(data) && data[i] == 'r' && data[i+1] == 'u' && data[i+2] == 'e' {
+		return i + 3, true
+	}
+	return i, false
+}
+func validfalse(data []byte, i int) (outi int, ok bool) {
+	if i+4 <= len(data) && data[i] == 'a' && data[i+1] == 'l' && data[i+2] == 's' && data[i+3] == 'e' {
+		return i + 4, true
+	}
+	return i, false
+}
+func validnull(data []byte, i int) (outi int, ok bool) {
+	if i+3 <= len(data) && data[i] == 'u' && data[i+1] == 'l' && data[i+2] == 'l' {
+		return i + 3, true
+	}
+	return i, false
+}
+
+// Valid returns true if the input is valid json.
+func Valid(json string) bool {
+	_, ok := validpayload([]byte(json), 0)
+	return ok
+}
+
+func parseUint(s string) (n uint64, ok bool) {
+	var i int
+	if i == len(s) {
+		return 0, false
+	}
+	for ; i < len(s); i++ {
+		if s[i] >= '0' && s[i] <= '9' {
+			n = n*10 + uint64(s[i]-'0')
+		} else {
+			return 0, false
+		}
+	}
+	return n, true
+}
+
+func parseInt(s string) (n int64, ok bool) {
+	var i int
+	var sign bool
+	if len(s) > 0 && s[0] == '-' {
+		sign = true
+		i++
+	}
+	if i == len(s) {
+		return 0, false
+	}
+	for ; i < len(s); i++ {
+		if s[i] >= '0' && s[i] <= '9' {
+			n = n*10 + int64(s[i]-'0')
+		} else {
+			return 0, false
+		}
+	}
+	if sign {
+		return n * -1, true
+	}
+	return n, true
+}
+
+const minUint53 = 0
+const maxUint53 = 4503599627370495
+const minInt53 = -2251799813685248
+const maxInt53 = 2251799813685247
+
+func floatToUint(f float64) (n uint64, ok bool) {
+	n = uint64(f)
+	if float64(n) == f && n >= minUint53 && n <= maxUint53 {
+		return n, true
+	}
+	return 0, false
+}
+
+func floatToInt(f float64) (n int64, ok bool) {
+	n = int64(f)
+	if float64(n) == f && n >= minInt53 && n <= maxInt53 {
+		return n, true
+	}
+	return 0, false
 }

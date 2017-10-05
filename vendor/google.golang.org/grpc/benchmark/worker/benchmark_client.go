@@ -1,42 +1,29 @@
 /*
  *
- * Copyright 2016, Google Inc.
- * All rights reserved.
+ * Copyright 2016 gRPC authors.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  */
 
 package main
 
 import (
+	"flag"
 	"math"
 	"runtime"
 	"sync"
+	"syscall"
 	"time"
 
 	"golang.org/x/net/context"
@@ -47,10 +34,11 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/grpclog"
+	"google.golang.org/grpc/testdata"
 )
 
 var (
-	caFile = "benchmark/server/testdata/ca.pem"
+	caFile = flag.String("ca_file", "", "The file containing the CA root cert file")
 )
 
 type lockingHistogram struct {
@@ -85,6 +73,7 @@ type benchmarkClient struct {
 	lastResetTime     time.Time
 	histogramOptions  stats.HistogramOptions
 	lockingHistograms []lockingHistogram
+	rusageLastReset   *syscall.Rusage
 }
 
 func printClientConfig(config *testpb.ClientConfig) {
@@ -135,7 +124,10 @@ func createConns(config *testpb.ClientConfig) ([]*grpc.ClientConn, func(), error
 
 	// Check and set security options.
 	if config.SecurityParams != nil {
-		creds, err := credentials.NewClientTLSFromFile(abs(caFile), config.SecurityParams.ServerHostOverride)
+		if *caFile == "" {
+			*caFile = testdata.Path("ca.pem")
+		}
+		creds, err := credentials.NewClientTLSFromFile(*caFile, config.SecurityParams.ServerHostOverride)
 		if err != nil {
 			return nil, nil, grpc.Errorf(codes.InvalidArgument, "failed to create TLS credentials %v", err)
 		}
@@ -226,6 +218,9 @@ func startBenchmarkClient(config *testpb.ClientConfig) (*benchmarkClient, error)
 		return nil, err
 	}
 
+	rusage := new(syscall.Rusage)
+	syscall.Getrusage(syscall.RUSAGE_SELF, rusage)
+
 	rpcCountPerConn := int(config.OutstandingRpcsPerChannel)
 	bc := &benchmarkClient{
 		histogramOptions: stats.HistogramOptions{
@@ -236,9 +231,10 @@ func startBenchmarkClient(config *testpb.ClientConfig) (*benchmarkClient, error)
 		},
 		lockingHistograms: make([]lockingHistogram, rpcCountPerConn*len(conns), rpcCountPerConn*len(conns)),
 
-		stop:          make(chan bool),
-		lastResetTime: time.Now(),
-		closeConns:    closeConns,
+		stop:            make(chan bool),
+		lastResetTime:   time.Now(),
+		closeConns:      closeConns,
+		rusageLastReset: rusage,
 	}
 
 	if err = performRPCs(config, conns, bc); err != nil {
@@ -317,28 +313,17 @@ func (bc *benchmarkClient) doCloseLoopStreaming(conns []*grpc.ClientConn, rpcCou
 				// Now relying on worker client to reserve time to do warm up.
 				// The worker client needs to wait for some time after client is created,
 				// before starting benchmark.
-				done := make(chan bool)
 				for {
-					go func() {
-						start := time.Now()
-						if err := doRPC(stream, reqSize, respSize); err != nil {
-							select {
-							case <-bc.stop:
-							case done <- false:
-							}
-							return
-						}
-						elapse := time.Since(start)
-						bc.lockingHistograms[idx].add(int64(elapse))
-						select {
-						case <-bc.stop:
-						case done <- true:
-						}
-					}()
+					start := time.Now()
+					if err := doRPC(stream, reqSize, respSize); err != nil {
+						return
+					}
+					elapse := time.Since(start)
+					bc.lockingHistograms[idx].add(int64(elapse))
 					select {
 					case <-bc.stop:
 						return
-					case <-done:
+					default:
 					}
 				}
 			}(idx)
@@ -349,8 +334,9 @@ func (bc *benchmarkClient) doCloseLoopStreaming(conns []*grpc.ClientConn, rpcCou
 // getStats returns the stats for benchmark client.
 // It resets lastResetTime and all histograms if argument reset is true.
 func (bc *benchmarkClient) getStats(reset bool) *testpb.ClientStats {
-	var timeElapsed float64
+	var wallTimeElapsed, uTimeElapsed, sTimeElapsed float64
 	mergedHistogram := stats.NewHistogram(bc.histogramOptions)
+	latestRusage := new(syscall.Rusage)
 
 	if reset {
 		// Merging histogram may take some time.
@@ -364,14 +350,21 @@ func (bc *benchmarkClient) getStats(reset bool) *testpb.ClientStats {
 			mergedHistogram.Merge(toMerge[i])
 		}
 
-		timeElapsed = time.Since(bc.lastResetTime).Seconds()
+		wallTimeElapsed = time.Since(bc.lastResetTime).Seconds()
+		syscall.Getrusage(syscall.RUSAGE_SELF, latestRusage)
+		uTimeElapsed, sTimeElapsed = cpuTimeDiff(bc.rusageLastReset, latestRusage)
+
+		bc.rusageLastReset = latestRusage
 		bc.lastResetTime = time.Now()
 	} else {
 		// Merge only, not reset.
 		for i := range bc.lockingHistograms {
 			bc.lockingHistograms[i].mergeInto(mergedHistogram)
 		}
-		timeElapsed = time.Since(bc.lastResetTime).Seconds()
+
+		wallTimeElapsed = time.Since(bc.lastResetTime).Seconds()
+		syscall.Getrusage(syscall.RUSAGE_SELF, latestRusage)
+		uTimeElapsed, sTimeElapsed = cpuTimeDiff(bc.rusageLastReset, latestRusage)
 	}
 
 	b := make([]uint32, len(mergedHistogram.Buckets), len(mergedHistogram.Buckets))
@@ -387,9 +380,9 @@ func (bc *benchmarkClient) getStats(reset bool) *testpb.ClientStats {
 			SumOfSquares: float64(mergedHistogram.SumOfSquares),
 			Count:        float64(mergedHistogram.Count),
 		},
-		TimeElapsed: timeElapsed,
-		TimeUser:    0,
-		TimeSystem:  0,
+		TimeElapsed: wallTimeElapsed,
+		TimeUser:    uTimeElapsed,
+		TimeSystem:  sTimeElapsed,
 	}
 }
 

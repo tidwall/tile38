@@ -11,6 +11,8 @@ While the protocol was designed specifically for Redis, it can be used for other
 
 The RESP protocol has the advantages of being human readable and with performance of a binary protocol.
 
+\*\* **Note: If you are looking for a high-performance Redis server for Go, please checkout [Redcon](https://github.com/tidwall/redcon). It's much faster than this implementation and can handle pipelining.** \*\*
+
 Features
 --------
 

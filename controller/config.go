@@ -326,62 +326,61 @@ func (config *Config) getProperty(name string) string {
 	}
 }
 
-func (c *Controller) cmdConfigGet(msg *server.Message) (res string, err error) {
+func (c *Controller) cmdConfigGet(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 	var ok bool
 	var name string
+
 	if vs, name, ok = tokenval(vs); !ok {
-		return "", errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	if len(vs) != 0 {
-		return "", errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	m := c.config.getProperties(name)
 	switch msg.OutputType {
 	case server.JSON:
 		data, err := json.Marshal(m)
 		if err != nil {
-			return "", err
+			return server.NOMessage, err
 		}
-		res = `{"ok":true,"properties":` + string(data) + `,"elapsed":"` + time.Now().Sub(start).String() + "\"}"
+		res = resp.StringValue(`{"ok":true,"properties":` + string(data) + `,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
 	case server.RESP:
 		vals := respValuesSimpleMap(m)
-		data, err := resp.ArrayValue(vals).MarshalRESP()
-		if err != nil {
-			return "", err
-		}
-		res = string(data)
+		res = resp.ArrayValue(vals)
 	}
 	return
 }
-func (c *Controller) cmdConfigSet(msg *server.Message) (res string, err error) {
+func (c *Controller) cmdConfigSet(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 	var ok bool
 	var name string
+
 	if vs, name, ok = tokenval(vs); !ok {
-		return "", errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	var value string
 	if vs, value, ok = tokenval(vs); !ok {
 		if strings.ToLower(name) != RequirePass {
-			return "", errInvalidNumberOfArguments
+			return server.NOMessage, errInvalidNumberOfArguments
 		}
 	}
 	if len(vs) != 0 {
-		return "", errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	if err := c.config.setProperty(name, value, false); err != nil {
-		return "", err
+		return server.NOMessage, err
 	}
 	return server.OKMessage(msg, start), nil
 }
-func (c *Controller) cmdConfigRewrite(msg *server.Message) (res string, err error) {
+func (c *Controller) cmdConfigRewrite(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
+
 	if len(vs) != 0 {
-		return "", errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	c.config.write(true)
 	return server.OKMessage(msg, start), nil

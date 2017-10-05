@@ -113,48 +113,27 @@ if [ "$1" == "package" ]; then
 	exit
 fi
 
-if [ "$1" == "vendor" ]; then
-	pkg="$2"	
-	if [ "$pkg" == "" ]; then
-		echo "no package specified"
-		exit
-	fi
-	if [ ! -d "$GOPATH/src/$pkg" ]; then
-		echo "invalid package"
-		exit
-	fi
-	rm -rf vendor/$pkg/
-	mkdir -p vendor/$pkg/
-	cp -rf $GOPATH/src/$pkg/* vendor/$pkg/
-	rm -rf vendor/$pkg/.git
-	exit
-fi
-
 # temp directory for storing isolated environment.
 TMP="$(mktemp -d -t tile38.XXXX)"
 function rmtemp {
 	rm -rf "$TMP"
 }
 trap rmtemp EXIT
-NOCOPY=1
-if [ "$NOCOPY" != "1" ]; then
-	# copy all files to an isloated directory.
-	WD="$TMP/src/github.com/tidwall/tile38"
-	export GOPATH="$TMP"
-	for file in `find . -type f`; do
-		# TODO: use .gitignore to ignore, or possibly just use git to determine the file list.
-		if [[ "$file" != "." && "$file" != ./.git* && "$file" != ./data* && "$file" != ./tile38-* ]]; then
-			mkdir -p "$WD/$(dirname "${file}")"
-			cp -P "$file" "$WD/$(dirname "${file}")"
-		fi
-	done
-	cd $WD
+
+
+if [ "$NOLINK" != "1" ]; then
+    # symlink root to isolated directory
+	mkdir -p "$TMP/go/src/github.com/tidwall"
+    ln -s $OD "$TMP/go/src/github.com/tidwall/tile38"
+    export GOPATH="$TMP/go"
+	cd "$TMP/go/src/github.com/tidwall/tile38"
 fi
 
 # build and store objects into original directory.
 go build -ldflags "$LDFLAGS" -o "$OD/tile38-server" cmd/tile38-server/*.go
 go build -ldflags "$LDFLAGS" -o "$OD/tile38-cli" cmd/tile38-cli/*.go
 go build -ldflags "$LDFLAGS" -o "$OD/tile38-benchmark" cmd/tile38-benchmark/*.go
+go build -ldflags "$LDFLAGS" -o "$OD/tile38-luamemtest" cmd/tile38-luamemtest/*.go
 
 # test if requested
 if [ "$1" == "test" ]; then

@@ -95,18 +95,20 @@ type Controller struct {
 	cols    *btree.BTree                    // data collections
 	expires map[string]map[string]time.Time // synced with cols
 
-	follows   map[*bytes.Buffer]bool
-	fcond     *sync.Cond
-	lstack    []*commandDetailsT
-	lives     map[*liveBuffer]bool
-	lcond     *sync.Cond
-	fcup      bool                        // follow caught up
-	fcuponce  bool                        // follow caught up once
-	shrinking bool                        // aof shrinking flag
-	shrinklog [][]string                  // aof shrinking log
-	hooks     map[string]*Hook            // hook name
-	hookcols  map[string]map[string]*Hook // col key
-	aofconnM  map[net.Conn]bool
+	follows    map[*bytes.Buffer]bool
+	fcond      *sync.Cond
+	lstack     []*commandDetailsT
+	lives      map[*liveBuffer]bool
+	lcond      *sync.Cond
+	fcup       bool                        // follow caught up
+	fcuponce   bool                        // follow caught up once
+	shrinking  bool                        // aof shrinking flag
+	shrinklog  [][]string                  // aof shrinking log
+	hooks      map[string]*Hook            // hook name
+	hookcols   map[string]map[string]*Hook // col key
+	aofconnM   map[net.Conn]bool
+	luascripts *lScriptMap
+	luapool    *lStatePool
 }
 
 // ListenAndServe starts a new tile38 server
@@ -133,6 +135,11 @@ func ListenAndServeEx(host string, port int, dir string, ln *net.Listener, http 
 		epc:      endpoint.NewEndpointManager(),
 		http:     http,
 	}
+
+	c.luascripts = c.NewScriptMap()
+	c.luapool = c.NewPool()
+	defer c.luapool.Shutdown()
+
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
@@ -352,6 +359,19 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 		words = append(words, v.String())
 	}
 	start := time.Now()
+	serializeOutput := func(res resp.Value) (string, error) {
+		var resStr string
+		var err error
+		switch msg.OutputType {
+		case server.JSON:
+			resStr = res.String()
+		case server.RESP:
+			var resBytes []byte
+			resBytes, err = res.MarshalRESP()
+			resStr = string(resBytes)
+		}
+		return resStr, err
+	}
 	writeOutput := func(res string) error {
 		switch msg.ConnType {
 		default:
@@ -405,15 +425,15 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 		}
 		return nil
 	}
-	writeErr := func(err error) error {
+	writeErr := func(errMsg string) error {
 		switch msg.OutputType {
 		case server.JSON:
-			return writeOutput(`{"ok":false,"err":` + jsonString(err.Error()) + `,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
+			return writeOutput(`{"ok":false,"err":` + jsonString(errMsg) + `,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
 		case server.RESP:
-			if err == errInvalidNumberOfArguments {
+			if errMsg == errInvalidNumberOfArguments.Error() {
 				return writeOutput("-ERR wrong number of arguments for '" + msg.Command + "' command\r\n")
 			}
-			v, _ := resp.ErrorValue(errors.New("ERR " + err.Error())).MarshalRESP()
+			v, _ := resp.ErrorValue(errors.New("ERR " + errMsg)).MarshalRESP()
 			return writeOutput(string(v))
 		}
 		return nil
@@ -427,7 +447,7 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 			// This better be an AUTH command or the Message should contain an Auth
 			if msg.Command != "auth" && msg.Auth == "" {
 				// Just shut down the pipeline now. The less the client connection knows the better.
-				return writeErr(errors.New("authentication required"))
+				return writeErr("authentication required")
 			}
 			if msg.Auth != "" {
 				password = msg.Auth
@@ -437,14 +457,15 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 				}
 			}
 			if c.config.requirePass() != strings.TrimSpace(password) {
-				return writeErr(errors.New("invalid password"))
+				return writeErr("invalid password")
 			}
 			conn.Authenticated = true
 			if msg.ConnType != server.HTTP {
-				return writeOutput(server.OKMessage(msg, start))
+				resStr, _ := serializeOutput(server.OKMessage(msg, start))
+				return writeOutput(resStr)
 			}
 		} else if msg.Command == "auth" {
-			return writeErr(errors.New("invalid password"))
+			return writeErr("invalid password")
 		}
 	}
 	// choose the locking strategy
@@ -459,18 +480,28 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		if c.config.followHost() != "" {
-			return writeErr(errors.New("not the leader"))
+			return writeErr("not the leader")
 		}
 		if c.config.readOnly() {
-			return writeErr(errors.New("read only"))
+			return writeErr("read only")
+		}
+	case "eval", "evalsha":
+		// write operations (potentially) but no AOF for the script command itself
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if c.config.followHost() != "" {
+			return writeErr("not the leader")
+		}
+		if c.config.readOnly() {
+			return writeErr("read only")
 		}
 	case "get", "keys", "scan", "nearby", "within", "intersects", "hooks", "search",
-		"ttl", "bounds", "server", "info", "type", "jget":
+		"ttl", "bounds", "server", "info", "type", "jget", "evalro", "evalrosha":
 		// read operations
 		c.mu.RLock()
 		defer c.mu.RUnlock()
 		if c.config.followHost() != "" && !c.fcuponce {
-			return writeErr(errors.New("catching up to leader"))
+			return writeErr("catching up to leader")
 		}
 	case "follow", "readonly", "config":
 		// system operations
@@ -498,30 +529,47 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 	case "client":
 		c.mu.Lock()
 		defer c.mu.Unlock()
+	case "evalna", "evalnasha":
+		// No locking for scripts, otherwise writes cannot happen within scripts
 	}
 
 	res, d, err := c.command(msg, w, conn)
+
+	if res.Type() == resp.Error {
+		return writeErr(res.String())
+	}
 	if err != nil {
 		if err.Error() == "going live" {
 			return err
 		}
-		return writeErr(err)
+		return writeErr(err.Error())
 	}
 	if write {
 		if err := c.writeAOF(resp.ArrayValue(msg.Values), &d); err != nil {
 			if _, ok := err.(errAOFHook); ok {
-				return writeErr(err)
+				return writeErr(err.Error())
 			}
 			log.Fatal(err)
 			return err
 		}
 	}
-	if res != "" {
-		if err := writeOutput(res); err != nil {
+
+	if !isRespValueEmptyString(res) {
+		var resStr string
+		resStr, err := serializeOutput(res)
+		if err != nil {
+			return err
+		}
+		if err := writeOutput(resStr); err != nil {
 			return err
 		}
 	}
+
 	return nil
+}
+
+func isRespValueEmptyString(val resp.Value) bool {
+	return !val.IsNull() && (val.Type() == resp.SimpleString || val.Type() == resp.BulkString) && len(val.Bytes()) == 0
 }
 
 func randomKey(n int) string {
@@ -544,7 +592,7 @@ func (c *Controller) reset() {
 func (c *Controller) command(
 	msg *server.Message, w io.Writer, conn *server.Conn,
 ) (
-	res string, d commandDetailsT, err error,
+	res resp.Value, d commandDetailsT, err error,
 ) {
 	switch msg.Command {
 	default:
@@ -657,6 +705,16 @@ func (c *Controller) command(
 		}
 	case "client":
 		res, err = c.cmdClient(msg, conn)
+	case "eval", "evalro", "evalna":
+		res, err = c.cmdEvalUnified(false, msg)
+	case "evalsha", "evalrosha", "evalnasha":
+		res, err = c.cmdEvalUnified(true, msg)
+	case "script load":
+		res, err = c.cmdScriptLoad(msg)
+	case "script exists":
+		res, err = c.cmdScriptExists(msg)
+	case "script flush":
+		res, err = c.cmdScriptFlush(msg)
 	}
 	return
 }

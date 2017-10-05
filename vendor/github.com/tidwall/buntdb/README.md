@@ -9,8 +9,6 @@
 <a href="https://godoc.org/github.com/tidwall/buntdb"><img src="https://img.shields.io/badge/api-reference-blue.svg?style=flat-square" alt="GoDoc"></a>
 </p>
 
-====
-
 BuntDB is a low-level, in-memory, key/value store in pure Go. 
 It persists to disk, is ACID compliant, and uses locking for multiple
 readers and a single writer. It supports custom indexes and geospatial 
@@ -18,9 +16,7 @@ data. It's ideal for projects that need a dependable database and favor
 speed over data size.
 
 The desire to create BuntDB stems from the need for a new embeddable
-database for [Tile38](https://github.com/tidwall/tile38). One that can work 
-both as a performant [Raft Store](https://github.com/tidwall/raft-buntdb), 
-and a Geospatial database.
+database for [Tile38](https://github.com/tidwall/tile38) and [SummitDB](https://github.com/tidwall/summitdb).
 
 Features
 ========
@@ -152,7 +148,9 @@ err := tx.Ascend("", func(key, value string) bool{
 })
 ```
 
-There is also `AscendGreaterOrEqual`, `AscendLessThan`, `AscendRange`, `Descend`, `DescendLessOrEqual`, `DescendGreaterThan`, and `DescendRange`. Please see the [documentation](https://godoc.org/github.com/tidwall/buntdb) for more information on these functions.
+There is also `AscendGreaterOrEqual`, `AscendLessThan`, `AscendRange`, `AscendEqual`, `Descend`, `DescendLessOrEqual`, `DescendGreaterThan`, `DescendRange`, and `DescendEqual`. Please see the [documentation](https://godoc.org/github.com/tidwall/buntdb) for more information on these functions.
+
+
 
 
 ## Custom Indexes
@@ -460,7 +458,7 @@ This will create a multi value index where the last name is ascending and the ag
 ## Collate i18n Indexes
 
 Using the external [collate package](https://github.com/tidwall/collate) it's possible to create
-indexes that are sorted by the specified langauge. This is similar to the [SQL COLLATE keyword](https://msdn.microsoft.com/en-us/library/ms174596.aspx) found in traditional databases.
+indexes that are sorted by the specified language. This is similar to the [SQL COLLATE keyword](https://msdn.microsoft.com/en-us/library/ms174596.aspx) found in traditional databases.
 
 To install:
 

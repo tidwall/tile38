@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -44,17 +43,17 @@ func (a hooksByName) Swap(i, j int) {
 	a[i], a[j] = a[j], a[i]
 }
 
-func (c *Controller) cmdSetHook(msg *server.Message) (res string, d commandDetailsT, err error) {
+func (c *Controller) cmdSetHook(msg *server.Message) (res resp.Value, d commandDetailsT, err error) {
 	start := time.Now()
 
 	vs := msg.Values[1:]
 	var name, urls, cmd string
 	var ok bool
 	if vs, name, ok = tokenval(vs); !ok || name == "" {
-		return "", d, errInvalidNumberOfArguments
+		return server.NOMessage, d, errInvalidNumberOfArguments
 	}
 	if vs, urls, ok = tokenval(vs); !ok || urls == "" {
-		return "", d, errInvalidNumberOfArguments
+		return server.NOMessage, d, errInvalidNumberOfArguments
 	}
 	var endpoints []string
 	for _, url := range strings.Split(urls, ",") {
@@ -62,7 +61,7 @@ func (c *Controller) cmdSetHook(msg *server.Message) (res string, d commandDetai
 		err := c.epc.Validate(url)
 		if err != nil {
 			log.Errorf("sethook: %v", err)
-			return "", d, errInvalidArgument(url)
+			return resp.SimpleStringValue(""), d, errInvalidArgument(url)
 		}
 		endpoints = append(endpoints, url)
 	}
@@ -73,20 +72,20 @@ func (c *Controller) cmdSetHook(msg *server.Message) (res string, d commandDetai
 	for {
 		commandvs = vs
 		if vs, cmd, ok = tokenval(vs); !ok || cmd == "" {
-			return "", d, errInvalidNumberOfArguments
+			return server.NOMessage, d, errInvalidNumberOfArguments
 		}
 		cmdlc = strings.ToLower(cmd)
 		switch cmdlc {
 		default:
-			return "", d, errInvalidArgument(cmd)
+			return server.NOMessage, d, errInvalidArgument(cmd)
 		case "meta":
 			var metakey string
 			var metaval string
 			if vs, metakey, ok = tokenval(vs); !ok || metakey == "" {
-				return "", d, errInvalidNumberOfArguments
+				return server.NOMessage, d, errInvalidNumberOfArguments
 			}
 			if vs, metaval, ok = tokenval(vs); !ok || metaval == "" {
-				return "", d, errInvalidNumberOfArguments
+				return server.NOMessage, d, errInvalidNumberOfArguments
 			}
 			metaMap[metakey] = metaval
 			continue
@@ -99,10 +98,10 @@ func (c *Controller) cmdSetHook(msg *server.Message) (res string, d commandDetai
 	}
 	s, err := c.cmdSearchArgs(cmdlc, vs, types)
 	if err != nil {
-		return "", d, err
+		return server.NOMessage, d, err
 	}
 	if !s.fence {
-		return "", d, errors.New("missing FENCE argument")
+		return server.NOMessage, d, errors.New("missing FENCE argument")
 	}
 	s.cmd = cmdlc
 
@@ -135,7 +134,7 @@ func (c *Controller) cmdSetHook(msg *server.Message) (res string, d commandDetai
 	var wr bytes.Buffer
 	hook.ScanWriter, err = c.newScanWriter(&wr, cmsg, s.key, s.output, s.precision, s.glob, false, s.cursor, s.limit, s.wheres, s.whereins, s.nofields)
 	if err != nil {
-		return "", d, err
+		return server.NOMessage, d, err
 	}
 
 	if h, ok := c.hooks[name]; ok {
@@ -147,7 +146,7 @@ func (c *Controller) cmdSetHook(msg *server.Message) (res string, d commandDetai
 			case server.JSON:
 				return server.OKMessage(msg, start), d, nil
 			case server.RESP:
-				return ":0\r\n", d, nil
+				return resp.IntegerValue(0), d, nil
 			}
 		}
 		h.Close()
@@ -171,22 +170,22 @@ func (c *Controller) cmdSetHook(msg *server.Message) (res string, d commandDetai
 	case server.JSON:
 		return server.OKMessage(msg, start), d, nil
 	case server.RESP:
-		return ":1\r\n", d, nil
+		return resp.IntegerValue(1), d, nil
 	}
-	return "", d, nil
+	return server.NOMessage, d, nil
 }
 
-func (c *Controller) cmdDelHook(msg *server.Message) (res string, d commandDetailsT, err error) {
+func (c *Controller) cmdDelHook(msg *server.Message) (res resp.Value, d commandDetailsT, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 
 	var name string
 	var ok bool
 	if vs, name, ok = tokenval(vs); !ok || name == "" {
-		return "", d, errInvalidNumberOfArguments
+		return server.NOMessage, d, errInvalidNumberOfArguments
 	}
 	if len(vs) != 0 {
-		return "", d, errInvalidNumberOfArguments
+		return server.NOMessage, d, errInvalidNumberOfArguments
 	}
 	if h, ok := c.hooks[name]; ok {
 		h.Close()
@@ -203,24 +202,24 @@ func (c *Controller) cmdDelHook(msg *server.Message) (res string, d commandDetai
 		return server.OKMessage(msg, start), d, nil
 	case server.RESP:
 		if d.updated {
-			return ":1\r\n", d, nil
+			return resp.IntegerValue(1), d, nil
 		}
-		return ":0\r\n", d, nil
+		return resp.IntegerValue(0), d, nil
 	}
 	return
 }
 
-func (c *Controller) cmdPDelHook(msg *server.Message) (res string, d commandDetailsT, err error) {
+func (c *Controller) cmdPDelHook(msg *server.Message) (res resp.Value, d commandDetailsT, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 
 	var pattern string
 	var ok bool
 	if vs, pattern, ok = tokenval(vs); !ok || pattern == "" {
-		return "", d, errInvalidNumberOfArguments
+		return server.NOMessage, d, errInvalidNumberOfArguments
 	}
 	if len(vs) != 0 {
-		return "", d, errInvalidNumberOfArguments
+		return server.NOMessage, d, errInvalidNumberOfArguments
 	}
 
 	count := 0
@@ -243,22 +242,23 @@ func (c *Controller) cmdPDelHook(msg *server.Message) (res string, d commandDeta
 	case server.JSON:
 		return server.OKMessage(msg, start), d, nil
 	case server.RESP:
-		return ":" + strconv.FormatInt(int64(count), 10) + "\r\n", d, nil
+		return resp.IntegerValue(count), d, nil
 	}
 	return
 }
 
-func (c *Controller) cmdHooks(msg *server.Message) (res string, err error) {
+func (c *Controller) cmdHooks(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 
 	var pattern string
 	var ok bool
+
 	if vs, pattern, ok = tokenval(vs); !ok || pattern == "" {
-		return "", errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	if len(vs) != 0 {
-		return "", errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 
 	var hooks []*Hook
@@ -299,7 +299,7 @@ func (c *Controller) cmdHooks(msg *server.Message) (res string, err error) {
 			buf.WriteString(`]}`)
 		}
 		buf.WriteString(`],"elapsed":"` + time.Now().Sub(start).String() + "\"}")
-		return buf.String(), nil
+		return resp.StringValue(buf.String()), nil
 	case server.RESP:
 		var vals []resp.Value
 		for _, hook := range hooks {
@@ -314,13 +314,9 @@ func (c *Controller) cmdHooks(msg *server.Message) (res string, err error) {
 			hvals = append(hvals, resp.ArrayValue(hook.Message.Values))
 			vals = append(vals, resp.ArrayValue(hvals))
 		}
-		data, err := resp.ArrayValue(vals).MarshalRESP()
-		if err != nil {
-			return "", err
-		}
-		return string(data), nil
+		return resp.ArrayValue(vals), nil
 	}
-	return "", nil
+	return resp.SimpleStringValue(""), nil
 }
 
 // Hook represents a hook.

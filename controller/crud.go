@@ -48,25 +48,25 @@ func orderFields(fmap map[string]int, fields []float64) []fvt {
 	sort.Sort(byField(fvs))
 	return fvs
 }
-func (c *Controller) cmdBounds(msg *server.Message) (string, error) {
+func (c *Controller) cmdBounds(msg *server.Message) (resp.Value, error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 
 	var ok bool
 	var key string
 	if vs, key, ok = tokenval(vs); !ok || key == "" {
-		return "", errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	if len(vs) != 0 {
-		return "", errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 
 	col := c.getCol(key)
 	if col == nil {
 		if msg.OutputType == server.RESP {
-			return "$-1\r\n", nil
+			return resp.NullValue(), nil
 		}
-		return "", errKeyNotFound
+		return server.NOMessage, errKeyNotFound
 	}
 
 	vals := make([]resp.Value, 0, 2)
@@ -95,58 +95,53 @@ func (c *Controller) cmdBounds(msg *server.Message) (string, error) {
 	switch msg.OutputType {
 	case server.JSON:
 		buf.WriteString(`,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
-		return buf.String(), nil
+		return resp.StringValue(buf.String()), nil
 	case server.RESP:
-		var oval resp.Value
-		oval = vals[0]
-		data, err := oval.MarshalRESP()
-		if err != nil {
-			return "", err
-		}
-		return string(data), nil
+		return vals[0], nil
 	}
-	return "", nil
+	return server.NOMessage, nil
 }
-func (c *Controller) cmdType(msg *server.Message) (string, error) {
+
+func (c *Controller) cmdType(msg *server.Message) (resp.Value, error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 
 	var ok bool
 	var key string
 	if vs, key, ok = tokenval(vs); !ok || key == "" {
-		return "", errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 
 	col := c.getCol(key)
 	if col == nil {
 		if msg.OutputType == server.RESP {
-			return "+none\r\n", nil
+			return resp.SimpleStringValue("none"), nil
 		}
-		return "", errKeyNotFound
+		return server.NOMessage, errKeyNotFound
 	}
 
 	typ := "hash"
 
 	switch msg.OutputType {
 	case server.JSON:
-		return `{"ok":true,"type":` + string(typ) + `,"elapsed":"` + time.Now().Sub(start).String() + "\"}", nil
+		return resp.StringValue(`{"ok":true,"type":` + string(typ) + `,"elapsed":"` + time.Now().Sub(start).String() + "\"}"), nil
 	case server.RESP:
-		return "+" + typ + "\r\n", nil
+		return resp.SimpleStringValue(typ), nil
 	}
-	return "", nil
+	return server.NOMessage, nil
 }
 
-func (c *Controller) cmdGet(msg *server.Message) (string, error) {
+func (c *Controller) cmdGet(msg *server.Message) (resp.Value, error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 
 	var ok bool
 	var key, id, typ, sprecision string
 	if vs, key, ok = tokenval(vs); !ok || key == "" {
-		return "", errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	if vs, id, ok = tokenval(vs); !ok || id == "" {
-		return "", errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 
 	withfields := false
@@ -158,17 +153,17 @@ func (c *Controller) cmdGet(msg *server.Message) (string, error) {
 	col := c.getCol(key)
 	if col == nil {
 		if msg.OutputType == server.RESP {
-			return "$-1\r\n", nil
+			return resp.NullValue(), nil
 		}
-		return "", errKeyNotFound
+		return server.NOMessage, errKeyNotFound
 	}
 	o, fields, ok := col.Get(id)
 	ok = ok && !c.hasExpired(key, id)
 	if !ok {
 		if msg.OutputType == server.RESP {
-			return "$-1\r\n", nil
+			return resp.NullValue(), nil
 		}
-		return "", errIDNotFound
+		return server.NOMessage, errIDNotFound
 	}
 
 	vals := make([]resp.Value, 0, 2)
@@ -183,7 +178,7 @@ func (c *Controller) cmdGet(msg *server.Message) (string, error) {
 	}
 	switch typ {
 	default:
-		return "", errInvalidArgument(typ)
+		return server.NOMessage, errInvalidArgument(typ)
 	case "object":
 		if msg.OutputType == server.JSON {
 			buf.WriteString(`,"object":`)
@@ -212,18 +207,18 @@ func (c *Controller) cmdGet(msg *server.Message) (string, error) {
 		}
 	case "hash":
 		if vs, sprecision, ok = tokenval(vs); !ok || sprecision == "" {
-			return "", errInvalidNumberOfArguments
+			return server.NOMessage, errInvalidNumberOfArguments
 		}
 		if msg.OutputType == server.JSON {
 			buf.WriteString(`,"hash":`)
 		}
 		precision, err := strconv.ParseInt(sprecision, 10, 64)
 		if err != nil || precision < 1 || precision > 64 {
-			return "", errInvalidArgument(sprecision)
+			return server.NOMessage, errInvalidArgument(sprecision)
 		}
 		p, err := o.Geohash(int(precision))
 		if err != nil {
-			return "", err
+			return server.NOMessage, err
 		}
 		if msg.OutputType == server.JSON {
 			buf.WriteString(`"` + p + `"`)
@@ -250,7 +245,7 @@ func (c *Controller) cmdGet(msg *server.Message) (string, error) {
 	}
 
 	if len(vs) != 0 {
-		return "", errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	if withfields {
 		fvs := orderFields(col.FieldMap(), fields)
@@ -280,7 +275,7 @@ func (c *Controller) cmdGet(msg *server.Message) (string, error) {
 	switch msg.OutputType {
 	case server.JSON:
 		buf.WriteString(`,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
-		return buf.String(), nil
+		return resp.StringValue(buf.String()), nil
 	case server.RESP:
 		var oval resp.Value
 		if withfields {
@@ -288,16 +283,12 @@ func (c *Controller) cmdGet(msg *server.Message) (string, error) {
 		} else {
 			oval = vals[0]
 		}
-		data, err := oval.MarshalRESP()
-		if err != nil {
-			return "", err
-		}
-		return string(data), nil
+		return oval, nil
 	}
-	return "", nil
+	return server.NOMessage, nil
 }
 
-func (c *Controller) cmdDel(msg *server.Message) (res string, d commandDetailsT, err error) {
+func (c *Controller) cmdDel(msg *server.Message) (res resp.Value, d commandDetailsT, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 	var ok bool
@@ -330,18 +321,18 @@ func (c *Controller) cmdDel(msg *server.Message) (res string, d commandDetailsT,
 	d.timestamp = time.Now()
 	switch msg.OutputType {
 	case server.JSON:
-		res = `{"ok":true,"elapsed":"` + time.Now().Sub(start).String() + "\"}"
+		res = resp.StringValue(`{"ok":true,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
 	case server.RESP:
 		if d.updated {
-			res = ":1\r\n"
+			res = resp.IntegerValue(1)
 		} else {
-			res = ":0\r\n"
+			res = resp.IntegerValue(0)
 		}
 	}
 	return
 }
 
-func (c *Controller) cmdPdel(msg *server.Message) (res string, d commandDetailsT, err error) {
+func (c *Controller) cmdPdel(msg *server.Message) (res resp.Value, d commandDetailsT, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 	var ok bool
@@ -410,18 +401,18 @@ func (c *Controller) cmdPdel(msg *server.Message) (res string, d commandDetailsT
 	d.parent = true
 	switch msg.OutputType {
 	case server.JSON:
-		res = `{"ok":true,"elapsed":"` + time.Now().Sub(start).String() + "\"}"
+		res = resp.StringValue(`{"ok":true,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
 	case server.RESP:
 		total := len(d.children) - expired
 		if total < 0 {
 			total = 0
 		}
-		res = ":" + strconv.FormatInt(int64(total), 10) + "\r\n"
+		res = resp.IntegerValue(total)
 	}
 	return
 }
 
-func (c *Controller) cmdDrop(msg *server.Message) (res string, d commandDetailsT, err error) {
+func (c *Controller) cmdDrop(msg *server.Message) (res resp.Value, d commandDetailsT, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 	var ok bool
@@ -446,18 +437,18 @@ func (c *Controller) cmdDrop(msg *server.Message) (res string, d commandDetailsT
 	c.clearKeyExpires(d.key)
 	switch msg.OutputType {
 	case server.JSON:
-		res = `{"ok":true,"elapsed":"` + time.Now().Sub(start).String() + "\"}"
+		res = resp.StringValue(`{"ok":true,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
 	case server.RESP:
 		if d.updated {
-			res = ":1\r\n"
+			res = resp.IntegerValue(1)
 		} else {
-			res = ":0\r\n"
+			res = resp.IntegerValue(0)
 		}
 	}
 	return
 }
 
-func (c *Controller) cmdFlushDB(msg *server.Message) (res string, d commandDetailsT, err error) {
+func (c *Controller) cmdFlushDB(msg *server.Message) (res resp.Value, d commandDetailsT, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 	if len(vs) != 0 {
@@ -476,9 +467,9 @@ func (c *Controller) cmdFlushDB(msg *server.Message) (res string, d commandDetai
 	d.timestamp = time.Now()
 	switch msg.OutputType {
 	case server.JSON:
-		res = `{"ok":true,"elapsed":"` + time.Now().Sub(start).String() + "\"}"
+		res = resp.StringValue(`{"ok":true,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
 	case server.RESP:
-		res = "+OK\r\n"
+		res = resp.SimpleStringValue("OK")
 	}
 	return
 }
@@ -718,7 +709,7 @@ func (c *Controller) parseSetArgs(vs []resp.Value) (
 	return
 }
 
-func (c *Controller) cmdSet(msg *server.Message) (res string, d commandDetailsT, err error) {
+func (c *Controller) cmdSet(msg *server.Message) (res resp.Value, d commandDetailsT, err error) {
 	if c.config.maxMemory() > 0 && c.outOfMemory.on() {
 		err = errOOM
 		return
@@ -768,9 +759,9 @@ func (c *Controller) cmdSet(msg *server.Message) (res string, d commandDetailsT,
 	switch msg.OutputType {
 	default:
 	case server.JSON:
-		res = `{"ok":true,"elapsed":"` + time.Now().Sub(start).String() + "\"}"
+		res = resp.StringValue(`{"ok":true,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
 	case server.RESP:
-		res = "+OK\r\n"
+		res = resp.SimpleStringValue("OK")
 	}
 	return
 notok:
@@ -784,7 +775,7 @@ notok:
 		}
 		return
 	case server.RESP:
-		res = "$-1\r\n"
+		res = resp.NullValue()
 	}
 	return
 }
@@ -824,7 +815,7 @@ func (c *Controller) parseFSetArgs(vs []resp.Value) (d commandDetailsT, err erro
 	return
 }
 
-func (c *Controller) cmdFset(msg *server.Message) (res string, d commandDetailsT, err error) {
+func (c *Controller) cmdFset(msg *server.Message) (res resp.Value, d commandDetailsT, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 	d, err = c.parseFSetArgs(vs)
@@ -849,18 +840,18 @@ func (c *Controller) cmdFset(msg *server.Message) (res string, d commandDetailsT
 
 	switch msg.OutputType {
 	case server.JSON:
-		res = `{"ok":true,"elapsed":"` + time.Now().Sub(start).String() + "\"}"
+		res = resp.StringValue(`{"ok":true,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
 	case server.RESP:
 		if d.updated {
-			res = ":1\r\n"
+			res = resp.IntegerValue(1)
 		} else {
-			res = ":0\r\n"
+			res = resp.IntegerValue(0)
 		}
 	}
 	return
 }
 
-func (c *Controller) cmdExpire(msg *server.Message) (res string, d commandDetailsT, err error) {
+func (c *Controller) cmdExpire(msg *server.Message) (res resp.Value, d commandDetailsT, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 	var key, id, svalue string
@@ -900,21 +891,21 @@ func (c *Controller) cmdExpire(msg *server.Message) (res string, d commandDetail
 	switch msg.OutputType {
 	case server.JSON:
 		if ok {
-			res = `{"ok":true,"elapsed":"` + time.Now().Sub(start).String() + "\"}"
+			res = resp.StringValue(`{"ok":true,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
 		} else {
-			return "", d, errIDNotFound
+			return resp.SimpleStringValue(""), d, errIDNotFound
 		}
 	case server.RESP:
 		if ok {
-			res = ":1\r\n"
+			res = resp.IntegerValue(1)
 		} else {
-			res = ":0\r\n"
+			res = resp.IntegerValue(0)
 		}
 	}
 	return
 }
 
-func (c *Controller) cmdPersist(msg *server.Message) (res string, d commandDetailsT, err error) {
+func (c *Controller) cmdPersist(msg *server.Message) (res resp.Value, d commandDetailsT, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 	var key, id string
@@ -943,27 +934,27 @@ func (c *Controller) cmdPersist(msg *server.Message) (res string, d commandDetai
 	}
 	if !ok {
 		if msg.OutputType == server.RESP {
-			return ":0\r\n", d, nil
+			return resp.IntegerValue(0), d, nil
 		}
-		return "", d, errIDNotFound
+		return resp.SimpleStringValue(""), d, errIDNotFound
 	}
 	d.command = "persist"
 	d.updated = cleared
 	d.timestamp = time.Now()
 	switch msg.OutputType {
 	case server.JSON:
-		res = `{"ok":true,"elapsed":"` + time.Now().Sub(start).String() + "\"}"
+		res = resp.SimpleStringValue(`{"ok":true,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
 	case server.RESP:
 		if cleared {
-			res = ":1\r\n"
+			res = resp.IntegerValue(1)
 		} else {
-			res = ":0\r\n"
+			res = resp.IntegerValue(0)
 		}
 	}
 	return
 }
 
-func (c *Controller) cmdTTL(msg *server.Message) (res string, err error) {
+func (c *Controller) cmdTTL(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 	var key, id string
@@ -1011,19 +1002,20 @@ func (c *Controller) cmdTTL(msg *server.Message) (res string, err error) {
 			} else {
 				ttl = "-1"
 			}
-			res = `{"ok":true,"ttl":` + ttl + `,"elapsed":"` + time.Now().Sub(start).String() + "\"}"
+			res = resp.SimpleStringValue(
+				`{"ok":true,"ttl":` + ttl + `,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
 		} else {
-			return "", errIDNotFound
+			return resp.SimpleStringValue(""), errIDNotFound
 		}
 	case server.RESP:
 		if ok {
 			if ok2 {
-				res = ":" + strconv.FormatInt(int64(v), 10) + "\r\n"
+				res = resp.IntegerValue(int(v))
 			} else {
-				res = ":-1\r\n"
+				res = resp.IntegerValue(-1)
 			}
 		} else {
-			res = ":-2\r\n"
+			res = resp.IntegerValue(-2)
 		}
 	}
 	return

@@ -23,42 +23,48 @@ type consumerBuffers map[string]chan *Delivery
 // Concurrent type that manages the consumerTag ->
 // ingress consumerBuffer mapping
 type consumers struct {
-	sync.Mutex
-	chans consumerBuffers
+	sync.WaitGroup               // one for buffer
+	closed         chan struct{} // signal buffer
+
+	sync.Mutex // protects below
+	chans      consumerBuffers
 }
 
 func makeConsumers() *consumers {
-	return &consumers{chans: make(consumerBuffers)}
+	return &consumers{
+		closed: make(chan struct{}),
+		chans:  make(consumerBuffers),
+	}
 }
 
-func bufferDeliveries(in chan *Delivery, out chan Delivery) {
+func (subs *consumers) buffer(in chan *Delivery, out chan Delivery) {
+	defer close(out)
+	defer subs.Done()
+
+	var inflight = in
 	var queue []*Delivery
-	var queueIn = in
 
 	for delivery := range in {
-		select {
-		case out <- *delivery:
-			// delivered immediately while the consumer chan can receive
-		default:
-			queue = append(queue, delivery)
-		}
+		queue = append(queue, delivery)
 
 		for len(queue) > 0 {
 			select {
-			case out <- *queue[0]:
-				queue = queue[1:]
-			case delivery, open := <-queueIn:
-				if open {
+			case <-subs.closed:
+				// closed before drained, drop in-flight
+				return
+
+			case delivery, consuming := <-inflight:
+				if consuming {
 					queue = append(queue, delivery)
 				} else {
-					// stop receiving to drain the queue
-					queueIn = nil
+					inflight = nil
 				}
+
+			case out <- *queue[0]:
+				queue = queue[1:]
 			}
 		}
 	}
-
-	close(out)
 }
 
 // On key conflict, close the previous channel.
@@ -71,12 +77,13 @@ func (subs *consumers) add(tag string, consumer chan Delivery) {
 	}
 
 	in := make(chan *Delivery)
-	go bufferDeliveries(in, consumer)
-
 	subs.chans[tag] = in
+
+	subs.Add(1)
+	go subs.buffer(in, consumer)
 }
 
-func (subs *consumers) close(tag string) (found bool) {
+func (subs *consumers) cancel(tag string) (found bool) {
 	subs.Lock()
 	defer subs.Unlock()
 
@@ -90,15 +97,18 @@ func (subs *consumers) close(tag string) (found bool) {
 	return found
 }
 
-func (subs *consumers) closeAll() {
+func (subs *consumers) close() {
 	subs.Lock()
 	defer subs.Unlock()
 
-	for _, ch := range subs.chans {
+	close(subs.closed)
+
+	for tag, ch := range subs.chans {
+		delete(subs.chans, tag)
 		close(ch)
 	}
 
-	subs.chans = make(consumerBuffers)
+	subs.Wait()
 }
 
 // Sends a delivery to a the consumer identified by `tag`.

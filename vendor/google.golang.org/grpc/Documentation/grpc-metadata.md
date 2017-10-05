@@ -7,12 +7,12 @@ This doc shows how to send and receive metadata in gRPC-go.
 
 Four kinds of service method:
 
-- [Unary RPC](http://www.grpc.io/docs/guides/concepts.html#unary-rpc)
-- [Server streaming RPC](http://www.grpc.io/docs/guides/concepts.html#server-streaming-rpc)
-- [Client streaming RPC](http://www.grpc.io/docs/guides/concepts.html#client-streaming-rpc)
-- [Bidirectional streaming RPC](http://www.grpc.io/docs/guides/concepts.html#bidirectional-streaming-rpc)
+- [Unary RPC](https://grpc.io/docs/guides/concepts.html#unary-rpc)
+- [Server streaming RPC](https://grpc.io/docs/guides/concepts.html#server-streaming-rpc)
+- [Client streaming RPC](https://grpc.io/docs/guides/concepts.html#client-streaming-rpc)
+- [Bidirectional streaming RPC](https://grpc.io/docs/guides/concepts.html#bidirectional-streaming-rpc)
 
-And concept of [metadata](http://www.grpc.io/docs/guides/concepts.html#metadata).
+And concept of [metadata](https://grpc.io/docs/guides/concepts.html#metadata).
 
 ## Constructing metadata
 
@@ -53,8 +53,8 @@ This happens for both `New` and `Pairs`.
 ### Storing binary data in metadata
 
 In metadata, keys are always strings. But values can be strings or binary data.
-To store binary data value in metadata, simply add "-bin" surfix to the key.
-The values with "-bin" surffixed keys will be encoded when creating the metadata:
+To store binary data value in metadata, simply add "-bin" suffix to the key.
+The values with "-bin" suffixed keys will be encoded when creating the metadata:
 
 ```go
 md := metadata.Pairs(
@@ -66,11 +66,11 @@ md := metadata.Pairs(
 
 ## Retrieving metadata from context
 
-Metadata can be retrieved from context using `FromContext`:
+Metadata can be retrieved from context using `FromIncomingContext`:
 
 ```go
 func (s *server) SomeRPC(ctx context.Context, in *pb.SomeRequest) (*pb.SomeResponse, err) {
-    md, ok := metadata.FromContext(ctx)
+    md, ok := metadata.FromIncomingContext(ctx)
     // do something with metadata
 }
 ```
@@ -82,13 +82,13 @@ func (s *server) SomeRPC(ctx context.Context, in *pb.SomeRequest) (*pb.SomeRespo
 
 ### Sending metadata
 
-To send metadata to server, the client can wrap the metadata into a context using `NewContext`, and make the RPC with this context:
+To send metadata to server, the client can wrap the metadata into a context using `NewOutgoingContext`, and make the RPC with this context:
 
 ```go
 md := metadata.Pairs("key", "val")
 
 // create a new context with this metadata
-ctx := metadata.NewContext(context.Background(), md)
+ctx := metadata.NewOutgoingContext(context.Background(), md)
 
 // make unary RPC
 response, err := client.SomeRPC(ctx, someRequest)
@@ -96,6 +96,9 @@ response, err := client.SomeRPC(ctx, someRequest)
 // or make streaming RPC
 stream, err := client.SomeStreamingRPC(ctx)
 ```
+
+To read this back from the context on the client (e.g. in an interceptor) before the RPC is sent, use `FromOutgoingContext`.
+
 ### Receiving metadata
 
 Metadata that a client can receive includes header and trailer.
@@ -152,7 +155,7 @@ For streaming calls, the server needs to get context from the stream.
 
 ```go
 func (s *server) SomeRPC(ctx context.Context, in *pb.someRequest) (*pb.someResponse, error) {
-    md, ok := metadata.FromContext(ctx)
+    md, ok := metadata.FromIncomingContext(ctx)
     // do something with metadata
 }
 ```
@@ -161,7 +164,7 @@ func (s *server) SomeRPC(ctx context.Context, in *pb.someRequest) (*pb.someRespo
 
 ```go
 func (s *server) SomeStreamingRPC(stream pb.Service_SomeStreamingRPCServer) error {
-    md, ok := metadata.FromContext(stream.Context()) // get context from stream
+    md, ok := metadata.FromIncomingContext(stream.Context()) // get context from stream
     // do something with metadata
 }
 ```

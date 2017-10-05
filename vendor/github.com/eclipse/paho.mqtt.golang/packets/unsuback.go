@@ -13,7 +13,8 @@ type UnsubackPacket struct {
 }
 
 func (ua *UnsubackPacket) String() string {
-	str := fmt.Sprintf("%s\n", ua.FixedHeader)
+	str := fmt.Sprintf("%s", ua.FixedHeader)
+	str += " "
 	str += fmt.Sprintf("MessageID: %d", ua.MessageID)
 	return str
 }

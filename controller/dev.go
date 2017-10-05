@@ -23,7 +23,7 @@ func randMassInsertPosition(minLat, minLon, maxLat, maxLon float64) (float64, fl
 	return lat, lon
 }
 
-func (c *Controller) cmdMassInsert(msg *server.Message) (res string, err error) {
+func (c *Controller) cmdMassInsert(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 
@@ -33,50 +33,50 @@ func (c *Controller) cmdMassInsert(msg *server.Message) (res string, err error) 
 	var cols, objs int
 	var ok bool
 	if vs, snumCols, ok = tokenval(vs); !ok || snumCols == "" {
-		return "", errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	if vs, snumPoints, ok = tokenval(vs); !ok || snumPoints == "" {
-		return "", errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	if len(vs) != 0 {
 		var sminLat, sminLon, smaxLat, smaxLon string
 		if vs, sminLat, ok = tokenval(vs); !ok || sminLat == "" {
-			return "", errInvalidNumberOfArguments
+			return server.NOMessage, errInvalidNumberOfArguments
 		}
 		if vs, sminLon, ok = tokenval(vs); !ok || sminLon == "" {
-			return "", errInvalidNumberOfArguments
+			return server.NOMessage, errInvalidNumberOfArguments
 		}
 		if vs, smaxLat, ok = tokenval(vs); !ok || smaxLat == "" {
-			return "", errInvalidNumberOfArguments
+			return server.NOMessage, errInvalidNumberOfArguments
 		}
 		if vs, smaxLon, ok = tokenval(vs); !ok || smaxLon == "" {
-			return "", errInvalidNumberOfArguments
+			return server.NOMessage, errInvalidNumberOfArguments
 		}
 		var err error
 		if minLat, err = strconv.ParseFloat(sminLat, 64); err != nil {
-			return "", err
+			return server.NOMessage, err
 		}
 		if minLon, err = strconv.ParseFloat(sminLon, 64); err != nil {
-			return "", err
+			return server.NOMessage, err
 		}
 		if maxLat, err = strconv.ParseFloat(smaxLat, 64); err != nil {
-			return "", err
+			return server.NOMessage, err
 		}
 		if maxLon, err = strconv.ParseFloat(smaxLon, 64); err != nil {
-			return "", err
+			return server.NOMessage, err
 		}
 		if len(vs) != 0 {
-			return "", errors.New("invalid number of arguments")
+			return server.NOMessage, errors.New("invalid number of arguments")
 		}
 	}
 	n, err := strconv.ParseUint(snumCols, 10, 64)
 	if err != nil {
-		return "", errInvalidArgument(snumCols)
+		return server.NOMessage, errInvalidArgument(snumCols)
 	}
 	cols = int(n)
 	n, err = strconv.ParseUint(snumPoints, 10, 64)
 	if err != nil {
-		return "", errInvalidArgument(snumPoints)
+		return server.NOMessage, errInvalidArgument(snumPoints)
 	}
 	docmd := func(values []resp.Value) error {
 		nmsg := &server.Message{}
@@ -88,10 +88,7 @@ func (c *Controller) cmdMassInsert(msg *server.Message) (res string, err error) 
 		if err != nil {
 			return err
 		}
-		if err := c.writeAOF(resp.ArrayValue(nmsg.Values), &d); err != nil {
-			return err
-		}
-		return nil
+		return c.writeAOF(resp.ArrayValue(nmsg.Values), &d)
 	}
 	rand.Seed(time.Now().UnixNano())
 	objs = int(n)
@@ -131,13 +128,13 @@ func (c *Controller) cmdMassInsert(msg *server.Message) (res string, err error) 
 	return server.OKMessage(msg, start), nil
 }
 
-func (c *Controller) cmdSleep(msg *server.Message) (res string, err error) {
+func (c *Controller) cmdSleep(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 	var sduration string
 	var ok bool
 	if vs, sduration, ok = tokenval(vs); !ok || sduration == "" {
-		return "", errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	d, _ := strconv.Atoi(sduration)
 	time.Sleep(time.Duration(d) * time.Second)

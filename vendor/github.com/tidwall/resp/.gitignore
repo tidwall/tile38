@@ -1,3 +1,4 @@
 .DS_Store
 aof.tmp
 appendonly.aof
+coverage.out

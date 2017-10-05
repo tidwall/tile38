@@ -1,33 +1,18 @@
 /*
  *
- * Copyright 2014, Google Inc.
- * All rights reserved.
+ * Copyright 2014 gRPC authors.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  */
 
@@ -46,6 +31,7 @@ import (
 
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/transport"
 )
 
@@ -99,32 +85,32 @@ func (h *testStreamHandler) handleStream(t *testing.T, s *transport.Stream) {
 			return
 		}
 		if v == "weird error" {
-			h.t.WriteStatus(s, codes.Internal, weirdError)
+			h.t.WriteStatus(s, status.New(codes.Internal, weirdError))
 			return
 		}
 		if v == "canceled" {
 			canceled++
-			h.t.WriteStatus(s, codes.Internal, "")
+			h.t.WriteStatus(s, status.New(codes.Internal, ""))
 			return
 		}
 		if v == "port" {
-			h.t.WriteStatus(s, codes.Internal, h.port)
+			h.t.WriteStatus(s, status.New(codes.Internal, h.port))
 			return
 		}
 
 		if v != expectedRequest {
-			h.t.WriteStatus(s, codes.Internal, strings.Repeat("A", sizeLargeErr))
+			h.t.WriteStatus(s, status.New(codes.Internal, strings.Repeat("A", sizeLargeErr)))
 			return
 		}
 	}
 	// send a response back to end the stream.
-	reply, err := encode(testCodec{}, &expectedResponse, nil, nil)
+	hdr, data, err := encode(testCodec{}, &expectedResponse, nil, nil, nil)
 	if err != nil {
 		t.Errorf("Failed to encode the response: %v", err)
 		return
 	}
-	h.t.Write(s, reply, &transport.Options{})
-	h.t.WriteStatus(s, codes.OK, "")
+	h.t.Write(s, hdr, data, &transport.Options{})
+	h.t.WriteStatus(s, status.New(codes.OK, ""))
 }
 
 type server struct {
@@ -164,7 +150,10 @@ func (s *server) start(t *testing.T, port int, maxStreams uint32) {
 		if err != nil {
 			return
 		}
-		st, err := transport.NewServerTransport("http2", conn, maxStreams, nil)
+		config := &transport.ServerConfig{
+			MaxStreams: maxStreams,
+		}
+		st, err := transport.NewServerTransport("http2", conn, config)
 		if err != nil {
 			continue
 		}
@@ -182,6 +171,8 @@ func (s *server) start(t *testing.T, port int, maxStreams uint32) {
 		}
 		go st.HandleStreams(func(s *transport.Stream) {
 			go h.handleStream(t, s)
+		}, func(ctx context.Context, method string) context.Context {
+			return ctx
 		})
 	}
 }
@@ -234,7 +225,7 @@ func TestInvokeLargeErr(t *testing.T) {
 	var reply string
 	req := "hello"
 	err := Invoke(context.Background(), "/foo/bar", &req, &reply, cc)
-	if _, ok := err.(*rpcError); !ok {
+	if _, ok := status.FromError(err); !ok {
 		t.Fatalf("grpc.Invoke(_, _, _, _, _) receives non rpc error.")
 	}
 	if Code(err) != codes.Internal || len(ErrorDesc(err)) != sizeLargeErr {
@@ -250,7 +241,7 @@ func TestInvokeErrorSpecialChars(t *testing.T) {
 	var reply string
 	req := "weird error"
 	err := Invoke(context.Background(), "/foo/bar", &req, &reply, cc)
-	if _, ok := err.(*rpcError); !ok {
+	if _, ok := status.FromError(err); !ok {
 		t.Fatalf("grpc.Invoke(_, _, _, _, _) receives non rpc error.")
 	}
 	if got, want := ErrorDesc(err), weirdError; got != want {

@@ -1306,5 +1306,204 @@
       }
     ],
     "group": "keys"
+  },
+  "EVAL":{
+    "summary": "Evaluates a Lua script",
+    "complecxity": "Depends on the evaluated script",
+    "arguments": [
+      {
+        "name": "script",
+        "type": "string"
+      },
+      {
+        "name": "numkeys",
+        "type": "integer"
+      },
+      {
+        "name": "key",
+        "type": "string",
+        "optional": true,
+        "multiple": true
+      },
+      {
+        "name": "arg",
+        "type": "string",
+        "optional": true,
+        "multiple": true
+      }
+    ],
+    "since": "1.9.2",
+    "group": "scripting"
+  },
+  "EVALSHA":{
+    "summary": "Evaluates a Lua script cached on the server by its SHA1 digest",
+    "complecxity": "Depends on the evaluated script",
+    "arguments": [
+      {
+        "name": "sha1",
+        "type": "string"
+      },
+      {
+        "name": "numkeys",
+        "type": "integer"
+      },
+      {
+        "name": "key",
+        "type": "string",
+        "optional": true,
+        "multiple": true
+      },
+      {
+        "name": "arg",
+        "type": "string",
+        "optional": true,
+        "multiple": true
+      }
+    ],
+    "since": "1.9.2",
+    "group": "scripting"
+  },
+  "EVALRO":{
+    "summary": "Evaluates a read-only Lua script",
+    "complecxity": "Depends on the evaluated script",
+    "arguments": [
+      {
+        "name": "script",
+        "type": "string"
+      },
+      {
+        "name": "numkeys",
+        "type": "integer"
+      },
+      {
+        "name": "key",
+        "type": "string",
+        "optional": true,
+        "multiple": true
+      },
+      {
+        "name": "arg",
+        "type": "string",
+        "optional": true,
+        "multiple": true
+      }
+    ],
+    "since": "1.9.2",
+    "group": "scripting"
+  },
+  "EVALROSHA":{
+    "summary": "Evaluates a read-only Lua script",
+    "complecxity": "Depends on the evaluated script cached on the server by its SHA1 digest",
+    "arguments": [
+      {
+        "name": "script",
+        "type": "string"
+      },
+      {
+        "name": "numkeys",
+        "type": "integer"
+      },
+      {
+        "name": "key",
+        "type": "string",
+        "optional": true,
+        "multiple": true
+      },
+      {
+        "name": "arg",
+        "type": "string",
+        "optional": true,
+        "multiple": true
+      }
+    ],
+    "since": "1.9.2",
+    "group": "scripting"
+  },
+  "EVALNA":{
+    "summary": "Evaluates a Lua script in a non-atomic fashion",
+    "complecxity": "Depends on the evaluated script",
+    "arguments": [
+      {
+        "name": "script",
+        "type": "string"
+      },
+      {
+        "name": "numkeys",
+        "type": "integer"
+      },
+      {
+        "name": "key",
+        "type": "string",
+        "optional": true,
+        "multiple": true
+      },
+      {
+        "name": "arg",
+        "type": "string",
+        "optional": true,
+        "multiple": true
+      }
+    ],
+    "since": "1.9.2",
+    "group": "scripting"
+  },
+  "EVALNASHA":{
+    "summary": "Evaluates, in a non-atomic fashion, a Lua script cached on the server by its SHA1 digest",
+    "complecxity": "Depends on the evaluated script",
+    "arguments": [
+      {
+        "name": "sha1",
+        "type": "string"
+      },
+      {
+        "name": "numkeys",
+        "type": "integer"
+      },
+      {
+        "name": "key",
+        "type": "string",
+        "optional": true,
+        "multiple": true
+      },
+      {
+        "name": "arg",
+        "type": "string",
+        "optional": true,
+        "multiple": true
+      }
+    ],
+    "since": "1.9.2",
+    "group": "scripting"
+  },
+  "SCRIPT EXISTS":{
+    "summary": "Loads the compiled version of a script into the server cache, without executing",
+    "complexity": "O(N) where N is the number of provided sha1 arguments",
+    "arguments": [
+      {
+        "name": "sha1",
+        "type": "string",
+        "multiple": true
+      }
+    ],
+    "since": "1.9.2",
+    "group": "scripting"
+  },
+  "SCRIPT LOAD":{
+    "summary": "Loads the compiled version of a script into the server cache, without executing",
+    "complexity": "O(N) where N is the number of bytes in the script",
+    "arguments": [
+      {
+        "name": "script",
+        "type": "string"
+      }
+    ],
+    "since": "1.9.2",
+    "group": "scripting"
+  },
+  "SCRIPT FLUSH":{
+    "summary": "Flushes the server cache of Lua scripts",
+    "complexity": "O(1)",
+    "since": "1.9.2",
+    "group": "scripting"
   }
 }

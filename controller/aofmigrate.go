@@ -155,8 +155,5 @@ func (c *Controller) migrateAOF() error {
 	oldf.Close()
 	newf.Close()
 	log.Debugf("%d items: %.0f/sec", count, float64(count)/(float64(time.Now().Sub(start))/float64(time.Second)))
-	if err := os.Rename(path.Join(c.dir, "migrate.aof"), path.Join(c.dir, "appendonly.aof")); err != nil {
-		return err
-	}
-	return nil
+	return os.Rename(path.Join(c.dir, "migrate.aof"), path.Join(c.dir, "appendonly.aof"))
 }

@@ -39,8 +39,24 @@ func TestIntegrationOpenCloseChannel(t *testing.T) {
 	if c := integrationConnection(t, "channel"); c != nil {
 		defer c.Close()
 
-		if _, err := c.Channel(); err != nil {
-			t.Errorf("Channel could not be opened: %s", err)
+		ch, err := c.Channel()
+		if err != nil {
+			t.Fatalf("create channel 1: %s", err)
+		}
+		ch.Close()
+	}
+}
+
+func TestIntegrationHighChannelChurnInTightLoop(t *testing.T) {
+	if c := integrationConnection(t, "channel churn"); c != nil {
+		defer c.Close()
+
+		for i := 0; i < 1000; i++ {
+			ch, err := c.Channel()
+			if err != nil {
+				t.Fatalf("create channel 1: %s", err)
+			}
+			ch.Close()
 		}
 	}
 }
@@ -1729,6 +1745,34 @@ func TestConsumerCancelNotification(t *testing.T) {
 		}
 		// we don't close ccnChan because channel shutdown
 		// does it
+	}
+}
+
+func TestConcurrentChannelAndConnectionClose(t *testing.T) {
+	c := integrationConnection(t, "concurrent channel and connection test")
+	if c != nil {
+		ch, err := c.Channel()
+		if err != nil {
+			t.Fatalf("got error on channel.open: %v", err)
+		}
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+
+		starter := make(chan struct{})
+		go func() {
+			defer wg.Done()
+			<-starter
+			c.Close()
+		}()
+
+		go func() {
+			defer wg.Done()
+			<-starter
+			ch.Close()
+		}()
+		close(starter)
+		wg.Wait()
 	}
 }
 

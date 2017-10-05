@@ -283,22 +283,22 @@ func (c *Controller) cmdSearchArgs(cmd string, vs []resp.Value, types []string) 
 var nearbyTypes = []string{"point"}
 var withinOrIntersectsTypes = []string{"geo", "bounds", "hash", "tile", "quadkey", "get", "object"}
 
-func (c *Controller) cmdNearby(msg *server.Message) (res string, err error) {
+func (c *Controller) cmdNearby(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 	wr := &bytes.Buffer{}
 	s, err := c.cmdSearchArgs("nearby", vs, nearbyTypes)
 	if err != nil {
-		return "", err
+		return server.NOMessage, err
 	}
 	s.cmd = "nearby"
 	if s.fence {
-		return "", s
+		return server.NOMessage, s
 	}
 	minZ, maxZ := zMinMaxFromWheres(s.wheres)
 	sw, err := c.newScanWriter(wr, msg, s.key, s.output, s.precision, s.glob, false, s.cursor, s.limit, s.wheres, s.whereins, s.nofields)
 	if err != nil {
-		return "", err
+		return server.NOMessage, err
 	}
 	if msg.OutputType == server.JSON {
 		wr.WriteString(`{"ok":true`)
@@ -339,8 +339,9 @@ func (c *Controller) cmdNearby(msg *server.Message) (res string, err error) {
 	sw.writeFoot()
 	if msg.OutputType == server.JSON {
 		wr.WriteString(`,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
+		return resp.BytesValue(wr.Bytes()), nil
 	}
-	return string(wr.Bytes()), nil
+	return sw.respOut, nil
 }
 
 type iterItem struct {
@@ -376,30 +377,30 @@ func nearestNeighbors(sw *scanWriter, lat, lon float64, iter func(id string, o g
 	}
 }
 
-func (c *Controller) cmdWithin(msg *server.Message) (res string, err error) {
+func (c *Controller) cmdWithin(msg *server.Message) (res resp.Value, err error) {
 	return c.cmdWithinOrIntersects("within", msg)
 }
 
-func (c *Controller) cmdIntersects(msg *server.Message) (res string, err error) {
+func (c *Controller) cmdIntersects(msg *server.Message) (res resp.Value, err error) {
 	return c.cmdWithinOrIntersects("intersects", msg)
 }
 
-func (c *Controller) cmdWithinOrIntersects(cmd string, msg *server.Message) (res string, err error) {
+func (c *Controller) cmdWithinOrIntersects(cmd string, msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 
 	wr := &bytes.Buffer{}
 	s, err := c.cmdSearchArgs(cmd, vs, withinOrIntersectsTypes)
 	if err != nil {
-		return "", err
+		return server.NOMessage, err
 	}
 	s.cmd = cmd
 	if s.fence {
-		return "", s
+		return server.NOMessage, s
 	}
 	sw, err := c.newScanWriter(wr, msg, s.key, s.output, s.precision, s.glob, false, s.cursor, s.limit, s.wheres, s.whereins, s.nofields)
 	if err != nil {
-		return "", err
+		return server.NOMessage, err
 	}
 	if msg.OutputType == server.JSON {
 		wr.WriteString(`{"ok":true`)
@@ -440,8 +441,9 @@ func (c *Controller) cmdWithinOrIntersects(cmd string, msg *server.Message) (res
 	sw.writeFoot()
 	if msg.OutputType == server.JSON {
 		wr.WriteString(`,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
+		return resp.BytesValue(wr.Bytes()), nil
 	}
-	return string(wr.Bytes()), nil
+	return sw.respOut, nil
 }
 
 func cmdSeachValuesArgs(vs []resp.Value) (s liveFenceSwitches, err error) {
@@ -455,18 +457,18 @@ func cmdSeachValuesArgs(vs []resp.Value) (s liveFenceSwitches, err error) {
 	return
 }
 
-func (c *Controller) cmdSearch(msg *server.Message) (res string, err error) {
+func (c *Controller) cmdSearch(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 
 	wr := &bytes.Buffer{}
 	s, err := cmdSeachValuesArgs(vs)
 	if err != nil {
-		return "", err
+		return server.NOMessage, err
 	}
 	sw, err := c.newScanWriter(wr, msg, s.key, s.output, s.precision, s.glob, true, s.cursor, s.limit, s.wheres, s.whereins, s.nofields)
 	if err != nil {
-		return "", err
+		return server.NOMessage, err
 	}
 	if msg.OutputType == server.JSON {
 		wr.WriteString(`{"ok":true`)
@@ -512,6 +514,7 @@ func (c *Controller) cmdSearch(msg *server.Message) (res string, err error) {
 	sw.writeFoot()
 	if msg.OutputType == server.JSON {
 		wr.WriteString(`,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
+		return resp.BytesValue(wr.Bytes()), nil
 	}
-	return string(wr.Bytes()), nil
+	return sw.respOut, nil
 }

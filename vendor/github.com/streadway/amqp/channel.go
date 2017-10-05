@@ -8,6 +8,7 @@ package amqp
 import (
 	"reflect"
 	"sync"
+	"sync/atomic"
 )
 
 // 0      1         3             7                  size+7 size+8
@@ -25,9 +26,9 @@ should be discarded and a new channel established.
 */
 type Channel struct {
 	destructor sync.Once
-	sendM      sync.Mutex // sequence channel frames
 	m          sync.Mutex // struct field mutex
 	confirmM   sync.Mutex // publisher confirms state mutex
+	notifyM    sync.RWMutex
 
 	connection *Connection
 
@@ -35,6 +36,9 @@ type Channel struct {
 	consumers *consumers
 
 	id uint16
+
+	// closed is set to 1 when the channel has been closed - see Channel.send()
+	closed int32
 
 	// true when we will never notify again
 	noNotify bool
@@ -64,10 +68,6 @@ type Channel struct {
 	// State machine that manages frame order, must only be mutated by the connection
 	recv func(*Channel, frame) error
 
-	// State that manages the send behavior after before and after shutdown, must
-	// only be mutated in shutdown()
-	send func(*Channel, message) error
-
 	// Current state for frame re-assembly, only mutated from recv
 	message messageWithContent
 	header  *headerFrame
@@ -83,7 +83,6 @@ func newChannel(c *Connection, id uint16) *Channel {
 		consumers:  makeConsumers(),
 		confirms:   newConfirms(),
 		recv:       (*Channel).recvMethod,
-		send:       (*Channel).sendOpen,
 		errors:     make(chan *Error, 1),
 	}
 }
@@ -95,6 +94,10 @@ func (ch *Channel) shutdown(e *Error) {
 		ch.m.Lock()
 		defer ch.m.Unlock()
 
+		// Grab an exclusive lock for the notify channels
+		ch.notifyM.Lock()
+		defer ch.notifyM.Unlock()
+
 		// Broadcast abnormal shutdown
 		if e != nil {
 			for _, c := range ch.closes {
@@ -102,14 +105,16 @@ func (ch *Channel) shutdown(e *Error) {
 			}
 		}
 
-		ch.send = (*Channel).sendClosed
+		// Signal that from now on, Channel.send() should call
+		// Channel.sendClosed()
+		atomic.StoreInt32(&ch.closed, 1)
 
 		// Notify RPC if we're selecting
 		if e != nil {
 			ch.errors <- e
 		}
 
-		ch.consumers.closeAll()
+		ch.consumers.close()
 
 		for _, c := range ch.closes {
 			close(c)
@@ -127,12 +132,33 @@ func (ch *Channel) shutdown(e *Error) {
 			close(c)
 		}
 
+		// Set the slices to nil to prevent the dispatch() range from sending on
+		// the now closed channels after we release the notifyM mutex
+		ch.flows = nil
+		ch.closes = nil
+		ch.returns = nil
+		ch.cancels = nil
+
 		if ch.confirms != nil {
 			ch.confirms.Close()
 		}
 
+		close(ch.errors)
 		ch.noNotify = true
 	})
+}
+
+// send calls Channel.sendOpen() during normal operation.
+//
+// After the channel has been closed, send calls Channel.sendClosed(), ensuring
+// only 'channel.close' is sent to the server.
+func (ch *Channel) send(msg message) (err error) {
+	// If the channel is closed, use Channel.sendClosed()
+	if atomic.LoadInt32(&ch.closed) == 1 {
+		return ch.sendClosed(msg)
+	}
+
+	return ch.sendOpen(msg)
 }
 
 func (ch *Channel) open() error {
@@ -142,14 +168,17 @@ func (ch *Channel) open() error {
 // Performs a request/response call for when the message is not NoWait and is
 // specified as Synchronous.
 func (ch *Channel) call(req message, res ...message) error {
-	if err := ch.send(ch, req); err != nil {
+	if err := ch.send(req); err != nil {
 		return err
 	}
 
 	if req.wait() {
 		select {
-		case e := <-ch.errors:
-			return e
+		case e, ok := <-ch.errors:
+			if ok {
+				return e
+			}
+			return ErrClosed
 
 		case msg := <-ch.rpc:
 			if msg != nil {
@@ -175,9 +204,6 @@ func (ch *Channel) call(req message, res ...message) error {
 }
 
 func (ch *Channel) sendClosed(msg message) (err error) {
-	ch.sendM.Lock()
-	defer ch.sendM.Unlock()
-
 	// After a 'channel.close' is sent or received the only valid response is
 	// channel.close-ok
 	if _, ok := msg.(*channelCloseOk); ok {
@@ -191,9 +217,6 @@ func (ch *Channel) sendClosed(msg message) (err error) {
 }
 
 func (ch *Channel) sendOpen(msg message) (err error) {
-	ch.sendM.Lock()
-	defer ch.sendM.Unlock()
-
 	if content, ok := msg.(messageWithContent); ok {
 		props, body := content.getContent()
 		class, _ := content.id()
@@ -251,26 +274,37 @@ func (ch *Channel) sendOpen(msg message) (err error) {
 func (ch *Channel) dispatch(msg message) {
 	switch m := msg.(type) {
 	case *channelClose:
+		// lock before sending connection.close-ok
+		// to avoid unexpected interleaving with basic.publish frames if
+		// publishing is happening concurrently
+		ch.m.Lock()
+		ch.send(&channelCloseOk{})
+		ch.m.Unlock()
 		ch.connection.closeChannel(ch, newError(m.ReplyCode, m.ReplyText))
-		ch.send(ch, &channelCloseOk{})
 
 	case *channelFlow:
+		ch.notifyM.RLock()
 		for _, c := range ch.flows {
 			c <- m.Active
 		}
-		ch.send(ch, &channelFlowOk{Active: m.Active})
+		ch.notifyM.RUnlock()
+		ch.send(&channelFlowOk{Active: m.Active})
 
 	case *basicCancel:
+		ch.notifyM.RLock()
 		for _, c := range ch.cancels {
 			c <- m.ConsumerTag
 		}
-		ch.consumers.close(m.ConsumerTag)
+		ch.notifyM.RUnlock()
+		ch.consumers.cancel(m.ConsumerTag)
 
 	case *basicReturn:
 		ret := newReturn(*m)
+		ch.notifyM.RLock()
 		for _, c := range ch.returns {
 			c <- *ret
 		}
+		ch.notifyM.RUnlock()
 
 	case *basicAck:
 		if ch.confirming {
@@ -408,8 +442,8 @@ graceful close, no error will be sent.
 
 */
 func (ch *Channel) NotifyClose(c chan *Error) chan *Error {
-	ch.m.Lock()
-	defer ch.m.Unlock()
+	ch.notifyM.Lock()
+	defer ch.notifyM.Unlock()
 
 	if ch.noNotify {
 		close(c)
@@ -454,8 +488,8 @@ basic.ack messages from getting rate limited with your basic.publish messages.
 
 */
 func (ch *Channel) NotifyFlow(c chan bool) chan bool {
-	ch.m.Lock()
-	defer ch.m.Unlock()
+	ch.notifyM.Lock()
+	defer ch.notifyM.Unlock()
 
 	if ch.noNotify {
 		close(c)
@@ -476,8 +510,8 @@ information about why the publishing failed.
 
 */
 func (ch *Channel) NotifyReturn(c chan Return) chan Return {
-	ch.m.Lock()
-	defer ch.m.Unlock()
+	ch.notifyM.Lock()
+	defer ch.notifyM.Unlock()
 
 	if ch.noNotify {
 		close(c)
@@ -497,8 +531,8 @@ The subscription tag is returned to the listener.
 
 */
 func (ch *Channel) NotifyCancel(c chan string) chan string {
-	ch.m.Lock()
-	defer ch.m.Unlock()
+	ch.notifyM.Lock()
+	defer ch.notifyM.Unlock()
 
 	if ch.noNotify {
 		close(c)
@@ -559,8 +593,8 @@ Channel.Close() or Connection.Close().
 
 */
 func (ch *Channel) NotifyPublish(confirm chan Confirmation) chan Confirmation {
-	ch.m.Lock()
-	defer ch.m.Unlock()
+	ch.notifyM.Lock()
+	defer ch.notifyM.Unlock()
 
 	if ch.noNotify {
 		close(confirm)
@@ -645,10 +679,10 @@ func (ch *Channel) Cancel(consumer string, noWait bool) error {
 	}
 
 	if req.wait() {
-		ch.consumers.close(res.ConsumerTag)
+		ch.consumers.cancel(res.ConsumerTag)
 	} else {
 		// Potentially could drop deliveries in flight
-		ch.consumers.close(consumer)
+		ch.consumers.cancel(consumer)
 	}
 
 	return nil
@@ -975,16 +1009,18 @@ included in every Delivery in the ConsumerTag field
 
 When autoAck (also known as noAck) is true, the server will acknowledge
 deliveries to this consumer prior to writing the delivery to the network.  When
-autoAck is true, the consumer should not call Delivery.Ack.  Automatically
+autoAck is true, the consumer should not call Delivery.Ack. Automatically
 acknowledging deliveries means that some deliveries may get lost if the
 consumer is unable to process them after the server delivers them.
+See http://www.rabbitmq.com/confirms.html for more details.
 
 When exclusive is true, the server will ensure that this is the sole consumer
-from this queue.  When exclusive is false, the server will fairly distribute
+from this queue. When exclusive is false, the server will fairly distribute
 deliveries across multiple consumers.
 
-When noLocal is true, the server will not deliver publishing sent from the same
-connection to this consumer.  It's advisable to use separate connections for
+The noLocal flag is not supported by RabbitMQ.
+
+It's advisable to use separate connections for
 Channel.Publish and Channel.Consume so not to have TCP pushback on publishing
 affect the ability to consume messages, so this parameter is here mostly for
 completeness.
@@ -996,11 +1032,14 @@ exception will be raised and the channel will be closed.
 Optional arguments can be provided that have specific semantics for the queue
 or server.
 
-When the channel or connection closes, all delivery chans will also close.
+Inflight messages, limited by Channel.Qos will be buffered until received from
+the returned chan.
 
-Deliveries on the returned chan will be buffered indefinitely.  To limit memory
-of this buffer, use the Channel.Qos method to limit the amount of
-unacknowledged/buffered deliveries the server will deliver on this Channel.
+When the Channel or Connection is closed, all buffered and inflight messages will
+be dropped.
+
+When the consumer tag is cancelled, all inflight messages will be delivered until
+the returned chan is closed.
 
 */
 func (ch *Channel) Consume(queue, consumer string, autoAck, exclusive, noLocal, noWait bool, args Table) (<-chan Delivery, error) {
@@ -1032,7 +1071,7 @@ func (ch *Channel) Consume(queue, consumer string, autoAck, exclusive, noLocal, 
 	ch.consumers.add(consumer, deliveries)
 
 	if err := ch.call(req, res); err != nil {
-		ch.consumers.close(consumer)
+		ch.consumers.cancel(consumer)
 		return nil, err
 	}
 
@@ -1285,7 +1324,7 @@ func (ch *Channel) Publish(exchange, key string, mandatory, immediate bool, msg 
 	ch.m.Lock()
 	defer ch.m.Unlock()
 
-	if err := ch.send(ch, &basicPublish{
+	if err := ch.send(&basicPublish{
 		Exchange:   exchange,
 		RoutingKey: key,
 		Mandatory:  mandatory,
@@ -1502,7 +1541,7 @@ is true.
 See also Delivery.Ack
 */
 func (ch *Channel) Ack(tag uint64, multiple bool) error {
-	return ch.send(ch, &basicAck{
+	return ch.send(&basicAck{
 		DeliveryTag: tag,
 		Multiple:    multiple,
 	})
@@ -1516,7 +1555,7 @@ it must be redelivered or dropped.
 See also Delivery.Nack
 */
 func (ch *Channel) Nack(tag uint64, multiple bool, requeue bool) error {
-	return ch.send(ch, &basicNack{
+	return ch.send(&basicNack{
 		DeliveryTag: tag,
 		Multiple:    multiple,
 		Requeue:     requeue,
@@ -1531,7 +1570,7 @@ multiple messages, reducing the amount of protocol messages to exchange.
 See also Delivery.Reject
 */
 func (ch *Channel) Reject(tag uint64, requeue bool) error {
-	return ch.send(ch, &basicReject{
+	return ch.send(&basicReject{
 		DeliveryTag: tag,
 		Requeue:     requeue,
 	})

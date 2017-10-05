@@ -67,18 +67,19 @@ func (arr byID) Less(a, b int) bool {
 func (arr byID) Swap(a, b int) {
 	arr[a], arr[b] = arr[b], arr[a]
 }
-func (c *Controller) cmdClient(msg *server.Message, conn *server.Conn) (string, error) {
+func (c *Controller) cmdClient(msg *server.Message, conn *server.Conn) (resp.Value, error) {
 	start := time.Now()
+
 	if len(msg.Values) == 1 {
-		return "", errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	switch strings.ToLower(msg.Values[1].String()) {
 	default:
-		return "", errors.New("Syntax error, try CLIENT " +
+		return server.NOMessage, errors.New("Syntax error, try CLIENT " +
 			"(LIST | KILL | GETNAME | SETNAME)")
 	case "list":
 		if len(msg.Values) != 2 {
-			return "", errInvalidNumberOfArguments
+			return server.NOMessage, errInvalidNumberOfArguments
 		}
 		var list []*clientConn
 		c.connsmu.RLock()
@@ -100,18 +101,14 @@ func (c *Controller) cmdClient(msg *server.Message, conn *server.Conn) (string, 
 		}
 		switch msg.OutputType {
 		case server.JSON:
-			return `{"ok":true,"list":` + jsonString(string(buf)) + `,"elapsed":"` + time.Now().Sub(start).String() + "\"}", nil
+			return resp.StringValue(`{"ok":true,"list":` + jsonString(string(buf)) + `,"elapsed":"` + time.Now().Sub(start).String() + "\"}"), nil
 		case server.RESP:
-			data, err := resp.BytesValue(buf).MarshalRESP()
-			if err != nil {
-				return "", err
-			}
-			return string(data), nil
+			return resp.BytesValue(buf), nil
 		}
-		return "", nil
+		return server.NOMessage, nil
 	case "getname":
 		if len(msg.Values) != 2 {
-			return "", errInvalidNumberOfArguments
+			return server.NOMessage, errInvalidNumberOfArguments
 		}
 		name := ""
 		c.connsmu.RLock()
@@ -121,23 +118,19 @@ func (c *Controller) cmdClient(msg *server.Message, conn *server.Conn) (string, 
 		c.connsmu.RUnlock()
 		switch msg.OutputType {
 		case server.JSON:
-			return `{"ok":true,"name":` + jsonString(name) + `,"elapsed":"` + time.Now().Sub(start).String() + "\"}", nil
+			return resp.StringValue(`{"ok":true,"name":` + jsonString(name) + `,"elapsed":"` + time.Now().Sub(start).String() + "\"}"), nil
 		case server.RESP:
-			data, err := resp.StringValue(name).MarshalRESP()
-			if err != nil {
-				return "", err
-			}
-			return string(data), nil
+			return resp.StringValue(name), nil
 		}
 	case "setname":
 		if len(msg.Values) != 3 {
-			return "", errInvalidNumberOfArguments
+			return server.NOMessage, errInvalidNumberOfArguments
 		}
 		name := msg.Values[2].String()
 		for i := 0; i < len(name); i++ {
 			if name[i] < '!' || name[i] > '~' {
 				errstr := "Client names cannot contain spaces, newlines or special characters."
-				return "", errors.New(errstr)
+				return server.NOMessage, errors.New(errstr)
 			}
 		}
 		c.connsmu.RLock()
@@ -147,13 +140,13 @@ func (c *Controller) cmdClient(msg *server.Message, conn *server.Conn) (string, 
 		c.connsmu.RUnlock()
 		switch msg.OutputType {
 		case server.JSON:
-			return `{"ok":true,"elapsed":"` + time.Now().Sub(start).String() + "\"}", nil
+			return resp.StringValue(`{"ok":true,"elapsed":"` + time.Now().Sub(start).String() + "\"}"), nil
 		case server.RESP:
-			return "+OK\r\n", nil
+			return resp.SimpleStringValue("OK"), nil
 		}
 	case "kill":
 		if len(msg.Values) < 3 {
-			return "", errInvalidNumberOfArguments
+			return server.NOMessage, errInvalidNumberOfArguments
 		}
 		var useAddr bool
 		var addr string
@@ -168,18 +161,18 @@ func (c *Controller) cmdClient(msg *server.Message, conn *server.Conn) (string, 
 			}
 			switch strings.ToLower(arg) {
 			default:
-				return "", errors.New("No such client")
+				return server.NOMessage, errors.New("No such client")
 			case "addr":
 				i++
 				if i == len(msg.Values) {
-					return "", errors.New("syntax error")
+					return server.NOMessage, errors.New("syntax error")
 				}
 				addr = msg.Values[i].String()
 				useAddr = true
 			case "id":
 				i++
 				if i == len(msg.Values) {
-					return "", errors.New("syntax error")
+					return server.NOMessage, errors.New("syntax error")
 				}
 				id = msg.Values[i].String()
 				useID = true
@@ -198,25 +191,33 @@ func (c *Controller) cmdClient(msg *server.Message, conn *server.Conn) (string, 
 		}
 		c.connsmu.RUnlock()
 		if cclose == nil {
-			return "", errors.New("No such client")
+			return server.NOMessage, errors.New("No such client")
 		}
 
-		var res string
+		var res resp.Value
 		switch msg.OutputType {
 		case server.JSON:
-			res = `{"ok":true,"elapsed":"` + time.Now().Sub(start).String() + "\"}"
+			res = resp.StringValue(`{"ok":true,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
 		case server.RESP:
-			res = "+OK\r\n"
+			res = resp.SimpleStringValue("OK")
 		}
 
 		if cclose.conn == conn {
 			// closing self, return response now
-			cclose.conn.Write([]byte(res))
+			// NOTE: This is the only exception where we do convert response to a string
+			var outBytes []byte
+			switch msg.OutputType {
+			case server.JSON:
+				outBytes = res.Bytes()
+			case server.RESP:
+				outBytes, _ = res.MarshalRESP()
+			}
+			cclose.conn.Write(outBytes)
 		}
 		cclose.conn.Close()
 		return res, nil
 	}
-	return "", errors.New("invalid output type")
+	return server.NOMessage, errors.New("invalid output type")
 }
 
 /*

@@ -54,6 +54,7 @@ type scanWriter struct {
 	fullFields     bool
 	values         []resp.Value
 	matchValues    bool
+	respOut        resp.Value
 }
 
 type ScanWriterParams struct {
@@ -173,22 +174,15 @@ func (sw *scanWriter) writeFoot() {
 		sw.wr.WriteString(`,"count":` + strconv.FormatUint(sw.count, 10))
 		sw.wr.WriteString(`,"cursor":` + strconv.FormatUint(cursor, 10))
 	case server.RESP:
-		sw.wr.Reset()
-		var data []byte
-		var err error
 		if sw.output == outputCount {
-			data, err = resp.IntegerValue(int(sw.count)).MarshalRESP()
+			sw.respOut = resp.IntegerValue(int(sw.count))
 		} else {
 			values := []resp.Value{
 				resp.IntegerValue(int(cursor)),
 				resp.ArrayValue(sw.values),
 			}
-			data, err = resp.ArrayValue(values).MarshalRESP()
+			sw.respOut = resp.ArrayValue(values)
 		}
-		if err != nil {
-			panic("Eek this is bad. Marshal resp should not fail.")
-		}
-		sw.wr.Write(data)
 	}
 }
 

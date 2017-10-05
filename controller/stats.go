@@ -16,12 +16,13 @@ import (
 	"github.com/tidwall/tile38/core"
 )
 
-func (c *Controller) cmdStats(msg *server.Message) (res string, err error) {
+func (c *Controller) cmdStats(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 	var ms = []map[string]interface{}{}
+
 	if len(vs) == 0 {
-		return "", errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	var vals []resp.Value
 	var key string
@@ -58,22 +59,19 @@ func (c *Controller) cmdStats(msg *server.Message) (res string, err error) {
 
 		data, err := json.Marshal(ms)
 		if err != nil {
-			return "", err
+			return server.NOMessage, err
 		}
-		res = `{"ok":true,"stats":` + string(data) + `,"elapsed":"` + time.Now().Sub(start).String() + "\"}"
+		res = resp.StringValue(`{"ok":true,"stats":` + string(data) + `,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
 	case server.RESP:
-		data, err := resp.ArrayValue(vals).MarshalRESP()
-		if err != nil {
-			return "", err
-		}
-		res = string(data)
+		res = resp.ArrayValue(vals)
 	}
 	return res, nil
 }
-func (c *Controller) cmdServer(msg *server.Message) (res string, err error) {
+func (c *Controller) cmdServer(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
+
 	if len(msg.Values) != 1 {
-		return "", errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	m := make(map[string]interface{})
 	m["id"] = c.config.serverID()
@@ -125,16 +123,12 @@ func (c *Controller) cmdServer(msg *server.Message) (res string, err error) {
 	case server.JSON:
 		data, err := json.Marshal(m)
 		if err != nil {
-			return "", err
+			return server.NOMessage, err
 		}
-		res = `{"ok":true,"stats":` + string(data) + `,"elapsed":"` + time.Now().Sub(start).String() + "\"}"
+		res = resp.StringValue(`{"ok":true,"stats":` + string(data) + `,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
 	case server.RESP:
 		vals := respValuesSimpleMap(m)
-		data, err := resp.ArrayValue(vals).MarshalRESP()
-		if err != nil {
-			return "", err
-		}
-		res = string(data)
+		res = resp.ArrayValue(vals)
 	}
 	return res, nil
 }
@@ -184,12 +178,13 @@ func (c *Controller) writeInfoCluster(w *bytes.Buffer) {
 	fmt.Fprintf(w, "cluster_enabled:0\r\n")
 }
 
-func (c *Controller) cmdInfo(msg *server.Message) (res string, err error) {
+func (c *Controller) cmdInfo(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
+
 	sections := []string{"server", "clients", "memory", "persistence", "stats", "replication", "cpu", "cluster", "keyspace"}
 	switch len(msg.Values) {
 	default:
-		return "", errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	case 1:
 	case 2:
 		section := strings.ToLower(msg.Values[1].String())
@@ -241,15 +236,11 @@ func (c *Controller) cmdInfo(msg *server.Message) (res string, err error) {
 	case server.JSON:
 		data, err := json.Marshal(w.String())
 		if err != nil {
-			return "", err
+			return server.NOMessage, err
 		}
-		res = `{"ok":true,"info":` + string(data) + `,"elapsed":"` + time.Now().Sub(start).String() + "\"}"
+		res = resp.StringValue(`{"ok":true,"info":` + string(data) + `,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
 	case server.RESP:
-		data, err := resp.BytesValue(w.Bytes()).MarshalRESP()
-		if err != nil {
-			return "", err
-		}
-		res = string(data)
+		res = resp.BytesValue(w.Bytes())
 	}
 
 	return res, nil

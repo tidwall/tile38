@@ -157,12 +157,12 @@ func zMinMaxFromWheres(wheres []whereT) (minZ, maxZ float64) {
 }
 
 type whereinT struct {
-	field string
-	val_map map[float64]struct{}
+	field  string
+	valMap map[float64]struct{}
 }
 
 func (wherein whereinT) match(value float64) bool {
-	_, ok := wherein.val_map[value]
+	_, ok := wherein.valMap[value]
 	return ok
 }
 
@@ -258,35 +258,35 @@ func parseSearchScanBaseTokens(cmd string, vs []resp.Value) (vsout []resp.Value,
 				continue
 			} else if (wtok[0] == 'W' || wtok[0] == 'w') && strings.ToLower(wtok) == "wherein" {
 				vs = nvs
-				var field, nvals_str, val_str string
+				var field, nvalsStr, valStr string
 				if vs, field, ok = tokenval(vs); !ok || field == "" {
 					err = errInvalidNumberOfArguments
 					return
 				}
-				if vs, nvals_str, ok = tokenval(vs); !ok || nvals_str == "" {
+				if vs, nvalsStr, ok = tokenval(vs); !ok || nvalsStr == "" {
 					err = errInvalidNumberOfArguments
 					return
 				}
 				var i, nvals uint64
-				if nvals, err = strconv.ParseUint(nvals_str, 10, 64); err != nil {
-					err = errInvalidArgument(nvals_str)
+				if nvals, err = strconv.ParseUint(nvalsStr, 10, 64); err != nil {
+					err = errInvalidArgument(nvalsStr)
 					return
 				}
-				val_map := make(map[float64]struct{})
+				valMap := make(map[float64]struct{})
 				var val float64
 				var empty struct{}
 				for i = 0; i < nvals; i++ {
-					if vs, val_str, ok = tokenval(vs); !ok || val_str == "" {
+					if vs, valStr, ok = tokenval(vs); !ok || valStr == "" {
 						err = errInvalidNumberOfArguments
 						return
 					}
-					if val, err = strconv.ParseFloat(val_str, 64); err != nil  {
-						err = errInvalidArgument(val_str)
+					if val, err = strconv.ParseFloat(valStr, 64); err != nil {
+						err = errInvalidArgument(valStr)
 						return
 					}
-					val_map[val] = empty
+					valMap[val] = empty
 				}
-				t.whereins = append(t.whereins, whereinT{field, val_map})
+				t.whereins = append(t.whereins, whereinT{field, valMap})
 				continue
 			} else if (wtok[0] == 'N' || wtok[0] == 'n') && strings.ToLower(wtok) == "nofields" {
 				vs = nvs

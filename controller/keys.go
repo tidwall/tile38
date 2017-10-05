@@ -11,17 +11,17 @@ import (
 	"github.com/tidwall/tile38/controller/server"
 )
 
-func (c *Controller) cmdKeys(msg *server.Message) (res string, err error) {
+func (c *Controller) cmdKeys(msg *server.Message) (res resp.Value, err error) {
 	var start = time.Now()
 	vs := msg.Values[1:]
 
 	var pattern string
 	var ok bool
 	if vs, pattern, ok = tokenval(vs); !ok || pattern == "" {
-		return "", errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	if len(vs) != 0 {
-		return "", errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 
 	var wr = &bytes.Buffer{}
@@ -88,12 +88,7 @@ func (c *Controller) cmdKeys(msg *server.Message) (res string, err error) {
 	}
 	if msg.OutputType == server.JSON {
 		wr.WriteString(`],"elapsed":"` + time.Now().Sub(start).String() + "\"}")
-	} else {
-		data, err := resp.ArrayValue(vals).MarshalRESP()
-		if err != nil {
-			return "", err
-		}
-		wr.Write(data)
+		return resp.StringValue(wr.String()), nil
 	}
-	return wr.String(), nil
+	return resp.ArrayValue(vals), nil
 }

@@ -58,7 +58,7 @@ type ClientOptions struct {
 	MaxReconnectInterval    time.Duration
 	AutoReconnect           bool
 	Store                   Store
-	DefaultPublishHander    MessageHandler
+	DefaultPublishHandler   MessageHandler
 	OnConnect               OnConnectHandler
 	OnConnectionLost        ConnectionLostHandler
 	WriteTimeout            time.Duration
@@ -235,7 +235,7 @@ func (o *ClientOptions) SetBinaryWill(topic string, payload []byte, qos byte, re
 // SetDefaultPublishHandler sets the MessageHandler that will be called when a message
 // is received that does not match any known subscriptions.
 func (o *ClientOptions) SetDefaultPublishHandler(defaultHandler MessageHandler) *ClientOptions {
-	o.DefaultPublishHander = defaultHandler
+	o.DefaultPublishHandler = defaultHandler
 	return o
 }
 

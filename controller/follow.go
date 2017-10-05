@@ -19,19 +19,20 @@ var errNoLongerFollowing = errors.New("no longer following")
 
 const checksumsz = 512 * 1024
 
-func (c *Controller) cmdFollow(msg *server.Message) (res string, err error) {
+func (c *Controller) cmdFollow(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
 	var ok bool
 	var host, sport string
+
 	if vs, host, ok = tokenval(vs); !ok || host == "" {
-		return "", errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	if vs, sport, ok = tokenval(vs); !ok || sport == "" {
-		return "", errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	if len(vs) != 0 {
-		return "", errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	host = strings.ToLower(host)
 	sport = strings.ToLower(sport)
@@ -43,7 +44,7 @@ func (c *Controller) cmdFollow(msg *server.Message) (res string, err error) {
 	} else {
 		n, err := strconv.ParseUint(sport, 10, 64)
 		if err != nil {
-			return "", errInvalidArgument(sport)
+			return server.NOMessage, errInvalidArgument(sport)
 		}
 		port := int(n)
 		update = c.config.followHost() != host || c.config.followPort() != port
@@ -53,30 +54,30 @@ func (c *Controller) cmdFollow(msg *server.Message) (res string, err error) {
 			conn, err := DialTimeout(fmt.Sprintf("%s:%d", host, port), time.Second*2)
 			if err != nil {
 				c.mu.Lock()
-				return "", fmt.Errorf("cannot follow: %v", err)
+				return server.NOMessage, fmt.Errorf("cannot follow: %v", err)
 			}
 			defer conn.Close()
 			if auth != "" {
 				if err := c.followDoLeaderAuth(conn, auth); err != nil {
-					return "", fmt.Errorf("cannot follow: %v", err)
+					return server.NOMessage, fmt.Errorf("cannot follow: %v", err)
 				}
 			}
 			m, err := doServer(conn)
 			if err != nil {
 				c.mu.Lock()
-				return "", fmt.Errorf("cannot follow: %v", err)
+				return server.NOMessage, fmt.Errorf("cannot follow: %v", err)
 			}
 			if m["id"] == "" {
 				c.mu.Lock()
-				return "", fmt.Errorf("cannot follow: invalid id")
+				return server.NOMessage, fmt.Errorf("cannot follow: invalid id")
 			}
 			if m["id"] == c.config.serverID() {
 				c.mu.Lock()
-				return "", fmt.Errorf("cannot follow self")
+				return server.NOMessage, fmt.Errorf("cannot follow self")
 			}
 			if m["following"] != "" {
 				c.mu.Lock()
-				return "", fmt.Errorf("cannot follow a follower")
+				return server.NOMessage, fmt.Errorf("cannot follow a follower")
 			}
 			c.mu.Lock()
 		}

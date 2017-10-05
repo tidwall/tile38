@@ -17,24 +17,7 @@ package mqtt
 import (
 	"fmt"
 	"testing"
-	"time"
 )
-
-type DummyToken struct{}
-
-func (d *DummyToken) Wait() bool {
-	return true
-}
-
-func (d *DummyToken) WaitTimeout(t time.Duration) bool {
-	return true
-}
-
-func (d *DummyToken) flowComplete() {}
-
-func (d *DummyToken) Error() error {
-	return nil
-}
 
 func Test_getID(t *testing.T) {
 	mids := &messageIds{index: make(map[uint16]Token)}
@@ -71,41 +54,4 @@ func Test_freeID(t *testing.T) {
 
 	i2 := mids.getID(&DummyToken{})
 	fmt.Printf("i2: %v\n", i2)
-}
-
-func Test_messageids_mix(t *testing.T) {
-	mids := &messageIds{index: make(map[uint16]Token)}
-
-	done := make(chan bool)
-	a := make(chan uint16, 3)
-	b := make(chan uint16, 20)
-	c := make(chan uint16, 100)
-
-	go func() {
-		for i := 0; i < 10000; i++ {
-			a <- mids.getID(&DummyToken{})
-			mids.freeID(<-b)
-		}
-		done <- true
-	}()
-
-	go func() {
-		for i := 0; i < 10000; i++ {
-			b <- mids.getID(&DummyToken{})
-			mids.freeID(<-c)
-		}
-		done <- true
-	}()
-
-	go func() {
-		for i := 0; i < 10000; i++ {
-			c <- mids.getID(&DummyToken{})
-			mids.freeID(<-a)
-		}
-		done <- true
-	}()
-
-	<-done
-	<-done
-	<-done
 }

@@ -12,7 +12,7 @@ type DisconnectPacket struct {
 }
 
 func (d *DisconnectPacket) String() string {
-	str := fmt.Sprintf("%s\n", d.FixedHeader)
+	str := fmt.Sprintf("%s", d.FixedHeader)
 	return str
 }
 

@@ -17,6 +17,7 @@ type SubscribePacket struct {
 
 func (s *SubscribePacket) String() string {
 	str := fmt.Sprintf("%s", s.FixedHeader)
+	str += " "
 	str += fmt.Sprintf("MessageID: %d topics: %s", s.MessageID, s.Topics)
 	return str
 }

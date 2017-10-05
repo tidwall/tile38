@@ -54,3 +54,26 @@ func Test_NewClient_simple(t *testing.T) {
 		t.Fatalf("bad server host")
 	}
 }
+
+func Test_NewClient_optionsReader(t *testing.T) {
+	ops := NewClientOptions().SetClientID("foo").AddBroker("tcp://10.10.0.1:1883")
+	c := NewClient(ops).(*client)
+
+	if c == nil {
+		t.Fatalf("ops is nil")
+	}
+
+	rOps := c.OptionsReader()
+	cid := rOps.ClientID()
+
+	if cid != "foo" {
+		t.Fatalf("unable to read client ID")
+	}
+
+	servers := rOps.Servers()
+	broker := servers[0]
+	if broker.Hostname() != "10.10.0.1" {
+		t.Fatalf("unable to read hostname")
+	}
+
+}

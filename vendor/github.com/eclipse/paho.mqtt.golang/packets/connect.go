@@ -29,8 +29,9 @@ type ConnectPacket struct {
 }
 
 func (c *ConnectPacket) String() string {
-	str := fmt.Sprintf("%s\n", c.FixedHeader)
-	str += fmt.Sprintf("protocolversion: %d protocolname: %s cleansession: %t willflag: %t WillQos: %d WillRetain: %t Usernameflag: %t Passwordflag: %t keepalive: %d\nclientId: %s\nwilltopic: %s\nwillmessage: %s\nUsername: %s\nPassword: %s\n", c.ProtocolVersion, c.ProtocolName, c.CleanSession, c.WillFlag, c.WillQos, c.WillRetain, c.UsernameFlag, c.PasswordFlag, c.Keepalive, c.ClientIdentifier, c.WillTopic, c.WillMessage, c.Username, c.Password)
+	str := fmt.Sprintf("%s", c.FixedHeader)
+	str += " "
+	str += fmt.Sprintf("protocolversion: %d protocolname: %s cleansession: %t willflag: %t WillQos: %d WillRetain: %t Usernameflag: %t Passwordflag: %t keepalive: %d clientId: %s willtopic: %s willmessage: %s Username: %s Password: %s", c.ProtocolVersion, c.ProtocolName, c.CleanSession, c.WillFlag, c.WillQos, c.WillRetain, c.UsernameFlag, c.PasswordFlag, c.Keepalive, c.ClientIdentifier, c.WillTopic, c.WillMessage, c.Username, c.Password)
 	return str
 }
 
@@ -110,6 +111,10 @@ func (c *ConnectPacket) Validate() byte {
 	if len(c.ClientIdentifier) > 65535 || len(c.Username) > 65535 || len(c.Password) > 65535 {
 		//Bad size field
 		return ErrProtocolViolation
+	}
+	if len(c.ClientIdentifier) == 0 && !c.CleanSession {
+		//Bad client identifier
+		return ErrRefusedIDRejected
 	}
 	return Accepted
 }

@@ -2,8 +2,8 @@ package sarama
 
 import (
 	"encoding/binary"
-
-	"github.com/klauspost/crc32"
+	"fmt"
+	"hash/crc32"
 )
 
 // crc32Field implements the pushEncoder and pushDecoder interfaces for calculating CRC32s.
@@ -28,8 +28,9 @@ func (c *crc32Field) run(curOffset int, buf []byte) error {
 func (c *crc32Field) check(curOffset int, buf []byte) error {
 	crc := crc32.ChecksumIEEE(buf[c.startOffset+4 : curOffset])
 
-	if crc != binary.BigEndian.Uint32(buf[c.startOffset:]) {
-		return PacketDecodingError{"CRC didn't match"}
+	expected := binary.BigEndian.Uint32(buf[c.startOffset:])
+	if crc != expected {
+		return PacketDecodingError{fmt.Sprintf("CRC didn't match expected %#x got %#x", expected, crc)}
 	}
 
 	return nil

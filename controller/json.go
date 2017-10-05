@@ -42,13 +42,14 @@ func jsonString(s string) string {
 	return string(b)
 }
 
-func (c *Controller) cmdJget(msg *server.Message) (string, error) {
+func (c *Controller) cmdJget(msg *server.Message) (resp.Value, error) {
 	start := time.Now()
+
 	if len(msg.Values) < 3 {
-		return "", errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	if len(msg.Values) > 5 {
-		return "", errInvalidNumberOfArguments
+		return server.NOMessage, errInvalidNumberOfArguments
 	}
 	key := msg.Values[1].String()
 	id := msg.Values[2].String()
@@ -62,23 +63,23 @@ func (c *Controller) cmdJget(msg *server.Message) (string, error) {
 			if strings.ToLower(msg.Values[4].String()) == "raw" {
 				raw = true
 			} else {
-				return "", errInvalidArgument(msg.Values[4].String())
+				return server.NOMessage, errInvalidArgument(msg.Values[4].String())
 			}
 		}
 	}
 	col := c.getCol(key)
 	if col == nil {
 		if msg.OutputType == server.RESP {
-			return "$-1\r\n", nil
+			return resp.NullValue(), nil
 		}
-		return "", errKeyNotFound
+		return server.NOMessage, errKeyNotFound
 	}
 	o, _, ok := col.Get(id)
 	if !ok {
 		if msg.OutputType == server.RESP {
-			return "$-1\r\n", nil
+			return resp.NullValue(), nil
 		}
-		return "", errIDNotFound
+		return server.NOMessage, errIDNotFound
 	}
 	var res gjson.Result
 	if doget {
@@ -102,28 +103,29 @@ func (c *Controller) cmdJget(msg *server.Message) (string, error) {
 			buf.WriteString(`,"value":` + jsonString(val))
 		}
 		buf.WriteString(`,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
-		return buf.String(), nil
+		return resp.StringValue(buf.String()), nil
 	case server.RESP:
 		if !res.Exists() {
-			return "$-1\r\n", nil
+			return resp.NullValue(), nil
 		}
-		return "$" + strconv.FormatInt(int64(len(val)), 10) + "\r\n" + val + "\r\n", nil
+		return resp.StringValue(val), nil
 	}
-	return "", nil
+	return server.NOMessage, nil
 }
 
-func (c *Controller) cmdJset(msg *server.Message) (res string, d commandDetailsT, err error) {
+func (c *Controller) cmdJset(msg *server.Message) (res resp.Value, d commandDetailsT, err error) {
 	// JSET key path value [RAW]
 	start := time.Now()
+
 	var raw, str bool
 	switch len(msg.Values) {
 	default:
-		return "", d, errInvalidNumberOfArguments
+		return server.NOMessage, d, errInvalidNumberOfArguments
 	case 5:
 	case 6:
 		switch strings.ToLower(msg.Values[5].String()) {
 		default:
-			return "", d, errInvalidArgument(msg.Values[5].String())
+			return server.NOMessage, d, errInvalidArgument(msg.Values[5].String())
 		case "raw":
 			raw = true
 		case "str":
@@ -172,7 +174,7 @@ func (c *Controller) cmdJset(msg *server.Message) (res string, d commandDetailsT
 		json, err = sjson.Set(json, path, val)
 	}
 	if err != nil {
-		return "", d, err
+		return server.NOMessage, d, err
 	}
 
 	if geoobj {
@@ -204,17 +206,18 @@ func (c *Controller) cmdJset(msg *server.Message) (res string, d commandDetailsT
 		var buf bytes.Buffer
 		buf.WriteString(`{"ok":true`)
 		buf.WriteString(`,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
-		return buf.String(), d, nil
+		return resp.StringValue(buf.String()), d, nil
 	case server.RESP:
-		return "+OK\r\n", d, nil
+		return resp.SimpleStringValue("OK"), d, nil
 	}
-	return "", d, nil
+	return server.NOMessage, d, nil
 }
 
-func (c *Controller) cmdJdel(msg *server.Message) (res string, d commandDetailsT, err error) {
+func (c *Controller) cmdJdel(msg *server.Message) (res resp.Value, d commandDetailsT, err error) {
 	start := time.Now()
+
 	if len(msg.Values) != 4 {
-		return "", d, errInvalidNumberOfArguments
+		return server.NOMessage, d, errInvalidNumberOfArguments
 	}
 	key := msg.Values[1].String()
 	id := msg.Values[2].String()
@@ -223,9 +226,9 @@ func (c *Controller) cmdJdel(msg *server.Message) (res string, d commandDetailsT
 	col := c.getCol(key)
 	if col == nil {
 		if msg.OutputType == server.RESP {
-			return ":0\r\n", d, nil
+			return resp.IntegerValue(0), d, nil
 		}
-		return "", d, errKeyNotFound
+		return server.NOMessage, d, errKeyNotFound
 	}
 
 	var json string
@@ -239,16 +242,16 @@ func (c *Controller) cmdJdel(msg *server.Message) (res string, d commandDetailsT
 	}
 	njson, err := sjson.Delete(json, path)
 	if err != nil {
-		return "", d, err
+		return server.NOMessage, d, err
 	}
 	if njson == json {
 		switch msg.OutputType {
 		case server.JSON:
-			return "", d, errPathNotFound
+			return server.NOMessage, d, errPathNotFound
 		case server.RESP:
-			return ":0\r\n", d, nil
+			return resp.IntegerValue(0), d, nil
 		}
-		return "", d, nil
+		return server.NOMessage, d, nil
 	}
 	json = njson
 	if geoobj {
@@ -277,9 +280,9 @@ func (c *Controller) cmdJdel(msg *server.Message) (res string, d commandDetailsT
 		var buf bytes.Buffer
 		buf.WriteString(`{"ok":true`)
 		buf.WriteString(`,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
-		return buf.String(), d, nil
+		return resp.StringValue(buf.String()), d, nil
 	case server.RESP:
-		return ":1\r\n", d, nil
+		return resp.IntegerValue(1), d, nil
 	}
-	return "", d, nil
+	return server.NOMessage, d, nil
 }

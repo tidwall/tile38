@@ -194,6 +194,7 @@ func ListenAndServeEx(host string, port int, dir string, ln *net.Listener, http 
 	}()
 	go c.processLives()
 	go c.watchOutOfMemory()
+	go c.watchLuaStatePool()
 	go c.watchAutoGC()
 	go c.backgroundExpiring()
 	defer func() {
@@ -314,6 +315,16 @@ func (c *Controller) watchOutOfMemory() {
 			}
 			runtime.ReadMemStats(&mem)
 			c.outOfMemory.set(int(mem.HeapAlloc) > c.config.maxMemory())
+		}()
+	}
+}
+
+func (c *Controller) watchLuaStatePool() {
+	t := time.NewTicker(time.Second * 10)
+	defer t.Stop()
+	for range t.C {
+		func() {
+			c.luapool.Prune()
 		}()
 	}
 }

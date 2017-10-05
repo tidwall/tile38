@@ -41,12 +41,12 @@ type lStatePool struct {
 // NewPool returns a new pool of lua states
 func (c *Controller) NewPool() *lStatePool {
 	pl := &lStatePool{
-		saved: make([]*lua.LState, 0),
+		saved: make([]*lua.LState, iniLuaPoolSize),
 		c:     c,
 	}
 	// Fill the pool with some ready handlers
 	for i := 0; i < iniLuaPoolSize; i++ {
-		pl.Put(pl.New())
+		pl.saved[i] = pl.New()
 		pl.total++
 	}
 	return pl
@@ -66,6 +66,23 @@ func (pl *lStatePool) Get() (*lua.LState, error) {
 	x := pl.saved[n-1]
 	pl.saved = pl.saved[0 : n-1]
 	return x, nil
+}
+
+// Prune removes some of the idle lua states from the pool
+func (pl *lStatePool) Prune() {
+	pl.m.Lock()
+	n := len(pl.saved)
+	if n > iniLuaPoolSize {
+		// drop half of the idle states that is above the minimum
+		dropNum := (n - iniLuaPoolSize) / 2
+		if dropNum < 1 {
+			dropNum = 1
+		}
+		newSaved := make([]*lua.LState, n - dropNum)
+		copy(newSaved, pl.saved[dropNum:])
+		pl.saved = newSaved
+	}
+	pl.m.Unlock()
 }
 
 func (pl *lStatePool) New() *lua.LState {

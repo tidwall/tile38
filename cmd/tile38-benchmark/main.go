@@ -319,30 +319,6 @@ func main() {
 					fmt.Println("SET SCRIPT: " + set_script)
 				}
 
-				redbench.Bench("EVALRO (get point)", addr, opts, prepFn,
-					func(buf []byte) []byte {
-						i := atomic.AddInt64(&i, 1)
-						return redbench.AppendCommand(buf, "EVALRO", get_script, "1", "key:bench", "id:"+strconv.FormatInt(i, 10))
-					},
-				)
-				redbench.Bench("EVALRO (get 4 points)", addr, opts, prepFn,
-					func(buf []byte) []byte {
-						i := atomic.AddInt64(&i, 1)
-						return redbench.AppendCommand(buf, "EVALRO", get4_script, "1",
-							"key:bench",
-							"id:"+strconv.FormatInt(i, 10),
-							"id:"+strconv.FormatInt(i+1, 10),
-							"id:"+strconv.FormatInt(i+2, 10),
-							"id:"+strconv.FormatInt(i+3, 10),
-						)
-					},
-				)
-				redbench.Bench("EVALNA (get point)", addr, opts, prepFn,
-					func(buf []byte) []byte {
-						i := atomic.AddInt64(&i, 1)
-						return redbench.AppendCommand(buf, "EVALNA", get_script, "1", "key:bench", "id:"+strconv.FormatInt(i, 10))
-					},
-				)
 				redbench.Bench("EVAL (set point)", addr, opts, prepFn,
 					func(buf []byte) []byte {
 						i := atomic.AddInt64(&i, 1)
@@ -365,6 +341,30 @@ func main() {
 							strconv.FormatFloat(lat, 'f', 5, 64),
 							strconv.FormatFloat(lon, 'f', 5, 64),
 						)
+					},
+				)
+				redbench.Bench("EVALRO (get point)", addr, opts, prepFn,
+					func(buf []byte) []byte {
+						i := atomic.AddInt64(&i, 1)
+						return redbench.AppendCommand(buf, "EVALRO", get_script, "1", "key:bench", "id:"+strconv.FormatInt(i, 10))
+					},
+				)
+				redbench.Bench("EVALRO (get 4 points)", addr, opts, prepFn,
+					func(buf []byte) []byte {
+						i := atomic.AddInt64(&i, 1)
+						return redbench.AppendCommand(buf, "EVALRO", get4_script, "1",
+							"key:bench",
+							"id:"+strconv.FormatInt(i, 10),
+							"id:"+strconv.FormatInt(i+1, 10),
+							"id:"+strconv.FormatInt(i+2, 10),
+							"id:"+strconv.FormatInt(i+3, 10),
+						)
+					},
+				)
+				redbench.Bench("EVALNA (get point)", addr, opts, prepFn,
+					func(buf []byte) []byte {
+						i := atomic.AddInt64(&i, 1)
+						return redbench.AppendCommand(buf, "EVALNA", get_script, "1", "key:bench", "id:"+strconv.FormatInt(i, 10))
 					},
 				)
 			}

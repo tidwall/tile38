@@ -120,6 +120,7 @@ function rmtemp {
 }
 trap rmtemp EXIT
 
+
 if [ "$NOLINK" != "1" ]; then
     # symlink root to isolated directory
 	mkdir -p "$TMP/go/src/github.com/tidwall"

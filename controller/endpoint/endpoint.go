@@ -22,6 +22,7 @@ const (
 	Kafka  = EndpointProtocol("kafka")  // Kafka
 	MQTT   = EndpointProtocol("mqtt")   // MQTT
 	AMQP   = EndpointProtocol("amqp")   // AMQP
+	SQS    = EndpointProtocol("sqs")    // SQS
 )
 
 // Endpoint represents an endpoint.
@@ -62,6 +63,14 @@ type Endpoint struct {
 		QueueName string
 		Qos       byte
 		Retained  bool
+	}
+
+	SQS struct {
+		QueueID     string
+		Region      string
+		CredPath    string
+		CredProfile string
+		QueueName   string
 	}
 }
 
@@ -134,6 +143,8 @@ func (epc *EndpointManager) Send(endpoint, val string) error {
 				conn = newMQTTEndpointConn(ep)
 			case AMQP:
 				conn = newAMQPEndpointConn(ep)
+			case SQS:
+				conn = newSQSEndpointConn(ep)
 			}
 			epc.conns[endpoint] = conn
 		}
@@ -176,6 +187,8 @@ func parseEndpoint(s string) (Endpoint, error) {
 		endpoint.Protocol = AMQP
 	case strings.HasPrefix(s, "mqtt:"):
 		endpoint.Protocol = MQTT
+	case strings.HasPrefix(s, "sqs:"):
+		endpoint.Protocol = SQS
 	}
 
 	s = s[strings.Index(s, ":")+1:]
@@ -380,6 +393,57 @@ func parseEndpoint(s string) (Endpoint, error) {
 		// Throw error if we not provide any queue name
 		if endpoint.MQTT.QueueName == "" {
 			return endpoint, errors.New("missing MQTT topic name")
+		}
+	}
+	// Basic SQS connection strings in HOOKS interface
+	// sqs://<region>:<queue_id>/<queue_name>/?params=value
+	//
+	//  params are:
+	//
+	// credpath - path where aws credentials are located
+	// credprofile - credential profile
+	if endpoint.Protocol == SQS {
+		// Parsing connection from URL string
+		hp := strings.Split(s, ":")
+		switch len(hp) {
+		default:
+			return endpoint, errors.New("invalid SQS url")
+		case 2:
+			endpoint.SQS.Region = hp[0]
+			endpoint.SQS.QueueID = hp[1]
+		}
+
+		// Parsing SQS queue name
+		if len(sp) > 1 {
+			var err error
+			endpoint.SQS.QueueName, err = url.QueryUnescape(sp[1])
+			if err != nil {
+				return endpoint, errors.New("invalid SQS queue name")
+			}
+		}
+
+		// Parsing additional params
+		if len(sqp) > 1 {
+			m, err := url.ParseQuery(sqp[1])
+			if err != nil {
+				return endpoint, errors.New("invalid SQS url")
+			}
+			for key, val := range m {
+				if len(val) == 0 {
+					continue
+				}
+				switch key {
+				case "credpath":
+					endpoint.SQS.CredPath = val[0]
+				case "credprofile":
+					endpoint.SQS.CredProfile = val[0]
+				}
+			}
+		}
+
+		// Throw error if we not provide any queue name
+		if endpoint.SQS.QueueName == "" {
+			return endpoint, errors.New("missing SQS queue name")
 		}
 	}
 

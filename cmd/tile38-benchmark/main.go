@@ -303,15 +303,15 @@ func main() {
 		case "EVAL":
 			if !redis {
 				var i int64
-				get_script := "return tile38.call('GET', KEYS[1], ARGS[1], 'point')"
+				get_script := "return tile38.call('GET', KEYS[1], ARGV[1], 'point')"
 				get4_script :=
-					"a = tile38.call('GET', KEYS[1], ARGS[1], 'point');" +
-						"b = tile38.call('GET', KEYS[1], ARGS[2], 'point');" +
-						"c = tile38.call('GET', KEYS[1], ARGS[3], 'point');" +
-						"d = tile38.call('GET', KEYS[1], ARGS[4], 'point');" +
+					"a = tile38.call('GET', KEYS[1], ARGV[1], 'point');" +
+						"b = tile38.call('GET', KEYS[1], ARGV[2], 'point');" +
+						"c = tile38.call('GET', KEYS[1], ARGV[3], 'point');" +
+						"d = tile38.call('GET', KEYS[1], ARGV[4], 'point');" +
 						"return d"
 
-				set_script := "return tile38.call('SET', KEYS[1], ARGS[1], 'point', ARGS[2], ARGS[3])"
+				set_script := "return tile38.call('SET', KEYS[1], ARGV[1], 'point', ARGV[2], ARGV[3])"
 				if !opts.Quiet {
 					fmt.Println("Scripts to run:")
 					fmt.Println("GET SCRIPT: " + get_script)

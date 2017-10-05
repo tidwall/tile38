@@ -533,9 +533,7 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 		// No locking for scripts, otherwise writes cannot happen within scripts
 	}
 
-	//s := time.Now()
 	res, d, err := c.command(msg, w, conn)
-	//log.Debugf("COMMAND TOOK %v\n", time.Since(s))
 
 	if res.Type() == resp.Error {
 		return writeErr(res.String())

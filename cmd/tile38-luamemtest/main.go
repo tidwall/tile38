@@ -131,7 +131,6 @@ func NewLuaState() *lua.LState {
 				args = append(args, arg)
 			}
 		}
-		//log.Debugf("ARGS %s\n", args)
 		return
 	}
 	call := func(ls *lua.LState) int {

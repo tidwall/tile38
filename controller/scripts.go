@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/tidwall/tile38/controller/server"
-	//"github.com/tidwall/tile38/controller/log"
 	"github.com/tidwall/resp"
 	"github.com/yuin/gopher-lua"
 )
@@ -74,7 +73,6 @@ func (pl *lStatePool) New() *lua.LState {
 
 	getArgs := func(ls *lua.LState) (evalCmd string, args []string) {
 		evalCmd = ls.GetGlobal("EVAL_CMD").String()
-		//log.Debugf("EVAL_CMD %s\n", evalCmd)
 
 		// Trying to work with unknown number of args.
 		// When we see empty arg we call it enough.
@@ -85,18 +83,15 @@ func (pl *lStatePool) New() *lua.LState {
 				args = append(args, arg)
 			}
 		}
-		//log.Debugf("ARGS %s\n", args)
 		return
 	}
 	call := func(ls *lua.LState) int {
 		evalCmd, args := getArgs(ls)
 		var numRet int
 		if res, err := pl.c.luaTile38Call(evalCmd, args[0], args[1:]...); err != nil {
-			//log.Debugf("RES type: %s value: %s ERR %s\n", res.Type(), res.String(), err);
 			ls.RaiseError("ERR %s", err.Error())
 			numRet = 0
 		} else {
-			//log.Debugf("RES type: %s value: %s\n", res.Type(), res.String());
 			ls.Push(ConvertToLua(ls, res))
 			numRet = 1
 		}
@@ -105,10 +100,8 @@ func (pl *lStatePool) New() *lua.LState {
 	pcall := func(ls *lua.LState) int {
 		evalCmd, args := getArgs(ls)
 		if res, err := pl.c.luaTile38Call(evalCmd, args[0], args[1:]...); err != nil {
-			//log.Debugf("RES type: %s value: %s ERR %s\n", res.Type(), res.String(), err);
 			ls.Push(ConvertToLua(ls, resp.ErrorValue(err)))
 		} else {
-			//log.Debugf("RES type: %s value: %s\n", res.Type(), res.String());
 			ls.Push(ConvertToLua(ls, res))
 		}
 		return 1
@@ -314,7 +307,7 @@ func ConvertToJSON(val lua.LValue) string {
 
 func luaStateCleanup(ls *lua.LState) {
 	ls.SetGlobal("KEYS", lua.LNil)
-	ls.SetGlobal("ARGS", lua.LNil)
+	ls.SetGlobal("ARGV", lua.LNil)
 	ls.SetGlobal("EVAL_CMD", lua.LNil)
 }
 
@@ -383,7 +376,7 @@ func (c *Controller) cmdEvalUnified(scriptIsSha bool, msg *server.Message) (res 
 	}
 
 	luaState.SetGlobal("KEYS", keysTbl)
-	luaState.SetGlobal("ARGS", argsTbl)
+	luaState.SetGlobal("ARGV", argsTbl)
 	luaState.SetGlobal("EVAL_CMD", lua.LString(msg.Command))
 
 	compiled, ok := c.luascripts.Get(shaSum)
@@ -397,7 +390,6 @@ func (c *Controller) cmdEvalUnified(scriptIsSha bool, msg *server.Message) (res 
 			GFunction: nil,
 			Upvalues:  make([]*lua.Upvalue, 0),
 		}
-		//log.Debugf("RETRIEVED %s\n", shaSum)
 	} else if scriptIsSha {
 		err = errShaNotFound
 		return
@@ -407,7 +399,6 @@ func (c *Controller) cmdEvalUnified(scriptIsSha bool, msg *server.Message) (res 
 			return server.NOMessage, makeSafeErr(err)
 		}
 		c.luascripts.Put(shaSum, fn.Proto)
-		//log.Debugf("STORED %s\n", shaSum)
 	}
 	luaState.Push(fn)
 	defer luaStateCleanup(luaState)
@@ -417,8 +408,6 @@ func (c *Controller) cmdEvalUnified(scriptIsSha bool, msg *server.Message) (res 
 	}
 	ret := luaState.Get(-1) // returned value
 	luaState.Pop(1)
-
-	//log.Debugf("RET type %s, val %s\n", ret.Type(), ret.String())
 
 	switch msg.OutputType {
 	case server.JSON:
@@ -443,7 +432,6 @@ func (c *Controller) cmdScriptLoad(msg *server.Message) (resp.Value, error) {
 		return server.NOMessage, errInvalidNumberOfArguments
 	}
 
-	//log.Debugf("SCRIPT source:\n%s\n\n", script)
 	shaSum := Sha1Sum(script)
 
 	luaState, err := c.luapool.Get()
@@ -457,7 +445,6 @@ func (c *Controller) cmdScriptLoad(msg *server.Message) (resp.Value, error) {
 		return server.NOMessage, makeSafeErr(err)
 	}
 	c.luascripts.Put(shaSum, fn.Proto)
-	//log.Debugf("STORED %s\n", shaSum)
 
 	switch msg.OutputType {
 	case server.JSON:

@@ -1,16 +1,12 @@
 package assert
 
 import (
-	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"math"
 	"os"
 	"reflect"
 	"regexp"
-	"runtime"
-	"strings"
 	"testing"
 	"time"
 )
@@ -196,71 +192,7 @@ func TestEqual(t *testing.T) {
 	if !Equal(mockT, uint64(123), uint64(123)) {
 		t.Error("Equal should return true")
 	}
-	if !Equal(mockT, &struct{}{}, &struct{}{}) {
-		t.Error("Equal should return true (pointer equality is based on equality of underlying value)")
-	}
-	var m map[string]interface{}
-	if Equal(mockT, m["bar"], "something") {
-		t.Error("Equal should return false")
-	}
-}
 
-// bufferT implements TestingT. Its implementation of Errorf writes the output that would be produced by
-// testing.T.Errorf to an internal bytes.Buffer.
-type bufferT struct {
-	buf bytes.Buffer
-}
-
-func (t *bufferT) Errorf(format string, args ...interface{}) {
-	// implementation of decorate is copied from testing.T
-	decorate := func(s string) string {
-		_, file, line, ok := runtime.Caller(3) // decorate + log + public function.
-		if ok {
-			// Truncate file name at last file name separator.
-			if index := strings.LastIndex(file, "/"); index >= 0 {
-				file = file[index+1:]
-			} else if index = strings.LastIndex(file, "\\"); index >= 0 {
-				file = file[index+1:]
-			}
-		} else {
-			file = "???"
-			line = 1
-		}
-		buf := new(bytes.Buffer)
-		// Every line is indented at least one tab.
-		buf.WriteByte('\t')
-		fmt.Fprintf(buf, "%s:%d: ", file, line)
-		lines := strings.Split(s, "\n")
-		if l := len(lines); l > 1 && lines[l-1] == "" {
-			lines = lines[:l-1]
-		}
-		for i, line := range lines {
-			if i > 0 {
-				// Second and subsequent lines are indented an extra tab.
-				buf.WriteString("\n\t\t")
-			}
-			buf.WriteString(line)
-		}
-		buf.WriteByte('\n')
-		return buf.String()
-	}
-	t.buf.WriteString(decorate(fmt.Sprintf(format, args...)))
-}
-
-func TestEqualFormatting(t *testing.T) {
-	for i, currCase := range []struct {
-		equalWant  string
-		equalGot   string
-		msgAndArgs []interface{}
-		want       string
-	}{
-		{equalWant: "want", equalGot: "got", want: "\tassertions.go:[0-9]+: \r                          \r\tError Trace:\t\n\t\t\r\tError:      \tNot equal: \n\t\t\r\t            \texpected: \"want\"\n\t\t\r\t            \tactual: \"got\"\n"},
-		{equalWant: "want", equalGot: "got", msgAndArgs: []interface{}{"hello, %v!", "world"}, want: "\tassertions.go:[0-9]+: \r                          \r\tError Trace:\t\n\t\t\r\tError:      \tNot equal: \n\t\t\r\t            \texpected: \"want\"\n\t\t\r\t            \tactual: \"got\"\n\t\t\r\tMessages:   \thello, world!\n"},
-	} {
-		mockT := &bufferT{}
-		Equal(mockT, currCase.equalWant, currCase.equalGot, currCase.msgAndArgs...)
-		Regexp(t, regexp.MustCompile(currCase.want), mockT.buf.String(), "Case %d", i)
-	}
 }
 
 func TestFormatUnequalValues(t *testing.T) {
@@ -275,10 +207,6 @@ func TestFormatUnequalValues(t *testing.T) {
 	expected, actual = formatUnequalValues(int64(123), int32(123))
 	Equal(t, `int64(123)`, expected, "value should include type")
 	Equal(t, `int32(123)`, actual, "value should include type")
-
-	expected, actual = formatUnequalValues(int64(123), nil)
-	Equal(t, `int64(123)`, expected, "value should include type")
-	Equal(t, `<nil>(<nil>)`, actual, "value should include type")
 
 	type testStructType struct {
 		Val string
@@ -396,8 +324,8 @@ func TestNotEqual(t *testing.T) {
 	}
 	funcA := func() int { return 23 }
 	funcB := func() int { return 42 }
-	if NotEqual(mockT, funcA, funcB) {
-		t.Error("NotEqual should return false")
+	if !NotEqual(mockT, funcA, funcB) {
+		t.Error("NotEqual should return true")
 	}
 
 	if NotEqual(mockT, "Hello World", "Hello World") {
@@ -413,9 +341,6 @@ func TestNotEqual(t *testing.T) {
 		t.Error("NotEqual should return false")
 	}
 	if NotEqual(mockT, new(AssertionTesterConformingObject), new(AssertionTesterConformingObject)) {
-		t.Error("NotEqual should return false")
-	}
-	if NotEqual(mockT, &struct{}{}, &struct{}{}) {
 		t.Error("NotEqual should return false")
 	}
 }
@@ -490,66 +415,6 @@ func TestNotContains(t *testing.T) {
 	}
 	if !NotContains(mockT, simpleMap, "Bar") {
 		t.Error("Contains should return false: \"{\"Foo\": \"Bar\"}\" does not contains \"Bar\"")
-	}
-}
-
-func TestSubset(t *testing.T) {
-	mockT := new(testing.T)
-
-	if !Subset(mockT, []int{1, 2, 3}, nil) {
-		t.Error("Subset should return true: given subset is nil")
-	}
-	if !Subset(mockT, []int{1, 2, 3}, []int{}) {
-		t.Error("Subset should return true: any set contains the nil set")
-	}
-	if !Subset(mockT, []int{1, 2, 3}, []int{1, 2}) {
-		t.Error("Subset should return true: [1, 2, 3] contains [1, 2]")
-	}
-	if !Subset(mockT, []int{1, 2, 3}, []int{1, 2, 3}) {
-		t.Error("Subset should return true: [1, 2, 3] contains [1, 2, 3]")
-	}
-	if !Subset(mockT, []string{"hello", "world"}, []string{"hello"}) {
-		t.Error("Subset should return true: [\"hello\", \"world\"] contains [\"hello\"]")
-	}
-
-	if Subset(mockT, []string{"hello", "world"}, []string{"hello", "testify"}) {
-		t.Error("Subset should return false: [\"hello\", \"world\"] does not contain [\"hello\", \"testify\"]")
-	}
-	if Subset(mockT, []int{1, 2, 3}, []int{4, 5}) {
-		t.Error("Subset should return false: [1, 2, 3] does not contain [4, 5]")
-	}
-	if Subset(mockT, []int{1, 2, 3}, []int{1, 5}) {
-		t.Error("Subset should return false: [1, 2, 3] does not contain [1, 5]")
-	}
-}
-
-func TestNotSubset(t *testing.T) {
-	mockT := new(testing.T)
-
-	if NotSubset(mockT, []int{1, 2, 3}, nil) {
-		t.Error("NotSubset should return false: given subset is nil")
-	}
-	if NotSubset(mockT, []int{1, 2, 3}, []int{}) {
-		t.Error("NotSubset should return false: any set contains the nil set")
-	}
-	if NotSubset(mockT, []int{1, 2, 3}, []int{1, 2}) {
-		t.Error("NotSubset should return false: [1, 2, 3] contains [1, 2]")
-	}
-	if NotSubset(mockT, []int{1, 2, 3}, []int{1, 2, 3}) {
-		t.Error("NotSubset should return false: [1, 2, 3] contains [1, 2, 3]")
-	}
-	if NotSubset(mockT, []string{"hello", "world"}, []string{"hello"}) {
-		t.Error("NotSubset should return false: [\"hello\", \"world\"] contains [\"hello\"]")
-	}
-
-	if !NotSubset(mockT, []string{"hello", "world"}, []string{"hello", "testify"}) {
-		t.Error("NotSubset should return true: [\"hello\", \"world\"] does not contain [\"hello\", \"testify\"]")
-	}
-	if !NotSubset(mockT, []int{1, 2, 3}, []int{4, 5}) {
-		t.Error("NotSubset should return true: [1, 2, 3] does not contain [4, 5]")
-	}
-	if !NotSubset(mockT, []int{1, 2, 3}, []int{1, 5}) {
-		t.Error("NotSubset should return true: [1, 2, 3] does not contain [1, 5]")
 	}
 }
 
@@ -649,28 +514,6 @@ func TestPanics(t *testing.T) {
 
 }
 
-func TestPanicsWithValue(t *testing.T) {
-
-	mockT := new(testing.T)
-
-	if !PanicsWithValue(mockT, "Panic!", func() {
-		panic("Panic!")
-	}) {
-		t.Error("PanicsWithValue should return true")
-	}
-
-	if PanicsWithValue(mockT, "Panic!", func() {
-	}) {
-		t.Error("PanicsWithValue should return false")
-	}
-
-	if PanicsWithValue(mockT, "at the disco", func() {
-		panic("Panic!")
-	}) {
-		t.Error("PanicsWithValue should return false")
-	}
-}
-
 func TestNotPanics(t *testing.T) {
 
 	mockT := new(testing.T)
@@ -712,7 +555,7 @@ func TestNoError(t *testing.T) {
 	}()
 
 	if err == nil { // err is not nil here!
-		t.Errorf("Error should be nil due to empty interface: %s", err)
+		t.Errorf("Error should be nil due to empty interface", err)
 	}
 
 	False(t, NoError(mockT, err), "NoError should fail with empty error interface")
@@ -736,9 +579,6 @@ func TestError(t *testing.T) {
 
 	True(t, Error(mockT, err), "Error with error should return True")
 
-	// go vet check
-	True(t, Errorf(mockT, err, "example with %s", "formatted message"), "Errorf with error should rturn True")
-
 	// returning an empty error interface
 	err = func() error {
 		var err *customError
@@ -749,7 +589,7 @@ func TestError(t *testing.T) {
 	}()
 
 	if err == nil { // err is not nil here!
-		t.Errorf("Error should be nil due to empty interface: %s", err)
+		t.Errorf("Error should be nil due to empty interface", err)
 	}
 
 	True(t, Error(mockT, err), "Error should pass with empty error interface")
@@ -1045,7 +885,6 @@ func TestInEpsilon(t *testing.T) {
 		{uint64(100), uint8(101), 0.01},
 		{0.1, -0.1, 2},
 		{0.1, 0, 2},
-		{time.Second, time.Second + time.Millisecond, 0.002},
 	}
 
 	for _, tc := range cases {
@@ -1064,7 +903,6 @@ func TestInEpsilon(t *testing.T) {
 		{2.1, "bla-bla", 0},
 		{0.1, -0.1, 1.99},
 		{0, 0.1, 2}, // expected must be different to zero
-		{time.Second, time.Second + 10*time.Millisecond, 0.002},
 	}
 
 	for _, tc := range cases {
@@ -1369,38 +1207,4 @@ func TestFailNowWithFullTestingT(t *testing.T) {
 	NotPanics(t, func() {
 		FailNow(mockT, "failed")
 	}, "should call mockT.FailNow() rather than panicking")
-}
-
-func TestBytesEqual(t *testing.T) {
-	var cases = []struct {
-		a, b []byte
-	}{
-		{make([]byte, 2), make([]byte, 2)},
-		{make([]byte, 2), make([]byte, 2, 3)},
-		{nil, make([]byte, 0)},
-	}
-	for i, c := range cases {
-		Equal(t, reflect.DeepEqual(c.a, c.b), ObjectsAreEqual(c.a, c.b), "case %d failed", i+1)
-	}
-}
-
-func BenchmarkBytesEqual(b *testing.B) {
-	const size = 1024 * 8
-	s := make([]byte, size)
-	for i := range s {
-		s[i] = byte(i % 255)
-	}
-	s2 := make([]byte, size)
-	copy(s2, s)
-
-	mockT := &mockFailNowTestingT{}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		Equal(mockT, s, s2)
-	}
-}
-
-func TestEqualArgsValidation(t *testing.T) {
-	err := validateEqualArgs(time.Now, time.Now)
-	EqualError(t, err, "cannot take func type as argument")
 }

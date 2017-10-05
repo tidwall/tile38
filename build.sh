@@ -113,23 +113,6 @@ if [ "$1" == "package" ]; then
 	exit
 fi
 
-if [ "$1" == "vendor" ]; then
-	pkg="$2"	
-	if [ "$pkg" == "" ]; then
-		echo "no package specified"
-		exit
-	fi
-	if [ ! -d "$GOPATH/src/$pkg" ]; then
-		echo "invalid package"
-		exit
-	fi
-	rm -rf vendor/$pkg/
-	mkdir -p vendor/$pkg/
-	cp -rf $GOPATH/src/$pkg/* vendor/$pkg/
-	rm -rf vendor/$pkg/.git
-	exit
-fi
-
 # temp directory for storing isolated environment.
 TMP="$(mktemp -d -t tile38.XXXX)"
 function rmtemp {
@@ -137,18 +120,12 @@ function rmtemp {
 }
 trap rmtemp EXIT
 
-if [ "$NOCOPY" != "1" ]; then
-	# copy all files to an isloated directory.
-	WD="$TMP/src/github.com/tidwall/tile38"
-	export GOPATH="$TMP"
-	for file in `find . -type f`; do
-		# TODO: use .gitignore to ignore, or possibly just use git to determine the file list.
-		if [[ "$file" != "." && "$file" != ./.git* && "$file" != ./data* && "$file" != ./tile38-* ]]; then
-			mkdir -p "$WD/$(dirname "${file}")"
-			cp -P "$file" "$WD/$(dirname "${file}")"
-		fi
-	done
-	cd $WD
+if [ "$NOLINK" != "1" ]; then
+    # symlink root to isolated directory
+	mkdir -p "$TMP/go/src/github.com/tidwall"
+    ln -s $OD "$TMP/go/src/github.com/tidwall/tile38"
+    export GOPATH="$TMP/go"
+	cd "$TMP/go/src/github.com/tidwall/tile38"
 fi
 
 # build and store objects into original directory.

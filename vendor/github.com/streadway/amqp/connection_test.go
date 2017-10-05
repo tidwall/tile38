@@ -12,7 +12,29 @@ import (
 	"net"
 	"sync"
 	"testing"
+	"time"
 )
+
+func TestRequiredServerLocale(t *testing.T) {
+	conn := integrationConnection(t, "AMQP 0-9-1 required server locale")
+	requiredServerLocale := defaultLocale
+
+	for _, locale := range conn.Locales {
+		if locale == requiredServerLocale {
+			return
+		}
+	}
+
+	t.Fatalf("AMQP 0-9-1 server must support at least the %s locale, server sent the following locales: %#v", requiredServerLocale, conn.Locales)
+}
+
+func TestDefaultConnectionLocale(t *testing.T) {
+	conn := integrationConnection(t, "client default locale")
+
+	if conn.Config.Locale != defaultLocale {
+		t.Fatalf("Expected default connection locale to be %s, is was: %s", defaultLocale, conn.Config.Locale)
+	}
+}
 
 func TestChannelOpenOnAClosedConnectionFails(t *testing.T) {
 	conn := integrationConnection(t, "channel on close")
@@ -21,6 +43,67 @@ func TestChannelOpenOnAClosedConnectionFails(t *testing.T) {
 
 	if _, err := conn.Channel(); err != ErrClosed {
 		t.Fatalf("channel.open on a closed connection %#v is expected to fail", conn)
+	}
+}
+
+// TestChannelOpenOnAClosedConnectionFails_ReleasesAllocatedChannel ensures the
+// channel allocated is released if opening the channel fails.
+func TestChannelOpenOnAClosedConnectionFails_ReleasesAllocatedChannel(t *testing.T) {
+	conn := integrationConnection(t, "releases channel allocation")
+	conn.Close()
+
+	before := len(conn.channels)
+
+	if _, err := conn.Channel(); err != ErrClosed {
+		t.Fatalf("channel.open on a closed connection %#v is expected to fail", conn)
+	}
+
+	if len(conn.channels) != before {
+		t.Fatalf("channel.open failed, but the allocated channel was not released")
+	}
+}
+
+// TestRaceBetweenChannelAndConnectionClose ensures allocating a new channel
+// does not race with shutting the connection down.
+//
+// See https://github.com/streadway/amqp/issues/251 - thanks to jmalloc for the
+// test case.
+func TestRaceBetweenChannelAndConnectionClose(t *testing.T) {
+	defer time.AfterFunc(10*time.Second, func() { panic("Close deadlock") }).Stop()
+
+	conn := integrationConnection(t, "allocation/shutdown race")
+
+	go conn.Close()
+	for i := 0; i < 10; i++ {
+		go func() {
+			ch, err := conn.Channel()
+			if err == nil {
+				ch.Close()
+			}
+		}()
+	}
+}
+
+// TestRaceBetweenChannelShutdownAndSend ensures closing a channel
+// (channel.shutdown) does not race with calling channel.send() from any other
+// goroutines.
+//
+// See https://github.com/streadway/amqp/pull/253#issuecomment-292464811 for
+// more details - thanks to jmalloc again.
+func TestRaceBetweenChannelShutdownAndSend(t *testing.T) {
+	defer time.AfterFunc(10*time.Second, func() { panic("Close deadlock") }).Stop()
+
+	conn := integrationConnection(t, "channel close/send race")
+	defer conn.Close()
+
+	ch, _ := conn.Channel()
+
+	go ch.Close()
+	for i := 0; i < 10; i++ {
+		go func() {
+			// ch.Ack calls ch.send() internally.
+			ch.Ack(42, false)
+		}()
 	}
 }
 

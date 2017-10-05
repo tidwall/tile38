@@ -20,15 +20,14 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/eclipse/paho.mqtt.golang/packets"
 )
 
-type connStatus uint
-
 const (
-	disconnected connStatus = iota
+	disconnected uint32 = iota
 	connecting
 	reconnecting
 	connected
@@ -52,7 +51,6 @@ const (
 // information can be found in their respective documentation.
 // Numerous connection options may be specified by configuring a
 // and then supplying a ClientOptions type.
-
 type Client interface {
 	IsConnected() bool
 	Connect() Token
@@ -61,6 +59,7 @@ type Client interface {
 	Subscribe(topic string, qos byte, callback MessageHandler) Token
 	SubscribeMultiple(filters map[string]byte, callback MessageHandler) Token
 	Unsubscribe(topics ...string) Token
+	AddRoute(topic string, callback MessageHandler)
 }
 
 // client implements the Client interface
@@ -78,8 +77,10 @@ type client struct {
 	stop            chan struct{}
 	persist         Store
 	options         ClientOptions
-	pingResp        chan struct{}
-	status          connStatus
+	pingResp        *sync.Cond
+	packetResp      *sync.Cond
+	keepaliveReset  *sync.Cond
+	status          uint32
 	workers         sync.WaitGroup
 }
 
@@ -105,11 +106,17 @@ func NewClient(o *ClientOptions) Client {
 	c.status = disconnected
 	c.messageIds = messageIds{index: make(map[uint16]Token)}
 	c.msgRouter, c.stopRouter = newRouter()
-	c.msgRouter.setDefaultHandler(c.options.DefaultPublishHander)
+	c.msgRouter.setDefaultHandler(c.options.DefaultPublishHandler)
 	if !c.options.AutoReconnect {
 		c.options.MessageChannelDepth = 0
 	}
 	return c
+}
+
+func (c *client) AddRoute(topic string, callback MessageHandler) {
+	if callback != nil {
+		c.msgRouter.addRoute(topic, callback)
+	}
 }
 
 // IsConnected returns a bool signifying whether
@@ -117,26 +124,28 @@ func NewClient(o *ClientOptions) Client {
 func (c *client) IsConnected() bool {
 	c.RLock()
 	defer c.RUnlock()
+	status := atomic.LoadUint32(&c.status)
 	switch {
-	case c.status == connected:
+	case status == connected:
 		return true
-	case c.options.AutoReconnect && c.status > disconnected:
+	case c.options.AutoReconnect && status > disconnected:
 		return true
 	default:
 		return false
 	}
 }
 
-func (c *client) connectionStatus() connStatus {
+func (c *client) connectionStatus() uint32 {
 	c.RLock()
 	defer c.RUnlock()
-	return c.status
+	status := atomic.LoadUint32(&c.status)
+	return status
 }
 
-func (c *client) setConnected(status connStatus) {
+func (c *client) setConnected(status uint32) {
 	c.Lock()
 	defer c.Unlock()
-	c.status = status
+	atomic.StoreUint32(&c.status, uint32(status))
 }
 
 //ErrNotConnected is the error returned from function calls that are
@@ -160,8 +169,10 @@ func (c *client) Connect() Token {
 		c.setConnected(connecting)
 		var rc byte
 		cm := newConnectMsgFromOptions(&c.options)
+		protocolVersion := c.options.ProtocolVersion
 
 		for _, broker := range c.options.Servers {
+			c.options.ProtocolVersion = protocolVersion
 		CONN:
 			DEBUG.Println(CLI, "about to write new connect msg")
 			c.conn, err = openConnection(broker, &c.options.TLSConfig, c.options.ConnectTimeout)
@@ -182,8 +193,10 @@ func (c *client) Connect() Token {
 
 				rc = c.connect()
 				if rc != packets.Accepted {
-					c.conn.Close()
-					c.conn = nil
+					if c.conn != nil {
+						c.conn.Close()
+						c.conn = nil
+					}
 					//if the protocol version was explicitly set don't do any fallback
 					if c.options.protocolVersionExplicit {
 						ERROR.Println(CLI, "Connecting to", broker, "CONNACK was not CONN_ACCEPTED, but rather", packets.ConnackReturnCodes[rc])
@@ -217,29 +230,29 @@ func (c *client) Connect() Token {
 			return
 		}
 
+		c.options.protocolVersionExplicit = true
+
 		c.obound = make(chan *PacketAndToken, c.options.MessageChannelDepth)
 		c.oboundP = make(chan *PacketAndToken, c.options.MessageChannelDepth)
 		c.ibound = make(chan packets.ControlPacket)
 		c.errors = make(chan error, 1)
 		c.stop = make(chan struct{})
-		c.pingResp = make(chan struct{}, 1)
+		c.pingResp = sync.NewCond(&sync.Mutex{})
+		c.packetResp = sync.NewCond(&sync.Mutex{})
+		c.keepaliveReset = sync.NewCond(&sync.Mutex{})
+
+		if c.options.KeepAlive != 0 {
+			c.workers.Add(1)
+			go keepalive(c)
+		}
 
 		c.incomingPubChan = make(chan *packets.PublishPacket, c.options.MessageChannelDepth)
 		c.msgRouter.matchAndDispatch(c.incomingPubChan, c.options.Order, c)
-
-		c.workers.Add(1)
-		go outgoing(c)
-		go alllogic(c)
 
 		c.setConnected(connected)
 		DEBUG.Println(CLI, "client is connected")
 		if c.options.OnConnect != nil {
 			go c.options.OnConnect(c)
-		}
-
-		if c.options.KeepAlive != 0 {
-			c.workers.Add(1)
-			go keepalive(c)
 		}
 
 		// Take care of any messages in the store
@@ -250,8 +263,12 @@ func (c *client) Connect() Token {
 			c.persist.Reset()
 		}
 
+		go errorWatch(c)
+
 		// Do not start incoming until resume has completed
-		c.workers.Add(1)
+		c.workers.Add(3)
+		go alllogic(c)
+		go outgoing(c)
 		go incoming(c)
 
 		DEBUG.Println(CLI, "exit startClient")
@@ -274,7 +291,6 @@ func (c *client) reconnect() {
 		cm := newConnectMsgFromOptions(&c.options)
 
 		for _, broker := range c.options.Servers {
-		CONN:
 			DEBUG.Println(CLI, "about to write new connect msg")
 			c.conn, err = openConnection(broker, &c.options.TLSConfig, c.options.ConnectTimeout)
 			if err == nil {
@@ -286,7 +302,6 @@ func (c *client) reconnect() {
 					cm.ProtocolVersion = 3
 				default:
 					DEBUG.Println(CLI, "Using MQTT 3.1.1 protocol")
-					c.options.ProtocolVersion = 4
 					cm.ProtocolName = "MQTT"
 					cm.ProtocolVersion = 4
 				}
@@ -300,11 +315,6 @@ func (c *client) reconnect() {
 					if c.options.protocolVersionExplicit {
 						ERROR.Println(CLI, "Connecting to", broker, "CONNACK was not Accepted, but rather", packets.ConnackReturnCodes[rc])
 						continue
-					}
-					if c.options.ProtocolVersion == 4 {
-						DEBUG.Println(CLI, "Trying reconnect using MQTT 3.1 protocol")
-						c.options.ProtocolVersion = 3
-						goto CONN
 					}
 				}
 				break
@@ -327,16 +337,17 @@ func (c *client) reconnect() {
 		}
 	}
 	// Disconnect() must have been called while we were trying to reconnect.
-	if c.status == disconnected {
+	if c.connectionStatus() == disconnected {
 		DEBUG.Println(CLI, "Client moved to disconnected state while reconnecting, abandoning reconnect")
 		return
 	}
 
-	c.stop = make(chan struct{})
+	if c.options.KeepAlive != 0 {
+		c.workers.Add(1)
+		go keepalive(c)
+	}
 
-	c.workers.Add(1)
-	go outgoing(c)
-	go alllogic(c)
+	c.stop = make(chan struct{})
 
 	c.setConnected(connected)
 	DEBUG.Println(CLI, "client is reconnected")
@@ -344,11 +355,11 @@ func (c *client) reconnect() {
 		go c.options.OnConnect(c)
 	}
 
-	if c.options.KeepAlive != 0 {
-		c.workers.Add(1)
-		go keepalive(c)
-	}
-	c.workers.Add(1)
+	go errorWatch(c)
+
+	c.workers.Add(3)
+	go alllogic(c)
+	go outgoing(c)
 	go incoming(c)
 }
 
@@ -383,7 +394,8 @@ func (c *client) connect() byte {
 // the specified number of milliseconds to wait for existing work to be
 // completed.
 func (c *client) Disconnect(quiesce uint) {
-	if c.status == connected {
+	status := atomic.LoadUint32(&c.status)
+	if status == connected {
 		DEBUG.Println(CLI, "disconnecting")
 		c.setConnected(disconnected)
 
@@ -421,6 +433,9 @@ func (c *client) internalConnLost(err error) {
 		c.closeStop()
 		c.conn.Close()
 		c.workers.Wait()
+		if c.options.CleanSession {
+			c.messageIds.cleanUp()
+		}
 		if c.options.AutoReconnect {
 			c.setConnected(reconnecting)
 			go c.reconnect()
@@ -581,6 +596,11 @@ func (c *client) Unsubscribe(topics ...string) Token {
 
 	DEBUG.Println(CLI, "exit Unsubscribe")
 	return token
+}
+
+func (c *client) OptionsReader() ClientOptionsReader {
+	r := ClientOptionsReader{options: &c.options}
+	return r
 }
 
 //DefaultConnectionLostHandler is a definition of a function that simply

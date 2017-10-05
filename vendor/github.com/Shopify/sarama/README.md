@@ -13,12 +13,14 @@ Sarama is an MIT-licensed Go client library for [Apache Kafka](https://kafka.apa
 - The [examples](./examples) directory contains more elaborate example applications.
 - The [tools](./tools) directory contains command line tools that can be useful for testing, diagnostics, and instrumentation.
 
+You might also want to look at the [Frequently Asked Questions](https://github.com/Shopify/sarama/wiki/Frequently-Asked-Questions).
+
 ### Compatibility and API stability
 
 Sarama provides a "2 releases + 2 months" compatibility guarantee: we support
 the two latest stable releases of Kafka and Go, and we provide a two month
 grace period for older releases. This means we currently officially support
-Go 1.7 and 1.6, and Kafka 0.10.0 and 0.9.0, although older releases are
+Go 1.9 through 1.7, and Kafka 0.11 through 0.9, although older releases are
 still likely to work.
 
 Sarama follows semantic versioning and provides API stability via the gopkg.in service.

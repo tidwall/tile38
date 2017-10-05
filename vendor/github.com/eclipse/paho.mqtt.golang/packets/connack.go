@@ -15,7 +15,8 @@ type ConnackPacket struct {
 }
 
 func (ca *ConnackPacket) String() string {
-	str := fmt.Sprintf("%s\n", ca.FixedHeader)
+	str := fmt.Sprintf("%s", ca.FixedHeader)
+	str += " "
 	str += fmt.Sprintf("sessionpresent: %t returncode: %d", ca.SessionPresent, ca.ReturnCode)
 	return str
 }

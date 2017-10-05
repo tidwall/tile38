@@ -109,6 +109,11 @@ func readLongstr(r io.Reader) (v string, err error) {
 		return
 	}
 
+	// slices can't be longer than max int32 value
+	if length > (^uint32(0) >> 1) {
+		return
+	}
+
 	bytes := make([]byte, length)
 	if _, err = io.ReadFull(r, bytes); err != nil {
 		return

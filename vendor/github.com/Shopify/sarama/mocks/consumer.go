@@ -20,7 +20,7 @@ type Consumer struct {
 
 // NewConsumer returns a new mock Consumer instance. The t argument should
 // be the *testing.T instance of your test method. An error will be written to it if
-// an expectation is violated. The config argument is currently unused and can be set to nil.
+// an expectation is violated. The config argument can be set to nil.
 func NewConsumer(t ErrorReporter, config *sarama.Config) *Consumer {
 	if config == nil {
 		config = sarama.NewConfig()
@@ -178,6 +178,7 @@ func (c *Consumer) ExpectConsumePartition(topic string, partition int32, offset 
 // Errors and Messages channel, you should specify what values will be provided on these
 // channels using YieldMessage and YieldError.
 type PartitionConsumer struct {
+	highWaterMarkOffset     int64 // must be at the top of the struct because https://golang.org/pkg/sync/atomic/#pkg-note-BUG
 	l                       sync.Mutex
 	t                       ErrorReporter
 	topic                   string
@@ -189,7 +190,6 @@ type PartitionConsumer struct {
 	consumed                bool
 	errorsShouldBeDrained   bool
 	messagesShouldBeDrained bool
-	highWaterMarkOffset     int64
 }
 
 ///////////////////////////////////////////////////

@@ -101,6 +101,16 @@ func NewServer(addr string,
 	return NewServerNetwork("tcp", addr, handler, accept, closed)
 }
 
+// NewServerTLS returns a new Redcon TLS server configured on "tcp" network net.
+func NewServerTLS(addr string,
+	handler func(conn Conn, cmd Command),
+	accept func(conn Conn) bool,
+	closed func(conn Conn, err error),
+	config *tls.Config,
+) *TLSServer {
+	return NewServerNetworkTLS("tcp", addr, handler, accept, closed, config)
+}
+
 // NewServerNetwork returns a new Redcon server. The network net must be
 // a stream-oriented network: "tcp", "tcp4", "tcp6", "unix" or "unixpacket"
 func NewServerNetwork(

@@ -15,7 +15,8 @@ type UnsubscribePacket struct {
 }
 
 func (u *UnsubscribePacket) String() string {
-	str := fmt.Sprintf("%s\n", u.FixedHeader)
+	str := fmt.Sprintf("%s", u.FixedHeader)
+	str += " "
 	str += fmt.Sprintf("MessageID: %d", u.MessageID)
 	return str
 }

@@ -3,7 +3,6 @@ package sarama
 import (
 	"bufio"
 	"net"
-	"sort"
 )
 
 type none struct{}
@@ -23,13 +22,11 @@ func (slice int32Slice) Swap(i, j int) {
 	slice[i], slice[j] = slice[j], slice[i]
 }
 
-func dupeAndSort(input []int32) []int32 {
+func dupInt32Slice(input []int32) []int32 {
 	ret := make([]int32, 0, len(input))
 	for _, val := range input {
 		ret = append(ret, val)
 	}
-
-	sort.Sort(int32Slice(ret))
 	return ret
 }
 
@@ -148,5 +145,6 @@ var (
 	V0_10_0_0  = newKafkaVersion(0, 10, 0, 0)
 	V0_10_0_1  = newKafkaVersion(0, 10, 0, 1)
 	V0_10_1_0  = newKafkaVersion(0, 10, 1, 0)
+	V0_10_2_0  = newKafkaVersion(0, 10, 2, 0)
 	minVersion = V0_8_2_0
 )

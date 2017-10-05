@@ -5,6 +5,7 @@ Match
 
 Match is a very simple pattern matcher where '*' matches on any 
 number characters and '?' matches on any one character.
+
 Installing
 ----------
 

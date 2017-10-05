@@ -16,9 +16,11 @@ type PublishPacket struct {
 }
 
 func (p *PublishPacket) String() string {
-	str := fmt.Sprintf("%s\n", p.FixedHeader)
-	str += fmt.Sprintf("topicName: %s MessageID: %d\n", p.TopicName, p.MessageID)
-	str += fmt.Sprintf("payload: %s\n", string(p.Payload))
+	str := fmt.Sprintf("%s", p.FixedHeader)
+	str += " "
+	str += fmt.Sprintf("topicName: %s MessageID: %d", p.TopicName, p.MessageID)
+	str += " "
+	str += fmt.Sprintf("payload: %s", string(p.Payload))
 	return str
 }
 

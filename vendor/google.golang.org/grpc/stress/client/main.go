@@ -1,35 +1,22 @@
 /*
  *
- * Copyright 2016, Google Inc.
- * All rights reserved.
+ * Copyright 2016 gRPC authors.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  */
+
+//go:generate protoc -I ../grpc_testing --go_out=plugins=grpc:../grpc_testing ../grpc_testing/metrics.proto
 
 // client starts an interop client to do stress test and a metrics server to report qps.
 package main
@@ -47,10 +34,12 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/grpclog"
 	"google.golang.org/grpc/interop"
 	testpb "google.golang.org/grpc/interop/grpc_testing"
 	metricspb "google.golang.org/grpc/stress/grpc_testing"
+	"google.golang.org/grpc/testdata"
 )
 
 var (
@@ -60,6 +49,10 @@ var (
 	numChannelsPerServer = flag.Int("num_channels_per_server", 1, "Number of channels (i.e connections) to each server")
 	numStubsPerChannel   = flag.Int("num_stubs_per_channel", 1, "Number of client stubs per each connection to server")
 	metricsPort          = flag.Int("metrics_port", 8081, "The port at which the stress client exposes QPS metrics")
+	useTLS               = flag.Bool("use_tls", false, "Connection uses TLS if true, else plain TCP")
+	testCA               = flag.Bool("use_test_ca", false, "Whether to replace platform root CAs with test CA as the CA root")
+	tlsServerName        = flag.String("server_host_override", "foo.test.google.fr", "The server name use to verify the hostname returned by TLS handshake if it is not empty. Otherwise, --server_host is used.")
+	caFile               = flag.String("ca_file", "", "The file containning the CA root cert file")
 )
 
 // testCaseWithWeight contains the test case type and its weight.
@@ -84,7 +77,13 @@ func parseTestCases(testCaseString string) []testCaseWithWeight {
 			"large_unary",
 			"client_streaming",
 			"server_streaming",
-			"empty_stream":
+			"ping_pong",
+			"empty_stream",
+			"timeout_on_sleeping_server",
+			"cancel_after_begin",
+			"cancel_after_first_response",
+			"status_code_and_message",
+			"custom_metadata":
 		default:
 			panic(fmt.Sprintf("unknown test type: %s", testCase[0]))
 		}
@@ -180,7 +179,7 @@ func (s *server) GetGauge(ctx context.Context, in *metricspb.GaugeRequest) (*met
 	return nil, grpc.Errorf(codes.InvalidArgument, "gauge with name %s not found", in.Name)
 }
 
-// createGauge creates a guage using the given name in metrics server.
+// createGauge creates a gauge using the given name in metrics server.
 func (s *server) createGauge(name string) *gauge {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -212,29 +211,38 @@ func performRPCs(gauge *gauge, conn *grpc.ClientConn, selector *weightedRandomTe
 	var numCalls int64
 	startTime := time.Now()
 	for {
-		done := make(chan bool, 1)
-		go func() {
-			test := selector.getNextTest()
-			switch test {
-			case "empty_unary":
-				interop.DoEmptyUnaryCall(client)
-			case "large_unary":
-				interop.DoLargeUnaryCall(client)
-			case "client_streaming":
-				interop.DoClientStreaming(client)
-			case "server_streaming":
-				interop.DoServerStreaming(client)
-			case "empty_stream":
-				interop.DoEmptyStream(client)
-			}
-			done <- true
-		}()
+		test := selector.getNextTest()
+		switch test {
+		case "empty_unary":
+			interop.DoEmptyUnaryCall(client, grpc.FailFast(false))
+		case "large_unary":
+			interop.DoLargeUnaryCall(client, grpc.FailFast(false))
+		case "client_streaming":
+			interop.DoClientStreaming(client, grpc.FailFast(false))
+		case "server_streaming":
+			interop.DoServerStreaming(client, grpc.FailFast(false))
+		case "ping_pong":
+			interop.DoPingPong(client, grpc.FailFast(false))
+		case "empty_stream":
+			interop.DoEmptyStream(client, grpc.FailFast(false))
+		case "timeout_on_sleeping_server":
+			interop.DoTimeoutOnSleepingServer(client, grpc.FailFast(false))
+		case "cancel_after_begin":
+			interop.DoCancelAfterBegin(client, grpc.FailFast(false))
+		case "cancel_after_first_response":
+			interop.DoCancelAfterFirstResponse(client, grpc.FailFast(false))
+		case "status_code_and_message":
+			interop.DoStatusCodeAndMessage(client, grpc.FailFast(false))
+		case "custom_metadata":
+			interop.DoCustomMetadata(client, grpc.FailFast(false))
+		}
+		numCalls++
+		gauge.set(int64(float64(numCalls) / time.Since(startTime).Seconds()))
+
 		select {
 		case <-stop:
 			return
-		case <-done:
-			numCalls++
-			gauge.set(int64(float64(numCalls) / time.Since(startTime).Seconds()))
+		default:
 		}
 	}
 }
@@ -242,10 +250,13 @@ func performRPCs(gauge *gauge, conn *grpc.ClientConn, selector *weightedRandomTe
 func logParameterInfo(addresses []string, tests []testCaseWithWeight) {
 	grpclog.Printf("server_addresses: %s", *serverAddresses)
 	grpclog.Printf("test_cases: %s", *testCases)
-	grpclog.Printf("test_duration-secs: %d", *testDurationSecs)
+	grpclog.Printf("test_duration_secs: %d", *testDurationSecs)
 	grpclog.Printf("num_channels_per_server: %d", *numChannelsPerServer)
 	grpclog.Printf("num_stubs_per_channel: %d", *numStubsPerChannel)
 	grpclog.Printf("metrics_port: %d", *metricsPort)
+	grpclog.Printf("use_tls: %t", *useTLS)
+	grpclog.Printf("use_test_ca: %t", *testCA)
+	grpclog.Printf("server_host_override: %s", *tlsServerName)
 
 	grpclog.Println("addresses:")
 	for i, addr := range addresses {
@@ -255,6 +266,33 @@ func logParameterInfo(addresses []string, tests []testCaseWithWeight) {
 	for i, test := range tests {
 		grpclog.Printf("%d. %v\n", i+1, test)
 	}
+}
+
+func newConn(address string, useTLS, testCA bool, tlsServerName string) (*grpc.ClientConn, error) {
+	var opts []grpc.DialOption
+	if useTLS {
+		var sn string
+		if tlsServerName != "" {
+			sn = tlsServerName
+		}
+		var creds credentials.TransportCredentials
+		if testCA {
+			var err error
+			if *caFile == "" {
+				*caFile = testdata.Path("ca.pem")
+			}
+			creds, err = credentials.NewClientTLSFromFile(*caFile, sn)
+			if err != nil {
+				grpclog.Fatalf("Failed to create TLS credentials %v", err)
+			}
+		} else {
+			creds = credentials.NewClientTLSFromCert(nil, sn)
+		}
+		opts = append(opts, grpc.WithTransportCredentials(creds))
+	} else {
+		opts = append(opts, grpc.WithInsecure())
+	}
+	return grpc.Dial(address, opts...)
 }
 
 func main() {
@@ -271,7 +309,7 @@ func main() {
 
 	for serverIndex, address := range addresses {
 		for connIndex := 0; connIndex < *numChannelsPerServer; connIndex++ {
-			conn, err := grpc.Dial(address, grpc.WithInsecure())
+			conn, err := newConn(address, *useTLS, *testCA, *tlsServerName)
 			if err != nil {
 				grpclog.Fatalf("Fail to dial: %v", err)
 			}

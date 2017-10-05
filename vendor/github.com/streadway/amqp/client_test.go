@@ -26,7 +26,11 @@ type server struct {
 }
 
 func defaultConfig() Config {
-	return Config{SASL: []Authentication{&PlainAuth{"guest", "guest"}}, Vhost: "/"}
+	return Config{
+		SASL:   []Authentication{&PlainAuth{"guest", "guest"}},
+		Vhost:  "/",
+		Locale: defaultLocale,
+	}
 }
 
 func newSession(t *testing.T) (io.ReadWriteCloser, *server) {
@@ -61,11 +65,28 @@ func (t *server) expectBytes(b []byte) {
 func (t *server) send(channel int, m message) {
 	defer time.AfterFunc(time.Second, func() { panic("send deadlock") }).Stop()
 
-	if err := t.w.WriteFrame(&methodFrame{
-		ChannelId: uint16(channel),
-		Method:    m,
-	}); err != nil {
-		t.Fatalf("frame err, write: %s", err)
+	if msg, ok := m.(messageWithContent); ok {
+		props, body := msg.getContent()
+		class, _ := msg.id()
+		t.w.WriteFrame(&methodFrame{
+			ChannelId: uint16(channel),
+			Method:    msg,
+		})
+		t.w.WriteFrame(&headerFrame{
+			ChannelId:  uint16(channel),
+			ClassId:    class,
+			Size:       uint64(len(body)),
+			Properties: props,
+		})
+		t.w.WriteFrame(&bodyFrame{
+			ChannelId: uint16(channel),
+			Body:      body,
+		})
+	} else {
+		t.w.WriteFrame(&methodFrame{
+			ChannelId: uint16(channel),
+			Method:    m,
+		})
 	}
 }
 
@@ -136,7 +157,7 @@ func (t *server) connectionStart() {
 		VersionMajor: 0,
 		VersionMinor: 9,
 		Mechanisms:   "PLAIN",
-		Locales:      "en-us",
+		Locales:      "en_US",
 	})
 
 	t.recv(0, &t.start)
@@ -189,6 +210,10 @@ func TestDefaultClientProperties(t *testing.T) {
 
 	if want, got := defaultVersion, srv.start.ClientProperties["version"]; want != got {
 		t.Errorf("expected version %s got: %s", want, got)
+	}
+
+	if want, got := defaultLocale, srv.start.Locale; want != got {
+		t.Errorf("expected locale %s got: %s", want, got)
 	}
 }
 
@@ -261,7 +286,7 @@ func TestOpenFailedSASLUnsupportedMechanisms(t *testing.T) {
 			VersionMajor: 0,
 			VersionMinor: 9,
 			Mechanisms:   "KERBEROS NTLM",
-			Locales:      "en-us",
+			Locales:      "en_US",
 		})
 	}()
 
@@ -597,5 +622,93 @@ func TestPublishAndShutdownDeadlockIssue84(t *testing.T) {
 			t.Log("successfully caught disconnect error", err)
 			return
 		}
+	}
+}
+
+// TestChannelReturnsCloseRace ensures that receiving a basicReturn frame and
+// sending the notification to the bound channel does not race with
+// channel.shutdown() which closes all registered notification channels - checks
+// for a "send on closed channel" panic
+func TestChannelReturnsCloseRace(t *testing.T) {
+	defer time.AfterFunc(5*time.Second, func() { panic("Shutdown deadlock") }).Stop()
+	ch := newChannel(&Connection{}, 1)
+
+	// Register a channel to close in channel.shutdown()
+	notify := make(chan Return, 1)
+	ch.NotifyReturn(notify)
+
+	go func() {
+		for range notify {
+			// Drain notifications
+		}
+	}()
+
+	// Simulate receiving a load of returns (triggering a write to the above
+	// channel) while we call shutdown concurrently
+	go func() {
+		for i := 0; i < 100; i++ {
+			ch.dispatch(&basicReturn{})
+		}
+	}()
+
+	ch.shutdown(nil)
+}
+
+// TestLeakClosedConsumersIssue264 ensures that closing a consumer with
+// prefetched messages does not leak the buffering goroutine.
+func TestLeakClosedConsumersIssue264(t *testing.T) {
+	const tag = "consumer-tag"
+
+	rwc, srv := newSession(t)
+	defer rwc.Close()
+
+	go func() {
+		srv.connectionOpen()
+		srv.channelOpen(1)
+
+		srv.recv(1, &basicQos{})
+		srv.send(1, &basicQosOk{})
+
+		srv.recv(1, &basicConsume{})
+		srv.send(1, &basicConsumeOk{ConsumerTag: tag})
+
+		// This delivery is intended to be consumed
+		srv.send(1, &basicDeliver{ConsumerTag: tag, DeliveryTag: 1})
+
+		// This delivery is intended to be dropped
+		srv.send(1, &basicDeliver{ConsumerTag: tag, DeliveryTag: 2})
+
+		srv.recv(0, &connectionClose{})
+		srv.send(0, &connectionCloseOk{})
+		srv.C.Close()
+	}()
+
+	c, err := Open(rwc, defaultConfig())
+	if err != nil {
+		t.Fatalf("could not create connection: %v (%s)", c, err)
+	}
+
+	ch, err := c.Channel()
+	if err != nil {
+		t.Fatalf("could not open channel: %v (%s)", ch, err)
+	}
+	ch.Qos(2, 0, false)
+
+	consumer, err := ch.Consume("queue", tag, false, false, false, false, nil)
+	if err != nil {
+		t.Fatalf("unexpected error during consumer: %v", err)
+	}
+
+	first := <-consumer
+	if want, got := uint64(1), first.DeliveryTag; want != got {
+		t.Fatalf("unexpected delivery tag: want: %d, got: %d", want, got)
+	}
+
+	if err := c.Close(); err != nil {
+		t.Fatalf("unexpected error during connection close: %v", err)
+	}
+
+	if _, open := <-consumer; open {
+		t.Fatalf("expected deliveries channel to be closed immediately when the connection is closed so not to leak the bufferDeliveries goroutine")
 	}
 }

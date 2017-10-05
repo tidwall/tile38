@@ -1392,8 +1392,8 @@
     "group": "scripting"
   },
   "EVALROSHA":{
-    "summary": "Evaluates a read-only Lua script",
-    "complecxity": "Depends on the evaluated script cached on the server by its SHA1 digest",
+    "summary": "Evaluates a read-only Lua script cached on the server by its SHA1 digest",
+    "complecxity": "Depends on the evaluated script",
     "arguments": [
       {
         "name": "script",
@@ -1476,7 +1476,7 @@
     "group": "scripting"
   },
   "SCRIPT EXISTS":{
-    "summary": "Loads the compiled version of a script into the server cache, without executing",
+    "summary": "Returns information about the existence of the scripts in server cache",
     "complexity": "O(N) where N is the number of provided sha1 arguments",
     "arguments": [
       {

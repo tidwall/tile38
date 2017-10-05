@@ -1332,7 +1332,7 @@
         "multiple": true
       }
     ],
-    "since": "1.9.2",
+    "since": "1.10.0",
     "group": "scripting"
   },
   "EVALSHA":{
@@ -1360,7 +1360,7 @@
         "multiple": true
       }
     ],
-    "since": "1.9.2",
+    "since": "1.10.0",
     "group": "scripting"
   },
   "EVALRO":{
@@ -1388,7 +1388,7 @@
         "multiple": true
       }
     ],
-    "since": "1.9.2",
+    "since": "1.10.0",
     "group": "scripting"
   },
   "EVALROSHA":{
@@ -1416,7 +1416,7 @@
         "multiple": true
       }
     ],
-    "since": "1.9.2",
+    "since": "1.10.0",
     "group": "scripting"
   },
   "EVALNA":{
@@ -1444,7 +1444,7 @@
         "multiple": true
       }
     ],
-    "since": "1.9.2",
+    "since": "1.10.0",
     "group": "scripting"
   },
   "EVALNASHA":{
@@ -1472,7 +1472,7 @@
         "multiple": true
       }
     ],
-    "since": "1.9.2",
+    "since": "1.10.0",
     "group": "scripting"
   },
   "SCRIPT EXISTS":{
@@ -1485,7 +1485,7 @@
         "multiple": true
       }
     ],
-    "since": "1.9.2",
+    "since": "1.10.0",
     "group": "scripting"
   },
   "SCRIPT LOAD":{
@@ -1497,13 +1497,13 @@
         "type": "string"
       }
     ],
-    "since": "1.9.2",
+    "since": "1.10.0",
     "group": "scripting"
   },
   "SCRIPT FLUSH":{
     "summary": "Flushes the server cache of Lua scripts",
     "complexity": "O(1)",
-    "since": "1.9.2",
+    "since": "1.10.0",
     "group": "scripting"
   }
 }

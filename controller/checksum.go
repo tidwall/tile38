@@ -223,7 +223,8 @@ func (c *Controller) followCheckSome(addr string, followc int) (pos int64, err e
 	}
 	// reset the entire system.
 	log.Infof("reloading aof commands")
-	c.reset()
+	c.aofsz = 0
+	c.reset(false)
 	if err := c.loadAOF(); err != nil {
 		log.Fatalf("could not reload aof, possible data loss. %s", err.Error())
 		return 0, err

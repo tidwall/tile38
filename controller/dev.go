@@ -79,6 +79,8 @@ func (c *Controller) cmdMassInsert(msg *server.Message) (res resp.Value, err err
 		return server.NOMessage, errInvalidArgument(snumPoints)
 	}
 	docmd := func(values []resp.Value) error {
+		c.mu.Lock()
+		defer c.mu.Unlock()
 		nmsg := &server.Message{}
 		*nmsg = *msg
 		nmsg.Values = values

@@ -71,7 +71,7 @@ func (c *Controller) goLive(inerr error, conn net.Conn, rd *server.PipelineReade
 		log.Info("not live " + addr)
 	}()
 	if s, ok := inerr.(liveAOFSwitches); ok {
-		return c.liveAOF(s.pos, conn, rd, msg)
+		return c.liveAOF(s, conn, rd, msg)
 	}
 	lb := &liveBuffer{
 		cond: sync.NewCond(&sync.Mutex{}),

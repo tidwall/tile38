@@ -16,6 +16,7 @@ import (
 )
 
 var errNoLongerFollowing = errors.New("no longer following")
+var errLegacySyncRequired = errors.New("legacy sync required")
 
 const checksumsz = 512 * 1024
 
@@ -37,10 +38,14 @@ func (c *Controller) cmdFollow(msg *server.Message) (res resp.Value, err error) 
 	host = strings.ToLower(host)
 	sport = strings.ToLower(sport)
 	var update bool
+	var resetSyncID bool
 	if host == "no" && sport == "one" {
 		update = c.config.followHost() != "" || c.config.followPort() != 0
 		c.config.setFollowHost("")
 		c.config.setFollowPort(0)
+		if update {
+			resetSyncID = true
+		}
 	} else {
 		n, err := strconv.ParseUint(sport, 10, 64)
 		if err != nil {
@@ -50,6 +55,7 @@ func (c *Controller) cmdFollow(msg *server.Message) (res resp.Value, err error) 
 		update = c.config.followHost() != host || c.config.followPort() != port
 		auth := c.config.leaderAuth()
 		if update {
+			resetSyncID = c.config.followHost() == "" && c.config.followPort() == 0
 			c.mu.Unlock()
 			conn, err := DialTimeout(fmt.Sprintf("%s:%d", host, port), time.Second*2)
 			if err != nil {
@@ -87,6 +93,12 @@ func (c *Controller) cmdFollow(msg *server.Message) (res resp.Value, err error) 
 	c.config.write(false)
 	if update {
 		c.followc.add(1)
+		if resetSyncID {
+			if core.ShowDebugMessages {
+				log.Debug("resetting sync id")
+			}
+			c.config.setSyncID(randomKey(16))
+		}
 		if c.config.followHost() != "" {
 			log.Infof("following new host '%s' '%s'.", host, sport)
 			go c.follow(c.config.followHost(), c.config.followPort(), c.followc.get())
@@ -113,6 +125,20 @@ func doServer(conn *Conn) (map[string]string, error) {
 	return m, err
 }
 
+func (c *Controller) followDoLeaderAuth(conn *Conn, auth string) error {
+	v, err := conn.Do("auth", auth)
+	if err != nil {
+		return err
+	}
+	if v.Error() != nil {
+		return v.Error()
+	}
+	if v.String() != "OK" {
+		return errors.New("cannot follow: auth no ok")
+	}
+	return nil
+}
+
 func (c *Controller) followHandleCommand(values []resp.Value, followc int, w io.Writer) (int, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -135,21 +161,7 @@ func (c *Controller) followHandleCommand(values []resp.Value, followc int, w io.
 	return c.aofsz, nil
 }
 
-func (c *Controller) followDoLeaderAuth(conn *Conn, auth string) error {
-	v, err := conn.Do("auth", auth)
-	if err != nil {
-		return err
-	}
-	if v.Error() != nil {
-		return v.Error()
-	}
-	if v.String() != "OK" {
-		return errors.New("cannot follow: auth no ok")
-	}
-	return nil
-}
-
-func (c *Controller) followStep(host string, port int, followc int) error {
+func (c *Controller) legacyFollowStep(host string, port int, followc int) error {
 	if c.followc.get() != followc {
 		return errNoLongerFollowing
 	}
@@ -243,7 +255,92 @@ func (c *Controller) followStep(host string, port int, followc int) error {
 				log.Info("caught up")
 			}
 		}
+	}
+}
 
+func (c *Controller) followStep(host string, port int, followc int) error {
+	// Lock the database.
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.followc.get() != followc {
+		return errNoLongerFollowing
+	}
+	c.fcup = false
+	auth := c.config.leaderAuth()
+
+	// Get the sync_id and aof size of this database.
+	syncID := c.config.syncID()
+	aofsz := c.aofsz
+
+	// Connect with leader
+	conn, err := DialTimeout(fmt.Sprintf("%s:%d", host, port), time.Second*2)
+	if err != nil {
+		return fmt.Errorf("cannot follow: %v", err)
+	}
+	defer conn.Close()
+
+	if auth != "" {
+		if err := c.followDoLeaderAuth(conn, auth); err != nil {
+			return fmt.Errorf("cannot follow: %v", err)
+		}
+	}
+
+	// Begin syncing with leader
+	respv, err := conn.Do("AOFSYNC", syncID, aofsz)
+	if err != nil {
+		return err
+	}
+	if respv.String() == "ERR unknown command 'AOFSYNC'" {
+		return errLegacySyncRequired
+	}
+	args := strings.Split(respv.String(), " ")
+	if len(args) != 4 {
+		return errors.New("invalid aofsync response")
+	}
+	leaderSyncID := args[1]
+	leaderPos, err1 := strconv.ParseUint(args[2], 10, 64)
+	leaderSize, err2 := strconv.ParseUint(args[3], 10, 64)
+	if err1 != nil || err2 != nil || len(leaderSyncID) != 32 {
+		return errors.New("invalid aofsync response")
+	}
+	if leaderPos == 0 || leaderPos != uint64(aofsz) || leaderSyncID != syncID {
+		// Reset the database.
+		log.Info("reset database and resync from start")
+		c.reset(true)
+		c.config.setSyncID(leaderSyncID)
+		c.config.write(false)
+	}
+	c.mu.Unlock()     // unlock so we can accept incoming commands
+	defer c.mu.Lock() // relock before returning up the stack
+
+	nullw := ioutil.Discard
+	var caughtUp bool
+	if aofsz < int(leaderSize) {
+		log.Infof("behind the leader by %d bytes", int(leaderSize)-aofsz)
+	}
+	for {
+		if !caughtUp {
+			if aofsz >= int(leaderSize) {
+				caughtUp = true
+				c.mu.Lock()
+				c.fcup = true
+				c.fcuponce = true
+				c.mu.Unlock()
+				log.Info("caught up")
+			}
+		}
+		v, telnet, _, err := conn.rd.ReadMultiBulk()
+		if err != nil {
+			return err
+		}
+		vals := v.Array()
+		if telnet || v.Type() != resp.Array {
+			return errors.New("invalid multibulk")
+		}
+		aofsz, err = c.followHandleCommand(vals, followc, nullw)
+		if err != nil {
+			return err
+		}
 	}
 }
 
@@ -252,6 +349,10 @@ func (c *Controller) follow(host string, port int, followc int) {
 		err := c.followStep(host, port, followc)
 		if err == errNoLongerFollowing {
 			return
+		}
+		if err == errLegacySyncRequired {
+			log.Info("legacy sync required")
+			err = c.legacyFollowStep(host, port, followc)
 		}
 		if err != nil && err != io.EOF {
 			log.Error("follow: " + err.Error())

@@ -3,6 +3,7 @@ package controller
 import (
 	"bytes"
 	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -523,9 +524,13 @@ func (c *Controller) handleInputCommand(conn *server.Conn, msg *server.Message, 
 		// this is local connection operation. Locks not needed.
 	case "echo":
 	case "massinsert":
-		// dev operation
-		c.mu.Lock()
-		defer c.mu.Unlock()
+		// dev operation, command manages lock
+		if c.config.followHost() != "" {
+			return writeErr("not the leader")
+		}
+		if c.config.readOnly() {
+			return writeErr("read only")
+		}
 	case "sleep":
 		// dev operation
 		c.mu.RLock()
@@ -592,16 +597,30 @@ func randomKey(n int) string {
 	if nn != n {
 		panic("random failed")
 	}
-	return fmt.Sprintf("%x", b)
+	return hex.EncodeToString(b)
 }
 
-func (c *Controller) reset() {
-	c.aofsz = 0
+func (c *Controller) reset(clearAOF bool) {
+	if clearAOF {
+		c.config.setSyncID(randomKey(16))
+		c.config.write(false)
+		fname := c.aof.Name()
+		c.aof.Close()
+		var err error
+		c.aof, err = os.Create(fname)
+		if err != nil {
+			log.Fatal(err)
+		}
+		c.aofsz = 0
+	}
 	c.cols = btree.New(16, 0)
 	c.exlistmu.Lock()
 	c.exlist = nil
 	c.exlistmu.Unlock()
 	c.expires = make(map[string]map[string]time.Time)
+	c.hooks = make(map[string]*Hook)
+	c.hookcols = make(map[string]map[string]*Hook)
+
 }
 
 func (c *Controller) command(
@@ -694,6 +713,8 @@ func (c *Controller) command(
 		res, err = c.cmdOutput(msg)
 	case "aof":
 		res, err = c.cmdAOF(msg)
+	case "aofsync":
+		res, err = c.cmdAOFSync(msg)
 	case "aofmd5":
 		res, err = c.cmdAOFMD5(msg)
 	case "gc":

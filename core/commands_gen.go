@@ -1257,6 +1257,22 @@ var commandsJSON = `{
     "since": "1.0.0",
     "group": "replication"
   },
+  "AOFSYNC": {
+    "summary": "Downloads the AOF starting from pos and keeps the connection alive. The syncid must match the server's syncid, otherwise the AOF will begin downloading from the beginning.",
+    "complexity": "O(1)",
+    "arguments": [
+      {
+        "name": "syncid",
+        "type": "integer"
+      },
+      {
+        "name": "pos",
+        "type": "integer"
+      }
+    ],
+    "since": "1.0.0",
+    "group": "replication"
+  },
   "AOFMD5": {
     "summary": "Performs a checksum on a portion of the aof",
     "complexity": "O(1)",

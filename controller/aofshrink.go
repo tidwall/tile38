@@ -250,8 +250,13 @@ func (c *Controller) aofshrink() {
 			// the current dataset. let's swap out the on disk files and
 			// point to the new file.
 
-			// anything below this point is unrecoverable. just log and exit process
-			// back up the live aof, just in case of fatal error
+			// update the aof_id so followers will resync with the new aof
+			// upon next connection with leader.
+			c.config.setSyncID(randomKey(16))
+			c.config.write(false)
+
+			// anything below this point is unrecoverable. just log and exit process.
+			// back up the live aof, just in case of fatal error.
 			if err := c.aof.Close(); err != nil {
 				log.Fatalf("shrink live aof close fatal operation: %v", err)
 			}
@@ -274,10 +279,6 @@ func (c *Controller) aofshrink() {
 
 			os.Remove(path.Join(c.dir, "appendonly.bak")) // ignore error
 
-			// kill all followers connections
-			for conn := range c.aofconnM {
-				conn.Close()
-			}
 			return nil
 		}()
 	}()

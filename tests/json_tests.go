@@ -35,6 +35,6 @@ func json_JSET_geojson_test(mc *mockServer) error {
 		{"JSET", "mykey", "myid1", "properties.tags.-1", "united states"}, {"OK"},
 		{"JSET", "mykey", "myid1", "properties.tags.-1", "hot"}, {"OK"},
 		{"JGET", "mykey", "myid1"}, {`{"type":"Feature","geometry":{"type":"Point","coordinates":[-115,44]},"properties":{"tags":["southwest","united states","hot"]}}`},
-		{"JDEL", "mykey", "myid1", "type"}, {"ERR Type member is invalid. Expecting a string"},
+		{"JDEL", "mykey", "myid1", "type"}, {"ERR type member is invalid. Expecting a string"},
 	})
 }

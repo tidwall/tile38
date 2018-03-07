@@ -75,7 +75,7 @@ func (c *Controller) cmdClient(msg *server.Message, conn *server.Conn) (resp.Val
 	}
 	switch strings.ToLower(msg.Values[1].String()) {
 	default:
-		return server.NOMessage, errors.New("Syntax error, try CLIENT " +
+		return server.NOMessage, errors.New("syntax error, try CLIENT " +
 			"(LIST | KILL | GETNAME | SETNAME)")
 	case "list":
 		if len(msg.Values) != 2 {
@@ -129,7 +129,7 @@ func (c *Controller) cmdClient(msg *server.Message, conn *server.Conn) (resp.Val
 		name := msg.Values[2].String()
 		for i := 0; i < len(name); i++ {
 			if name[i] < '!' || name[i] > '~' {
-				errstr := "Client names cannot contain spaces, newlines or special characters."
+				errstr := "client names cannot contain spaces, newlines or special characters"
 				return server.NOMessage, errors.New(errstr)
 			}
 		}
@@ -161,7 +161,7 @@ func (c *Controller) cmdClient(msg *server.Message, conn *server.Conn) (resp.Val
 			}
 			switch strings.ToLower(arg) {
 			default:
-				return server.NOMessage, errors.New("No such client")
+				return server.NOMessage, errors.New("no such client")
 			case "addr":
 				i++
 				if i == len(msg.Values) {
@@ -191,7 +191,7 @@ func (c *Controller) cmdClient(msg *server.Message, conn *server.Conn) (resp.Val
 		}
 		c.connsmu.RUnlock()
 		if cclose == nil {
-			return server.NOMessage, errors.New("No such client")
+			return server.NOMessage, errors.New("no such client")
 		}
 
 		var res resp.Value

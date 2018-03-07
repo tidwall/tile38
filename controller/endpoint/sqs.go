@@ -14,7 +14,7 @@ import (
 	"github.com/streadway/amqp"
 )
 
-var errCreateQueue = errors.New("Error while creating queue")
+var errCreateQueue = errors.New("error while creating queue")
 
 const (
 	SQSExpiresAfter = time.Second * 30

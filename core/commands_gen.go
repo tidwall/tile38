@@ -126,7 +126,7 @@ func parseAnyStringArray(any interface{}) []string {
 	if str, ok := any.(string); ok {
 		return []string{str}
 	} else if any, ok := any.([]interface{}); ok {
-		arr := []string{}
+		arr := make([]string, 0)
 		for _, any := range any {
 			if str, ok := any.(string); ok {
 				arr = append(arr, str)

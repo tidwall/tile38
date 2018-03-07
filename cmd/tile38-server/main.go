@@ -37,7 +37,7 @@ var (
 )
 
 // TODO: Set to false in 2.*
-var httpTransport bool = true
+var httpTransport = true
 
 // Fire up a webhook test server by using the --webhook-http-consumer-port
 // for example

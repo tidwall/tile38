@@ -19,7 +19,7 @@ var tty bool
 // 1: normal  - show everything except debug and warn
 // 2: verbose - show everything except debug
 // 3: very verbose - show everything
-var Level int = 1
+var Level = 1
 
 // SetOutput sets the output of the logger
 func SetOutput(w io.Writer) {

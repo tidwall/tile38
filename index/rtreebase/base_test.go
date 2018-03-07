@@ -266,8 +266,8 @@ func ptrTestSearch(t *testing.T, tr *RTree, objs []*Rect, percent float64, check
 	min, max := tr.Bounds()
 	vals := make([]float64, D*2)
 	for i := 0; i < D; i++ {
-		vals[i] = ((max[i]+min[i])/2 - ((max[i]-min[i])*percent)/2)
-		vals[D+i] = ((max[i]+min[i])/2 + ((max[i]-min[i])*percent)/2)
+		vals[i] = (max[i]+min[i])/2 - ((max[i]-min[i])*percent)/2
+		vals[D+i] = (max[i]+min[i])/2 + ((max[i]-min[i])*percent)/2
 	}
 	var arr1 []*Rect
 	var box *Rect

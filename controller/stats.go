@@ -19,7 +19,7 @@ import (
 func (c *Controller) cmdStats(msg *server.Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Values[1:]
-	var ms = []map[string]interface{}{}
+	var ms []map[string]interface{}
 
 	if len(vs) == 0 {
 		return server.NOMessage, errInvalidNumberOfArguments
@@ -263,7 +263,7 @@ func respValuesSimpleMap(m map[string]interface{}) []resp.Value {
 func (c *Controller) statsCollections(line string) (string, error) {
 	start := time.Now()
 	var key string
-	var ms = []map[string]interface{}{}
+	var ms []map[string]interface{}
 	for len(line) > 0 {
 		line, key = token(line)
 		col := c.getCol(key)

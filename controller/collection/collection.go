@@ -123,7 +123,7 @@ func (c *Collection) Bounds() (minX, minY, maxX, maxY float64) {
 // The return values are the old object, the old fields, and the new fields
 func (c *Collection) ReplaceOrInsert(id string, obj geojson.Object, fields []string, values []float64) (oldObject geojson.Object, oldFields []float64, newFields []float64) {
 	var oldItem *itemT
-	var newItem *itemT = &itemT{id: id, object: obj}
+	var newItem = &itemT{id: id, object: obj}
 	// add the new item to main btree and remove the old one if needed
 	oldItemPtr := c.items.ReplaceOrInsert(newItem)
 	if oldItemPtr != nil {

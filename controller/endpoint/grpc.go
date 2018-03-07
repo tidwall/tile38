@@ -6,10 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/net/context"
-
 	"github.com/tidwall/tile38/hservice"
-
+	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 )
 

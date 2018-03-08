@@ -241,7 +241,7 @@ func (config *Config) setProperty(name, value string, fromLoad bool) error {
 	var invalid bool
 	switch name {
 	default:
-		return fmt.Errorf("Unsupported CONFIG parameter: %s", name)
+		return fmt.Errorf("unsupported CONFIG parameter: %s", name)
 	case RequirePass:
 		config._requirePass = value
 	case LeaderAuth:
@@ -259,7 +259,7 @@ func (config *Config) setProperty(name, value string, fromLoad bool) error {
 	case MaxMemory:
 		sz, ok := parseMemSize(value)
 		if !ok {
-			return fmt.Errorf("Invalid argument '%s' for CONFIG SET '%s'", value, name)
+			return fmt.Errorf("invalid argument '%s' for CONFIG SET '%s'", value, name)
 		}
 		config._maxMemory = sz
 	case ProtectedMode:
@@ -289,7 +289,7 @@ func (config *Config) setProperty(name, value string, fromLoad bool) error {
 	}
 
 	if invalid {
-		return fmt.Errorf("Invalid argument '%s' for CONFIG SET '%s'", value, name)
+		return fmt.Errorf("invalid argument '%s' for CONFIG SET '%s'", value, name)
 	}
 	return nil
 }

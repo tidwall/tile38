@@ -1,10 +1,10 @@
 package endpoint
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
-	"fmt"
 	"github.com/streadway/amqp"
 )
 

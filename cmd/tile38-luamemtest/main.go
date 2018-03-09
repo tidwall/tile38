@@ -8,10 +8,10 @@ import (
 	"math"
 	"runtime"
 	"runtime/debug"
+	"strings"
 
 	"github.com/tidwall/resp"
 	"github.com/yuin/gopher-lua"
-	"strings"
 )
 
 var errCmdNotSupported = errors.New("command not supported in scripts")

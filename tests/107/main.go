@@ -101,7 +101,7 @@ func main() {
 
 func startTile38Server() {
 	log.Println("start tile38 server")
-	err := controller.ListenAndServe("localhost", tile38Port, "data")
+	err := controller.ListenAndServe("localhost", tile38Port, "data", true)
 	if err != nil {
 		log.Fatal(err)
 	}

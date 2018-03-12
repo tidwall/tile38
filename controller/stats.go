@@ -75,6 +75,7 @@ func (c *Controller) cmdServer(msg *server.Message) (res resp.Value, err error) 
 	}
 	m := make(map[string]interface{})
 	m["id"] = c.config.serverID()
+	m["sync_id"] = c.config.syncID()
 	if c.config.followHost() != "" {
 		m["following"] = fmt.Sprintf("%s:%d", c.config.followHost(), c.config.followPort())
 		m["caught_up"] = c.fcup

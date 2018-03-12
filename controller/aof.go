@@ -253,7 +253,9 @@ func uint64ToString(u uint64) string {
 }
 
 type liveAOFSwitches struct {
-	pos int64
+	pos     int64
+	syncID  string
+	version int // 1: AOF, 2: AOFSYNC
 }
 
 func (s liveAOFSwitches) Error() string {
@@ -326,32 +328,58 @@ func (c *Controller) cmdAOF(msg *server.Message) (res resp.Value, err error) {
 	}
 	var s liveAOFSwitches
 	s.pos = pos
+	s.version = 1
 	return server.NOMessage, s
 }
 
-func (c *Controller) liveAOF(pos int64, conn net.Conn, rd *server.PipelineReader, msg *server.Message) error {
+func (c *Controller) liveAOF(s liveAOFSwitches, conn net.Conn, rd *server.PipelineReader, msg *server.Message) error {
 	c.mu.Lock()
 	c.aofconnM[conn] = true
-	c.mu.Unlock()
 	defer func() {
 		c.mu.Lock()
 		delete(c.aofconnM, conn)
 		c.mu.Unlock()
 		conn.Close()
 	}()
-
-	if _, err := conn.Write([]byte("+OK\r\n")); err != nil {
-		return err
-	}
-
-	c.mu.RLock()
 	f, err := os.Open(c.aof.Name())
-	c.mu.RUnlock()
 	if err != nil {
+		c.mu.Unlock()
 		return err
 	}
 	defer f.Close()
+	size, err := f.Seek(0, 2)
+	if err != nil {
+		c.mu.Unlock()
+		return err
+	}
+	pos := s.pos
+	syncID := c.config.syncID()
+	if s.syncID != syncID {
+		pos = 0
+	} else if pos > size {
+		pos = size
+	}
 	if _, err := f.Seek(pos, 0); err != nil {
+		c.mu.Unlock()
+		return err
+	}
+	switch s.version {
+	default:
+		c.mu.Unlock()
+		return errors.New("invalid sync version")
+	case 1:
+		if _, err = conn.Write([]byte("+OK\r\n")); err != nil {
+			c.mu.Unlock()
+			return err
+		}
+	case 2:
+		if _, err := fmt.Fprintf(conn, "+AOFSYNC %s %d %d\r\n", syncID, pos, size); err != nil {
+			c.mu.Unlock()
+			return err
+		}
+	}
+	c.mu.Unlock()
+	if err != nil {
 		return err
 	}
 	cond := sync.NewCond(&sync.Mutex{})
@@ -414,8 +442,13 @@ func (c *Controller) liveAOF(pos int64, conn net.Conn, rd *server.PipelineReader
 			}
 		}()
 		if err != nil {
-			if !strings.Contains(err.Error(), "use of closed network connection") &&
-				!strings.Contains(err.Error(), "bad file descriptor") {
+			errmsg := err.Error()
+			// Ignore some various connection related errors.
+			if !strings.Contains(errmsg, "use of closed network connection") &&
+				!strings.Contains(errmsg, "bad file descriptor") &&
+				!strings.Contains(errmsg, "broken pipe") &&
+				!strings.Contains(errmsg, "file already closed") &&
+				!strings.Contains(errmsg, "protocol wrong type for socket") {
 				log.Error(err)
 			}
 			return
@@ -430,4 +463,29 @@ func (c *Controller) liveAOF(pos int64, conn net.Conn, rd *server.PipelineReader
 		cond.Wait()
 		cond.L.Unlock()
 	}
+}
+
+func (c *Controller) cmdAOFSync(msg *server.Message) (res resp.Value, err error) {
+	vs := msg.Values[1:]
+	var ok bool
+	var syncID string
+	var ssize string
+	if vs, syncID, ok = tokenval(vs); !ok || syncID == "" {
+		return server.NOMessage, errInvalidNumberOfArguments
+	}
+	if vs, ssize, ok = tokenval(vs); !ok || ssize == "" {
+		return server.NOMessage, errInvalidNumberOfArguments
+	}
+	if len(vs) != 0 {
+		return server.NOMessage, errInvalidNumberOfArguments
+	}
+	size, err := strconv.ParseUint(ssize, 10, 64)
+	if err != nil {
+		return server.NOMessage, errInvalidArgument(ssize)
+	}
+	var s liveAOFSwitches
+	s.pos = int64(size)
+	s.syncID = syncID
+	s.version = 2
+	return server.NOMessage, s
 }

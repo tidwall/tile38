@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tidwall/btree"
 	"github.com/tidwall/resp"
 	"github.com/tidwall/tile38/controller/collection"
 	"github.com/tidwall/tile38/controller/glob"
@@ -455,13 +454,7 @@ func (c *Controller) cmdFlushDB(msg *server.Message) (res resp.Value, d commandD
 		err = errInvalidNumberOfArguments
 		return
 	}
-	c.cols = btree.New(16, 0)
-	c.exlistmu.Lock()
-	c.exlist = nil
-	c.exlistmu.Unlock()
-	c.expires = make(map[string]map[string]time.Time)
-	c.hooks = make(map[string]*Hook)
-	c.hookcols = make(map[string]map[string]*Hook)
+	c.reset(false)
 	d.command = "flushdb"
 	d.updated = true
 	d.timestamp = time.Now()
@@ -725,7 +718,6 @@ func (c *Controller) cmdSet(msg *server.Message) (res resp.Value, d commandDetai
 	if err != nil {
 		return
 	}
-	ex = ex
 	col := c.getCol(d.key)
 	if col == nil {
 		if xx {
@@ -833,7 +825,7 @@ func (c *Controller) cmdFset(msg *server.Message) (res resp.Value, d commandDeta
 	var fields []string
 	var values []float64
 	var xx bool
-	var updated_count int
+	var updatedCount int
 	d, fields, values, xx, err = c.parseFSetArgs(vs)
 
 	col := c.getCol(d.key)
@@ -842,7 +834,7 @@ func (c *Controller) cmdFset(msg *server.Message) (res resp.Value, d commandDeta
 		return
 	}
 	var ok bool
-	d.obj, d.fields, updated_count, ok = col.SetFields(d.id, fields, values)
+	d.obj, d.fields, updatedCount, ok = col.SetFields(d.id, fields, values)
 	if !(ok || xx) {
 		err = errIDNotFound
 		return
@@ -850,7 +842,7 @@ func (c *Controller) cmdFset(msg *server.Message) (res resp.Value, d commandDeta
 	if ok {
 		d.command = "fset"
 		d.timestamp = time.Now()
-		d.updated = updated_count > 0
+		d.updated = updatedCount > 0
 		fmap := col.FieldMap()
 		d.fmap = make(map[string]int)
 		for key, idx := range fmap {
@@ -862,7 +854,7 @@ func (c *Controller) cmdFset(msg *server.Message) (res resp.Value, d commandDeta
 	case server.JSON:
 		res = resp.StringValue(`{"ok":true,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
 	case server.RESP:
-		res = resp.IntegerValue(updated_count)
+		res = resp.IntegerValue(updatedCount)
 	}
 	return
 }

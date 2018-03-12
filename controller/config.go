@@ -34,6 +34,7 @@ const (
 	MaxMemory     = "maxmemory"
 	AutoGC        = "autogc"
 	KeepAlive     = "keepalive"
+	SyncID        = "sync_id"
 )
 
 var validProperties = []string{RequirePass, LeaderAuth, ProtectedMode, MaxMemory, AutoGC, KeepAlive}
@@ -49,6 +50,7 @@ type Config struct {
 	_followID   string
 	_followPos  int64
 	_serverID   string
+	_syncID     string
 	_readOnly   bool
 
 	_requirePassP   string
@@ -70,7 +72,7 @@ func loadConfig(path string) (*Config, error) {
 	data, err := ioutil.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			json = `{"` + ServerID + `":"` + randomKey(16) + `"}`
+			json = `{}`
 		} else {
 			return nil, err
 		}
@@ -91,6 +93,13 @@ func loadConfig(path string) (*Config, error) {
 		_maxMemoryP:     gjson.Get(json, MaxMemory).String(),
 		_autoGCP:        gjson.Get(json, AutoGC).String(),
 		_keepAliveP:     gjson.Get(json, KeepAlive).String(),
+		_syncID:         gjson.Get(json, SyncID).String(),
+	}
+	if config._serverID == "" {
+		config._serverID = randomKey(16)
+	}
+	if config._syncID == "" {
+		config._syncID = randomKey(16)
 	}
 	// load properties
 	if err := config.setProperty(RequirePass, config._requirePassP, true); err != nil {
@@ -156,6 +165,9 @@ func (config *Config) write(writeProperties bool) {
 	}
 	if config._serverID != "" {
 		m[ServerID] = config._serverID
+	}
+	if config._syncID != "" {
+		m[SyncID] = config._syncID
 	}
 	if config._readOnly {
 		m[ReadOnly] = config._readOnly
@@ -416,6 +428,12 @@ func (config *Config) serverID() string {
 	config.mu.RUnlock()
 	return v
 }
+func (config *Config) syncID() string {
+	config.mu.RLock()
+	v := config._syncID
+	config.mu.RUnlock()
+	return v
+}
 func (config *Config) readOnly() bool {
 	config.mu.RLock()
 	v := config._readOnly
@@ -481,6 +499,11 @@ func (config *Config) setFollowPos(v int64) {
 func (config *Config) setServerID(v string) {
 	config.mu.Lock()
 	config._serverID = v
+	config.mu.Unlock()
+}
+func (config *Config) setSyncID(v string) {
+	config.mu.Lock()
+	config._syncID = v
 	config.mu.Unlock()
 }
 func (config *Config) setReadOnly(v bool) {

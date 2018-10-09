@@ -1,6 +1,6 @@
 <p align="center">
-  <a href="http://tile38.com"><img 
-    src="/pkg/assets/logo1500.png" 
+  <a href="http://tile38.com"><img
+    src="/pkg/assets/logo1500.png"
     width="200" height="200" border="0" alt="Tile38"></a>
 </p>
 <p align="center">
@@ -10,7 +10,7 @@
 <a href="https://hub.docker.com/r/tile38/tile38"><img src="https://img.shields.io/badge/docker-ready-blue.svg" alt="Docker Ready"></a>
 </p>
 
-Tile38 is an open source (MIT licensed), in-memory geolocation data store, spatial index, and realtime geofence. It supports a variety of object types including lat/lon points, bounding boxes, XYZ tiles, Geohashes, and GeoJSON. 
+Tile38 is an open source (MIT licensed), in-memory geolocation data store, spatial index, and realtime geofence. It supports a variety of object types including lat/lon points, bounding boxes, XYZ tiles, Geohashes, and GeoJSON.
 
 <p align="center">
 <i>This README is quick start document. You can find detailed documentation at <a href="http://tile38.com">http://tile38.com</a>.</i><br><br>
@@ -44,7 +44,7 @@ Tile38 is an open source (MIT licensed), in-memory geolocation data store, spati
 
 Perhaps the easiest way to get the latest Tile38 is to use one of the pre-built release binaries which are available for OSX, Linux, FreeBSD, and Windows. Instructions for using these binaries are on the GitHub [releases page](https://github.com/tidwall/tile38/releases).
 
-### Docker 
+### Docker
 
 To run the latest stable version of Tile38:
 
@@ -64,7 +64,19 @@ brew install tile38
 tile38-server
 ```
 
-### Building Tile38 
+### Linux
+
+For install Tile38 on Linux you can use `install-linux.sh` script and save your time!
+
+```
+curl -L  https://github.com/tidwall/tile38/releases/download/{version}/tile38-{version}-linux-amd64.tar.gz -o tile38-{version}-linux-amd64.tar.gz
+tar xzvf tile38-{version}-linux-amd64.tar.gz
+cd tile38-{version}-linux-amd64
+./install-linux.sh
+```
+
+
+### Building Tile38
 
 Tile38 can be compiled and used on Linux, OSX, Windows, FreeBSD, and probably others since the codebase is 100% Go. We support both 32 bit and 64 bit systems. [Go](https://golang.org/dl/) must be installed on the build machine.
 
@@ -78,7 +90,7 @@ To test:
 $ make test
 ```
 
-### Running 
+### Running
 For command line options invoke:
 ```
 $ ./tile38-server -h
@@ -111,13 +123,13 @@ $ ./tile38-cli
 # key value operations
 > get fleet truck1                           # returns 'truck1'
 > del fleet truck2                           # deletes 'truck2'
-> drop fleet                                 # removes all 
+> drop fleet                                 # removes all
 ```
 
 Tile38 has a ton of [great commands](http://tile38.com/commands).
 
 ## Fields
-Fields are extra data that belongs to an object. A field is always a double precision floating point. There is no limit to the number of fields that an object can have. 
+Fields are extra data that belongs to an object. A field is always a double precision floating point. There is no limit to the number of fields that an object can have.
 
 To set a field when setting an object:
 ```
@@ -136,7 +148,7 @@ Tile38 has support to search for objects and points that are within or intersect
 
 <img src="/pkg/assets/search-within.png" width="200" height="200" border="0" alt="Search Within" align="left">
 
-#### Within 
+#### Within
 WITHIN searches a collection for objects that are fully contained inside a specified bounding area.
 <BR CLEAR="ALL">
 
@@ -168,7 +180,7 @@ NEARBY searches a collection for objects that intersect a specified radius.
 ## Geofencing
 
 <img src="/pkg/assets/geofence.gif" width="200" height="200" border="0" alt="Geofence animation" align="left">
-A <a href="https://en.wikipedia.org/wiki/Geo-fence">geofence</a> is a virtual boundary that can detect when an object enters or exits the area. This boundary can be a radius, bounding box, or a polygon. Tile38 can turn any standard search into a geofence monitor by adding the FENCE keyword to the search. 
+A <a href="https://en.wikipedia.org/wiki/Geo-fence">geofence</a> is a virtual boundary that can detect when an object enters or exits the area. This boundary can be a radius, bounding box, or a polygon. Tile38 can turn any standard search into a geofence monitor by adding the FENCE keyword to the search.
 
 *Tile38 also allows for [Webhooks](http://tile38.com/commands/sethook) to be assigned to Geofences.*
 
@@ -188,7 +200,7 @@ And the connection will be kept open. If any object enters or exits the 6 km rad
 {"command":"set","detect":"enter","id":"truck02","object":{"type":"Point","coordinates":[-112.2695,33.4626]}}
 ```
 
-The server will notify the client if the `command` is `del | set | drop`. 
+The server will notify the client if the `command` is `del | set | drop`.
 
 - `del` notifies the client that an object has been deleted from the collection that is being fenced.
 - `drop` notifies the client that the entire collection is dropped.
@@ -210,7 +222,7 @@ These can be used when establishing a geofence, to pre-filter responses. For ins
 
 ### Pub/sub channels
 
-Tile38 supports delivering geofence notications over pub/sub channels. 
+Tile38 supports delivering geofence notications over pub/sub channels.
 
 To create a static geofence that sends notifications when a bus is within 200 meters of a point and sends to the `busstop` channel:
 
@@ -241,7 +253,7 @@ A bounding box consists of two points. The first being the southwestern most poi
 set fleet truck1 bounds 30 -110 40 -100
 ```
 #### Geohash
-A [geohash](https://en.wikipedia.org/wiki/Geohash) is a string respresentation of a point. With the length of the string indicating the precision of the point. 
+A [geohash](https://en.wikipedia.org/wiki/Geohash) is a string respresentation of a point. With the length of the string indicating the precision of the point.
 ```
 set fleet truck1 hash 9tbnthxzr # this would be equivlent to 'point 33.5123 -112.2693'
 ```
@@ -295,12 +307,12 @@ set fleet truck3 point 33.4762 -112.10923
 
 The server will respond in [JSON](http://json.org) or [RESP](http://redis.io/topics/protocol) depending on which protocol is used when initiating the first command.
 
-- HTTP and Websockets use JSON. 
+- HTTP and Websockets use JSON.
 - Telnet and RESP clients use RESP.
 
 ## Client Libraries
 
-Tile38 uses the [Redis RESP](http://redis.io/topics/protocol) protocol natively. Therefore most clients that support basic Redis commands will in turn support Tile38. Below are a few of the popular clients. 
+Tile38 uses the [Redis RESP](http://redis.io/topics/protocol) protocol natively. Therefore most clients that support basic Redis commands will in turn support Tile38. Below are a few of the popular clients.
 
 - C: [hiredis](https://github.com/redis/hiredis)
 - C#: [StackExchange.Redis](https://github.com/StackExchange/StackExchange.Redis)

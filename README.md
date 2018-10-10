@@ -66,13 +66,13 @@ tile38-server
 
 ### Linux
 
-For install Tile38 on Linux you can use `install-linux.sh` script and save your time!
+To install Tile38 on Linux systems with systemd you can use `install-linux-systemd.sh` script and save your time!
 
 ```
 curl -L  https://github.com/tidwall/tile38/releases/download/{version}/tile38-{version}-linux-amd64.tar.gz -o tile38-{version}-linux-amd64.tar.gz
 tar xzvf tile38-{version}-linux-amd64.tar.gz
 cd tile38-{version}-linux-amd64
-./install-linux.sh
+./install-linux-systemd.sh
 ```
 
 

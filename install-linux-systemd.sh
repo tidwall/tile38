@@ -17,9 +17,9 @@ chown -R tile38:tile38  /run/tile38/tile38.pid
 chmod -R 664 /run/tile38/tile38.pid
 
 #create systemd file
-cat > /usr/lib/systemd/system/tile38.service << 'EOF'
+cat > /etc/systemd/system/tile38.service << 'EOF'
 [Unit]
-Description=
+Description= Tile38 is a geospatial database, spatial index, and realtime geofence
 Requires=network.target
 After=network.target
 

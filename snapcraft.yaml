@@ -1,0 +1,34 @@
+name: tile38
+version: '1.0'
+summary: Tile38 is a geospatial database, spatial index, and realtime geofence
+description: |
+  Tile38 is a geospatial database, spatial index, and realtime geofence. 
+grade: stable
+confinement: strict
+base: core18
+parts:
+  tile38:
+    plugin: go
+    source: https://github.com/tidwall/tile38.git
+    go-importpath: github.com/tidwall/tile38
+    build-packages:
+      - build-essential
+apps:
+  tile38-server:
+    command: bin/tile38-server
+    daemon: simple
+    restart-condition: on-abnormal
+    plugs:
+      - home
+      - network
+      - network-bind
+  tile38-cli:
+    command: bin/tile38-cli
+    plugs:
+      - home
+      - network
+  tile38-benchmark:
+    command: bin/tile38-benchmark
+    plugs:
+      - home
+      - network

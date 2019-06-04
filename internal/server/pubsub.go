@@ -202,7 +202,7 @@ func (c *Server) liveSubscription(
 			write([]byte(`{"ok":true` +
 				`,"elapsed":"` + time.Now().Sub(start).String() + `"}`))
 		case RESP:
-			write([]byte(`+OK\r\n`))
+			write([]byte("+OK\r\n"))
 		}
 	}
 	writeWrongNumberOfArgsErr := func(command string) {
@@ -211,8 +211,8 @@ func (c *Server) liveSubscription(
 			write([]byte(`{"ok":false,"err":"invalid number of arguments"` +
 				`,"elapsed":"` + time.Now().Sub(start).String() + `"}`))
 		case RESP:
-			write([]byte(`-ERR wrong number of arguments ` +
-				`for '` + command + `' command\r\n`))
+			write([]byte("-ERR wrong number of arguments " +
+				"for '" + command + "' command\r\n"))
 		}
 	}
 	writeOnlyPubsubErr := func() {
@@ -284,8 +284,8 @@ func (c *Server) liveSubscription(
 	}
 
 	m := [2]map[string]bool{
-		make(map[string]bool),
-		make(map[string]bool),
+		make(map[string]bool), // pubsubChannel
+		make(map[string]bool), // pubsubPattern
 	}
 
 	target := newSubtarget()
@@ -330,24 +330,35 @@ func (c *Server) liveSubscription(
 		for _, msg := range msgs {
 			start = time.Now()
 			var kind int
+			var un bool
 			switch msg.Command() {
 			case "quit":
 				writeOK()
 				return nil
 			case "psubscribe":
-				kind = pubsubPattern
+				kind, un = pubsubPattern, false
+			case "punsubscribe":
+				kind, un = pubsubPattern, true
 			case "subscribe":
-				kind = pubsubChannel
+				kind, un = pubsubChannel, false
+			case "unsubscribe":
+				kind, un = pubsubChannel, true
 			default:
 				writeOnlyPubsubErr()
+				continue
 			}
 			if len(msg.Args) < 2 {
 				writeWrongNumberOfArgsErr(msg.Command())
 			}
 			for i := 1; i < len(msg.Args); i++ {
 				channel := msg.Args[i]
-				m[kind][channel] = true
-				c.pubsub.register(kind, channel, target)
+				if un {
+					delete(m[kind], channel)
+					c.pubsub.unregister(kind, channel, target)
+				} else {
+					m[kind][channel] = true
+					c.pubsub.register(kind, channel, target)
+				}
 				writeSubscribe(msg.Command(), channel, len(m[0])+len(m[1]))
 			}
 		}

@@ -221,7 +221,7 @@
   version = "v1.1.0"
 
 [[projects]]
-  digest = "1:cdab3bce90a53a124ac3982719abde77d779e961d9c180e55c23fb74fc62563a"
+  digest = "1:a0dba56c4df3fa1db89096537cccfec60d37948c13218883af5a656d7d915032"
   name = "github.com/tidwall/geojson"
   packages = [
     ".",
@@ -229,8 +229,8 @@
     "geometry",
   ]
   pruneopts = ""
-  revision = "eaf6e0a55a79c1e879bbbcc879a3176c720d99cd"
-  version = "v1.1.3"
+  revision = "dfe375c985d541846d1931b2f97f418023bd54c8"
+  version = "v1.1.4"
 
 [[projects]]
   digest = "1:3ddca2bd5496c6922a2a9e636530e178a43c2a534ea6634211acdc7d10222794"

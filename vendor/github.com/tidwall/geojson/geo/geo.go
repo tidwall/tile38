@@ -94,6 +94,11 @@ func RectFromCenter(lat, lon, meters float64) (
 	minLat, minLon, maxLat, maxLon float64,
 ) {
 
+	// Skip all calculations if meters (i.e., provided radius) is larger than radius of Earth and return rectangle containing entire Earth
+	if meters > earthRadius {
+		return -90, -180, 90, 180
+	}
+
 	// see http://janmatuschek.de/LatitudeLongitudeBoundingCoordinates#Latitude
 	lat *= radians
 	lon *= radians

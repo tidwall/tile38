@@ -41,6 +41,24 @@ func TestGeoCalc(t *testing.T) {
 	if value2 != lonB {
 		t.Fatalf("expected '%v', got '%v'", lonB, value2)
 	}
+
+	// RectFromCenter
+	// testing case where given search radius is larger than Earth's radius
+	var (
+		minLat float64 = -90
+		minLon float64 = -180
+		maxLat float64 = 90
+		maxLon float64 = 180
+	)
+	value3, value4, value5, value6 := RectFromCenter(latA, lonA, earthRadius+1)
+	if value3 != minLat &&
+		value4 != minLon &&
+		value5 != maxLat &&
+		value6 != maxLon {
+		t.Fatalf("expected '%v, %v, %v, %v', got '%v, %v, %v, %v'",
+			minLat, minLon, maxLat, maxLon,
+			value3, value4, value5, value6)
+	}
 }
 
 func TestHaversine(t *testing.T) {

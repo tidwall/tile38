@@ -58,10 +58,11 @@ func (conn *MQTTConn) Send(msg string) error {
 	conn.t = time.Now()
 
 	if conn.conn == nil {
-		uri := fmt.Sprintf("tcp://%s:%d", conn.ep.MQTT.Host, conn.ep.MQTT.Port)
 		ops := paho.NewClientOptions()
+		var uri string
 		if conn.ep.MQTT.CertFile != "" || conn.ep.MQTT.KeyFile != "" ||
 			conn.ep.MQTT.CACertFile != "" {
+			uri = fmt.Sprintf("ssl://%s:%d", conn.ep.MQTT.Host, conn.ep.MQTT.Port)
 			var config tls.Config
 			if conn.ep.MQTT.CertFile != "" || conn.ep.MQTT.KeyFile != "" {
 				cert, err := tls.LoadX509KeyPair(conn.ep.MQTT.CertFile,
@@ -82,6 +83,13 @@ func (conn *MQTTConn) Send(msg string) error {
 				config.RootCAs = caCertPool
 			}
 			ops = ops.SetTLSConfig(&config)
+
+		} else if conn.ep.MQTT.Login != "" || conn.ep.MQTT.Password != "" {
+			uri = fmt.Sprintf("tcp://%s:%d", conn.ep.MQTT.Host, conn.ep.MQTT.Port)
+			ops.SetUsername(conn.ep.MQTT.Login)
+			ops.SetPassword(conn.ep.MQTT.Password)
+		} else {
+			uri = fmt.Sprintf("tcp://%s:%d", conn.ep.MQTT.Host, conn.ep.MQTT.Port)
 		}
 		ops = ops.SetClientID("tile38").AddBroker(uri)
 		c := paho.NewClient(ops)

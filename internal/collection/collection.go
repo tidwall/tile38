@@ -44,7 +44,7 @@ func (item *itemT) Less(other btree.Item, ctx interface{}) bool {
 type Collection struct {
 	items       tinybtree.BTree // items sorted by keys
 	index       *geoindex.Index // items geospatially indexed
-	values      *btree.BTree    // items sorted by value+Key
+	values      *btree.BTree    // items sorted by value+key
 	fieldMap    map[string]int
 	fieldValues map[string][]float64
 	weight      int
@@ -149,7 +149,7 @@ func (c *Collection) indexInsert(item *itemT) {
 }
 
 // Set adds or replaces an object in the collection and returns the fields
-// array. If an item with the same Id is already in the collection then the
+// array. If an item with the same id is already in the collection then the
 // new item will adopt the old item's fields.
 // The fields argument is optional.
 // The return values are the old object, the old fields, and the new fields
@@ -354,7 +354,7 @@ func (c *Collection) Scan(
 	return keepon
 }
 
-// ScanRange iterates though the collection starting with specified Id.
+// ScanRange iterates though the collection starting with specified id.
 func (c *Collection) ScanRange(
 	start, end string,
 	desc bool,
@@ -462,7 +462,7 @@ func (c *Collection) SearchValuesRange(start, end string, desc bool,
 	return keepon
 }
 
-// ScanGreaterOrEqual iterates though the collection starting with specified Id.
+// ScanGreaterOrEqual iterates though the collection starting with specified id.
 func (c *Collection) ScanGreaterOrEqual(id string, desc bool,
 	cursor Cursor,
 	deadline *deadline.Deadline,

@@ -399,30 +399,30 @@ func TestCollectionWeight(t *testing.T) {
 func TestSpatialSearch(t *testing.T) {
 	json := `
 		{"type":"FeatureCollection","features":[
-			{"type":"Feature","id":"p1","properties":{"marker-color":"#962d28","stroke":"#962d28","fill":"#962d28"},"geometry":{"type":"Point","coordinates":[-71.4743041992187,42.51867517417283]}},
-			{"type":"Feature","id":"p2","properties":{"marker-color":"#962d28","stroke":"#962d28","fill":"#962d28"},"geometry":{"type":"Point","coordinates":[-71.4056396484375,42.50197174319114]}},
-			{"type":"Feature","id":"p3","properties":{"marker-color":"#962d28","stroke":"#962d28","fill":"#962d28"},"geometry":{"type":"Point","coordinates":[-71.4619445800781,42.49437779897246]}},
-			{"type":"Feature","id":"p4","properties":{"marker-color":"#962d28","stroke":"#962d28","fill":"#962d28"},"geometry":{"type":"Point","coordinates":[-71.4337921142578,42.53891577257117]}},
-			{"type":"Feature","id":"r1","properties":{"marker-color":"#962d28","stroke":"#962d28","fill":"#962d28"},"geometry":{"type":"Polygon","coordinates":[[[-71.4279556274414,42.48804880765346],[-71.37439727783203,42.48804880765346],[-71.37439727783203,42.52322988064187],[-71.4279556274414,42.52322988064187],[-71.4279556274414,42.48804880765346]]]}},
-			{"type":"Feature","id":"r2","properties":{"marker-color":"#962d28","stroke":"#962d28","fill":"#962d28"},"geometry":{"type":"Polygon","coordinates":[[[-71.4825439453125,42.53588010092859],[-71.45027160644531,42.53588010092859],[-71.45027160644531,42.55839115400447],[-71.4825439453125,42.55839115400447],[-71.4825439453125,42.53588010092859]]]}},
-			{"type":"Feature","id":"r3","properties":{"marker-color":"#962d28","stroke":"#962d28","fill":"#962d28"},"geometry":{"type":"Polygon","coordinates": [[[-71.4111328125,42.53512115995963],[-71.3833236694336,42.53512115995963],[-71.3833236694336,42.54953946116446],[-71.4111328125,42.54953946116446],[-71.4111328125,42.53512115995963]]]}},
-			{"type":"Feature","id":"q1","properties":{},"geometry":{"type":"Polygon","coordinates":[[[-71.55258178710938,42.51361399979923],[-71.42074584960938,42.51361399979923],[-71.42074584960938,42.59100512331456],[-71.55258178710938,42.59100512331456],[-71.55258178710938,42.51361399979923]]]}},
-			{"type":"Feature","id":"q2","properties":{},"geometry":{"type":"Polygon","coordinates":[[[-71.52992248535156,42.48121277771616],[-71.36375427246092,42.48121277771616],[-71.36375427246092,42.57786045892046],[-71.52992248535156,42.57786045892046],[-71.52992248535156,42.48121277771616]]]}},
-			{"type":"Feature","id":"q3","properties":{},"geometry":{"type":"Polygon","coordinates":[[[-71.49490356445312,42.56673588590953],[-71.52236938476562,42.47462922809497],[-71.42898559570312,42.464499337722344],[-71.43241882324219,42.522217752342236],[-71.37954711914061,42.56420729713456],[-71.49490356445312,42.56673588590953]]]}},
-			{"type":"Feature","id":"q4","properties":{},"geometry":{"type":"Point","coordinates": [-71.46366119384766,42.54043355305221]}}
+			{"type":"Feature","Id":"p1","properties":{"marker-color":"#962d28","stroke":"#962d28","fill":"#962d28"},"geometry":{"type":"Point","coordinates":[-71.4743041992187,42.51867517417283]}},
+			{"type":"Feature","Id":"p2","properties":{"marker-color":"#962d28","stroke":"#962d28","fill":"#962d28"},"geometry":{"type":"Point","coordinates":[-71.4056396484375,42.50197174319114]}},
+			{"type":"Feature","Id":"p3","properties":{"marker-color":"#962d28","stroke":"#962d28","fill":"#962d28"},"geometry":{"type":"Point","coordinates":[-71.4619445800781,42.49437779897246]}},
+			{"type":"Feature","Id":"p4","properties":{"marker-color":"#962d28","stroke":"#962d28","fill":"#962d28"},"geometry":{"type":"Point","coordinates":[-71.4337921142578,42.53891577257117]}},
+			{"type":"Feature","Id":"r1","properties":{"marker-color":"#962d28","stroke":"#962d28","fill":"#962d28"},"geometry":{"type":"Polygon","coordinates":[[[-71.4279556274414,42.48804880765346],[-71.37439727783203,42.48804880765346],[-71.37439727783203,42.52322988064187],[-71.4279556274414,42.52322988064187],[-71.4279556274414,42.48804880765346]]]}},
+			{"type":"Feature","Id":"r2","properties":{"marker-color":"#962d28","stroke":"#962d28","fill":"#962d28"},"geometry":{"type":"Polygon","coordinates":[[[-71.4825439453125,42.53588010092859],[-71.45027160644531,42.53588010092859],[-71.45027160644531,42.55839115400447],[-71.4825439453125,42.55839115400447],[-71.4825439453125,42.53588010092859]]]}},
+			{"type":"Feature","Id":"r3","properties":{"marker-color":"#962d28","stroke":"#962d28","fill":"#962d28"},"geometry":{"type":"Polygon","coordinates": [[[-71.4111328125,42.53512115995963],[-71.3833236694336,42.53512115995963],[-71.3833236694336,42.54953946116446],[-71.4111328125,42.54953946116446],[-71.4111328125,42.53512115995963]]]}},
+			{"type":"Feature","Id":"q1","properties":{},"geometry":{"type":"Polygon","coordinates":[[[-71.55258178710938,42.51361399979923],[-71.42074584960938,42.51361399979923],[-71.42074584960938,42.59100512331456],[-71.55258178710938,42.59100512331456],[-71.55258178710938,42.51361399979923]]]}},
+			{"type":"Feature","Id":"q2","properties":{},"geometry":{"type":"Polygon","coordinates":[[[-71.52992248535156,42.48121277771616],[-71.36375427246092,42.48121277771616],[-71.36375427246092,42.57786045892046],[-71.52992248535156,42.57786045892046],[-71.52992248535156,42.48121277771616]]]}},
+			{"type":"Feature","Id":"q3","properties":{},"geometry":{"type":"Polygon","coordinates":[[[-71.49490356445312,42.56673588590953],[-71.52236938476562,42.47462922809497],[-71.42898559570312,42.464499337722344],[-71.43241882324219,42.522217752342236],[-71.37954711914061,42.56420729713456],[-71.49490356445312,42.56673588590953]]]}},
+			{"type":"Feature","Id":"q4","properties":{},"geometry":{"type":"Point","coordinates": [-71.46366119384766,42.54043355305221]}}
 		]}
 	`
-	p1, _ := geojson.Parse(gjson.Get(json, `features.#[id=="p1"]`).Raw, nil)
-	p2, _ := geojson.Parse(gjson.Get(json, `features.#[id=="p2"]`).Raw, nil)
-	p3, _ := geojson.Parse(gjson.Get(json, `features.#[id=="p3"]`).Raw, nil)
-	p4, _ := geojson.Parse(gjson.Get(json, `features.#[id=="p4"]`).Raw, nil)
-	r1, _ := geojson.Parse(gjson.Get(json, `features.#[id=="r1"]`).Raw, nil)
-	r2, _ := geojson.Parse(gjson.Get(json, `features.#[id=="r2"]`).Raw, nil)
-	r3, _ := geojson.Parse(gjson.Get(json, `features.#[id=="r3"]`).Raw, nil)
-	q1, _ := geojson.Parse(gjson.Get(json, `features.#[id=="q1"]`).Raw, nil)
-	q2, _ := geojson.Parse(gjson.Get(json, `features.#[id=="q2"]`).Raw, nil)
-	q3, _ := geojson.Parse(gjson.Get(json, `features.#[id=="q3"]`).Raw, nil)
-	q4, _ := geojson.Parse(gjson.Get(json, `features.#[id=="q4"]`).Raw, nil)
+	p1, _ := geojson.Parse(gjson.Get(json, `features.#[Id=="p1"]`).Raw, nil)
+	p2, _ := geojson.Parse(gjson.Get(json, `features.#[Id=="p2"]`).Raw, nil)
+	p3, _ := geojson.Parse(gjson.Get(json, `features.#[Id=="p3"]`).Raw, nil)
+	p4, _ := geojson.Parse(gjson.Get(json, `features.#[Id=="p4"]`).Raw, nil)
+	r1, _ := geojson.Parse(gjson.Get(json, `features.#[Id=="r1"]`).Raw, nil)
+	r2, _ := geojson.Parse(gjson.Get(json, `features.#[Id=="r2"]`).Raw, nil)
+	r3, _ := geojson.Parse(gjson.Get(json, `features.#[Id=="r3"]`).Raw, nil)
+	q1, _ := geojson.Parse(gjson.Get(json, `features.#[Id=="q1"]`).Raw, nil)
+	q2, _ := geojson.Parse(gjson.Get(json, `features.#[Id=="q2"]`).Raw, nil)
+	q3, _ := geojson.Parse(gjson.Get(json, `features.#[Id=="q3"]`).Raw, nil)
+	q4, _ := geojson.Parse(gjson.Get(json, `features.#[Id=="q4"]`).Raw, nil)
 
 	c := New()
 	c.Set("p1", p1, nil, nil)
@@ -628,7 +628,7 @@ func TestManyCollections(t *testing.T) {
 		Max: geometry.Point{X: 34, Y: 100},
 	}
 	col.geoSearch(bbox, func(id string, obj geojson.Object, fields []float64) bool {
-		//println(id)
+		//println(Id)
 		return true
 	})
 }

@@ -1,4 +1,4 @@
-package server
+package collection
 
 import (
 	"math"
@@ -22,6 +22,7 @@ const (
 	tokenLParen = "("
 	tokenRParen = ")"
 )
+const defaultCircleSteps = 64
 
 // AreaExpression is (maybe negated) either an spatial object or operator +
 // children (other expressions).
@@ -33,6 +34,10 @@ type AreaExpression struct {
 }
 
 type children []*AreaExpression
+
+func ExpressionFromObject(object geojson.Object) *AreaExpression {
+	return &AreaExpression{obj: object}
+}
 
 // String representation, helpful in logging.
 func (e *AreaExpression) String() (res string) {
@@ -60,29 +65,71 @@ func (e *AreaExpression) String() (res string) {
 	return
 }
 
-// Return union of rects for all involved objects
-func (e *AreaExpression) Rect() (rect geometry.Rect) {
+// Whether this is an actual expression vs just an object
+func (e *AreaExpression) IsCompound() bool {
+	return e.obj == nil
+}
+
+// Return an actual object
+func (e *AreaExpression) Obj() geojson.Object {
+	return e.obj
+}
+
+// These could probably move to geojson.geometry.rect
+func newRect(minX, minY, maxX, maxY float64) geometry.Rect {
+	return geometry.Rect{
+		Min: geometry.Point{X: minX, Y: minY},
+		Max: geometry.Point{X: maxX, Y: maxY},
+	}
+}
+
+func andRect(r1, r2 geometry.Rect) geometry.Rect {
+	return newRect(
+		math.Max(r1.Min.X, r2.Min.X),
+		math.Max(r1.Min.Y, r2.Min.Y),
+		math.Min(r1.Max.X, r2.Max.X),
+		math.Min(r1.Max.Y, r2.Max.Y),
+	)
+}
+
+func orRect(r1, r2 geometry.Rect) geometry.Rect {
+	return newRect(
+		math.Min(r1.Min.X, r2.Min.X),
+		math.Min(r1.Min.Y, r2.Min.Y),
+		math.Max(r1.Max.X, r2.Max.X),
+		math.Max(r1.Max.Y, r2.Max.Y),
+	)
+}
+
+// Return tightest rectangle for this expression
+func (e *AreaExpression) Rect(minX, minY, maxX, maxY float64) (rect geometry.Rect) {
 	if e.obj != nil {
-		rect = e.obj.Rect()
+		if e.negate {
+			rect = newRect(minX, minY, maxX, maxY)
+		} else {
+			rect = e.obj.Rect()
+		}
 		return
 	}
 	var found bool
+	var joinRect func(r1, r2 geometry.Rect) geometry.Rect
+	if e.op == AND {
+		joinRect = andRect
+	} else {
+		joinRect = orRect
+	}
 	for _, c := range e.children {
-		childRect := c.Rect()
+		childRect := c.Rect(minX, minY, maxX, maxY)
 		if !found {
 			rect = childRect
 			found = true
 		} else {
-			rect = geometry.Rect{
-				Min: geometry.Point{
-					X: math.Min(rect.Min.X, childRect.Min.X), Y: math.Min(rect.Min.Y, childRect.Min.Y)},
-				Max: geometry.Point{
-					X: math.Max(rect.Max.X, childRect.Max.X), Y: math.Max(rect.Max.Y, childRect.Max.Y)},
-			}
+			rect = joinRect(rect, childRect)
 		}
 	}
 	return
 }
+
 
 // Return boolean value modulo negate field of the expression.
 func (e *AreaExpression) maybeNegate(val bool) bool {

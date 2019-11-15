@@ -44,7 +44,7 @@ func (item *itemT) Less(other btree.Item, ctx interface{}) bool {
 type Collection struct {
 	items       tinybtree.BTree // items sorted by keys
 	index       *geoindex.Index // items geospatially indexed
-	values      *btree.BTree    // items sorted by value+key
+	values      *btree.BTree    // items sorted by value+Key
 	fieldMap    map[string]int
 	fieldValues map[string][]float64
 	weight      int
@@ -149,7 +149,7 @@ func (c *Collection) indexInsert(item *itemT) {
 }
 
 // Set adds or replaces an object in the collection and returns the fields
-// array. If an item with the same id is already in the collection then the
+// array. If an item with the same Id is already in the collection then the
 // new item will adopt the old item's fields.
 // The fields argument is optional.
 // The return values are the old object, the old fields, and the new fields
@@ -354,7 +354,7 @@ func (c *Collection) Scan(
 	return keepon
 }
 
-// ScanRange iterates though the collection starting with specified id.
+// ScanRange iterates though the collection starting with specified Id.
 func (c *Collection) ScanRange(
 	start, end string,
 	desc bool,
@@ -462,7 +462,7 @@ func (c *Collection) SearchValuesRange(start, end string, desc bool,
 	return keepon
 }
 
-// ScanGreaterOrEqual iterates though the collection starting with specified id.
+// ScanGreaterOrEqual iterates though the collection starting with specified Id.
 func (c *Collection) ScanGreaterOrEqual(id string, desc bool,
 	cursor Cursor,
 	deadline *deadline.Deadline,
@@ -511,12 +511,12 @@ func (c *Collection) geoSearch(
 }
 
 func (c *Collection) geoSparse(
-	obj geojson.Object, sparse uint8,
+	rect geometry.Rect, sparse uint8,
 	iter func(id string, obj geojson.Object, fields []float64) (match, ok bool),
 ) bool {
 	matches := make(map[string]bool)
 	alive := true
-	c.geoSparseInner(obj.Rect(), sparse,
+	c.geoSparseInner(rect, sparse,
 		func(id string, o geojson.Object, fields []float64) (
 			match, ok bool,
 		) {
@@ -578,10 +578,8 @@ func (c *Collection) geoSparseInner(
 	return alive
 }
 
-// Within returns all object that are fully contained within an object or
-// bounding box. Set obj to nil in order to use the bounding box.
-func (c *Collection) Within(
-	obj geojson.Object,
+func (c *Collection) WithinArea(
+	area *AreaExpression,
 	sparse uint8,
 	cursor Cursor,
 	deadline *deadline.Deadline,
@@ -594,7 +592,7 @@ func (c *Collection) Within(
 		cursor.Step(offset)
 	}
 	if sparse > 0 {
-		return c.geoSparse(obj, sparse,
+		return c.geoSparse(area.Rect(c.Bounds()), sparse,
 			func(id string, o geojson.Object, fields []float64) (
 				match, ok bool,
 			) {
@@ -603,21 +601,78 @@ func (c *Collection) Within(
 					return false, true
 				}
 				nextStep(count, cursor, deadline)
-				if match = o.Within(obj); match {
+				if match = area.Contains(o); match {
 					ok = iter(id, o, fields)
 				}
 				return match, ok
 			},
 		)
 	}
-	return c.geoSearch(obj.Rect(),
+	return c.geoSearch(area.Rect(c.Bounds()),
 		func(id string, o geojson.Object, fields []float64) bool {
 			count++
 			if count <= offset {
 				return true
 			}
 			nextStep(count, cursor, deadline)
-			if o.Within(obj) {
+			if area.Contains(o) {
+				return iter(id, o, fields)
+			}
+			return true
+		},
+	)
+}
+
+// Within returns all object that are fully contained within an object or
+// bounding box. Set obj to nil in order to use the bounding box.
+func (c *Collection) Within(
+	obj geojson.Object,
+	sparse uint8,
+	cursor Cursor,
+	deadline *deadline.Deadline,
+	iter func(id string, obj geojson.Object, fields []float64) bool,
+) bool {
+	return c.WithinArea(ExpressionFromObject(obj), sparse, cursor, deadline, iter)
+}
+
+func (c *Collection) IntersectsArea(
+	area *AreaExpression,
+	sparse uint8,
+	cursor Cursor,
+	deadline *deadline.Deadline,
+	iter func(id string, obj geojson.Object, fields []float64) bool,
+) bool {
+	var count uint64
+	var offset uint64
+	if cursor != nil {
+		offset = cursor.Offset()
+		cursor.Step(offset)
+	}
+	if sparse > 0 {
+		return c.geoSparse(area.Rect(c.Bounds()), sparse,
+			func(id string, o geojson.Object, fields []float64) (
+				match, ok bool,
+			) {
+				count++
+				if count <= offset {
+					return false, true
+				}
+				nextStep(count, cursor, deadline)
+				if match = area.Intersects(o); match {
+					ok = iter(id, o, fields)
+				}
+				return match, ok
+			},
+		)
+	}
+	return c.geoSearch(area.Rect(c.Bounds()),
+		func(id string, o geojson.Object, fields []float64) bool {
+			count++
+			if count <= offset {
+				return true
+			}
+			nextStep(count, cursor, deadline)
+			if area.Intersects(o) {
 				return iter(id, o, fields)
 			}
 			return true
@@ -634,42 +689,8 @@ func (c *Collection) Intersects(
 	deadline *deadline.Deadline,
 	iter func(id string, obj geojson.Object, fields []float64) bool,
 ) bool {
-	var count uint64
-	var offset uint64
-	if cursor != nil {
-		offset = cursor.Offset()
-		cursor.Step(offset)
-	}
-	if sparse > 0 {
-		return c.geoSparse(obj, sparse,
-			func(id string, o geojson.Object, fields []float64) (
-				match, ok bool,
-			) {
-				count++
-				if count <= offset {
-					return false, true
-				}
-				nextStep(count, cursor, deadline)
-				if match = o.Intersects(obj); match {
-					ok = iter(id, o, fields)
-				}
-				return match, ok
-			},
-		)
-	}
-	return c.geoSearch(obj.Rect(),
-		func(id string, o geojson.Object, fields []float64) bool {
-			count++
-			if count <= offset {
-				return true
-			}
-			nextStep(count, cursor, deadline)
-			if o.Intersects(obj) {
-				return iter(id, o, fields)
-			}
-			return true
-		},
-	)
+	return c.IntersectsArea(
+		ExpressionFromObject(obj), sparse, cursor, deadline, iter)
 }
 
 // Nearby returns the nearest neighbors

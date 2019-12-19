@@ -8,6 +8,9 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/tidwall/tile38/internal/properties"
 	"io"
 	"net"
 	"net/url"
@@ -21,6 +24,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/robfig/cron/v3"
 
 	"github.com/tidwall/buntdb"
 	"github.com/tidwall/geojson"
@@ -80,6 +85,9 @@ type Server struct {
 
 	// env opts
 	geomParseOpts geojson.ParseOptions
+	properties *properties.Properties
+
+	awsSession *session.Session
 
 	// atomics
 	followc            aint // counter increases when follow property changes
@@ -129,7 +137,7 @@ func Serve(host string, port int, dir string, http bool) error {
 	if core.AppendFileName == "" {
 		core.AppendFileName = path.Join(dir, "appendonly.aof")
 	}
-	if core.QueueFileName == "" {
+ 	if core.QueueFileName == "" {
 		core.QueueFileName = path.Join(dir, "queue.db")
 	}
 	log.Infof("Server started, Tile38 version %s, git %s", core.Version, core.GitSHA)
@@ -214,6 +222,20 @@ func Serve(host string, port int, dir string, http bool) error {
 	}
 	log.Debugf("Multi indexing: RTree (%d points)", server.geomParseOpts.IndexChildren)
 
+	//Initialize properties from env
+	server.properties = properties.Initialize()
+
+	//Create a new AWS Session
+	awsConfig := &aws.Config{
+		Region: aws.String(server.properties.AWSRegion),
+	}
+	server.awsSession, err = session.NewSession(awsConfig)
+	if err != nil {
+		log.Errorf("Error while creating an AWS Session. Error: %+v", err)
+		return err
+	}
+
+
 	// Load the queue before the aof
 	qdb, err := buntdb.Open(core.QueueFileName)
 	if err != nil {
@@ -244,6 +266,10 @@ func Serve(host string, port int, dir string, http bool) error {
 		return err
 	}
 	if core.AppendOnly == true {
+		err = server.setupAOF()
+		if err != nil {
+			return err
+		}
 		f, err := os.OpenFile(core.AppendFileName, os.O_CREATE|os.O_RDWR, 0600)
 		if err != nil {
 			return err
@@ -264,6 +290,11 @@ func Serve(host string, port int, dir string, http bool) error {
 		go server.follow(server.config.followHost(), server.config.followPort(),
 			server.followc.get())
 	}
+
+	err = server.startAOFUploadCron()
+	if err != nil {
+		return err
+	}
 	go server.processLives()
 	go server.watchOutOfMemory()
 	go server.watchLuaStatePool()
@@ -283,6 +314,16 @@ func Serve(host string, port int, dir string, http bool) error {
 
 	// Start the network server
 	return server.netServe()
+}
+
+func (server *Server) startAOFUploadCron() error {
+	c := cron.New()
+	if _, err := c.AddFunc(server.properties.AOFUploadCronSpec, server.executeAOFUploadCron); err != nil {
+		log.Errorf("Failed to register AOF Upload cron. Error: %+v", err)
+		return err
+	}
+	go c.Start()
+	return nil
 }
 
 func (server *Server) isProtected() bool {

@@ -34,6 +34,7 @@ const (
 	MaxMemory     = "maxmemory"
 	AutoGC        = "autogc"
 	KeepAlive     = "keepalive"
+	AofS3Bucket = ""
 )
 
 var validProperties = []string{RequirePass, LeaderAuth, ProtectedMode, MaxMemory, AutoGC, KeepAlive}

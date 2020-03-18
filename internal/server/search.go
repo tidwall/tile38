@@ -64,6 +64,10 @@ func (server *Server) cmdSearchArgs(
 		}
 	}
 
+	if err != nil {
+		return
+	}
+
 	if len(vs) != 0 {
 		err = errInvalidNumberOfArguments
 		return

@@ -24,8 +24,8 @@ type RoamSwitches struct {
 }
 
 var errInvalidNumberOfArguments = errors.New("invalid number of arguments")
-var errKeyNotFound = errors.New("Key not found")
-var errIDNotFound = errors.New("Id not found")
+var errKeyNotFound = errors.New("key not found")
+var errIDNotFound = errors.New("id not found")
 
 func errInvalidArgument(arg string) error {
 	return fmt.Errorf("invalid argument '%s'", arg)

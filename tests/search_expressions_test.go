@@ -46,8 +46,8 @@ func expressions_WITHIN_test(mc *mockServer) error {
 			"(", "OBJECT", poly, "AND", "NOT", "GET", "mykey", "line3", ")"}, {"[0 [line2 poly8 poly9]]"},
 		{"WITHIN", "mykey", "IDS", "NOT", "GET", "mykey", "line3"}, {"[0 [line2 poly8 poly9]]"},
 		// errors
-		{"WITHIN", "mykey", "IDS", "NOT", "GET", "mykey1", "line1"}, {"ERR Key not found"},
-		{"WITHIN", "mykey", "IDS", "NOT", "GET", "mykey", "line1"}, {"ERR Id not found"},
+		{"WITHIN", "mykey", "IDS", "NOT", "GET", "mykey1", "line1"}, {"ERR key not found"},
+		{"WITHIN", "mykey", "IDS", "NOT", "GET", "mykey", "line1"}, {"ERR id not found"},
 	})
 }
 
@@ -98,8 +98,8 @@ func expressions_INTERSECTS_test(mc *mockServer) error {
 		{"INTERSECTS", "mykey", "IDS", "(", "GET", "mykey", "line3",
 			"OR", "OBJECT", poly8, ")", "AND", "OBJECT", poly}, {"[0 [line2 line3 poly8 poly9]]"},
 		// errors
-		{"INTERSECTS", "mykey", "IDS", "NOT", "GET", "mykey1", "line1"}, {"ERR Key not found"},
-		{"INTERSECTS", "mykey", "IDS", "NOT", "GET", "mykey", "line1"}, {"ERR Id not found"},
+		{"INTERSECTS", "mykey", "IDS", "NOT", "GET", "mykey1", "line1"}, {"ERR key not found"},
+		{"INTERSECTS", "mykey", "IDS", "NOT", "GET", "mykey", "line1"}, {"ERR id not found"},
 	})
 }
 

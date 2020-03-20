@@ -12,6 +12,7 @@ import (
 	"github.com/tidwall/geojson/geometry"
 	"github.com/tidwall/resp"
 	"github.com/tidwall/tile38/internal/bing"
+	"github.com/tidwall/tile38/internal/clip"
 	"github.com/tidwall/tile38/internal/glob"
 )
 
@@ -52,6 +53,119 @@ func (s liveFenceSwitches) Close() {
 
 func (s liveFenceSwitches) usingLua() bool {
 	return len(s.whereevals) > 0
+}
+
+func parseRectArea(ltyp string, vs []string) (nvs []string, rect *geojson.Rect, err error) {
+
+	var ok bool
+
+	switch ltyp {
+	default:
+		err = errNotRectangle
+		return
+	case "bounds":
+		var sminLat, sminLon, smaxlat, smaxlon string
+		if vs, sminLat, ok = tokenval(vs); !ok || sminLat == "" {
+			err = errInvalidNumberOfArguments
+			return
+		}
+		if vs, sminLon, ok = tokenval(vs); !ok || sminLon == "" {
+			err = errInvalidNumberOfArguments
+			return
+		}
+		if vs, smaxlat, ok = tokenval(vs); !ok || smaxlat == "" {
+			err = errInvalidNumberOfArguments
+			return
+		}
+		if vs, smaxlon, ok = tokenval(vs); !ok || smaxlon == "" {
+			err = errInvalidNumberOfArguments
+			return
+		}
+		var minLat, minLon, maxLat, maxLon float64
+		if minLat, err = strconv.ParseFloat(sminLat, 64); err != nil {
+			err = errInvalidArgument(sminLat)
+			return
+		}
+		if minLon, err = strconv.ParseFloat(sminLon, 64); err != nil {
+			err = errInvalidArgument(sminLon)
+			return
+		}
+		if maxLat, err = strconv.ParseFloat(smaxlat, 64); err != nil {
+			err = errInvalidArgument(smaxlat)
+			return
+		}
+		if maxLon, err = strconv.ParseFloat(smaxlon, 64); err != nil {
+			err = errInvalidArgument(smaxlon)
+			return
+		}
+		rect = geojson.NewRect(geometry.Rect{
+			Min: geometry.Point{X: minLon, Y: minLat},
+			Max: geometry.Point{X: maxLon, Y: maxLat},
+		})
+	case "hash":
+		var hash string
+		if vs, hash, ok = tokenval(vs); !ok || hash == "" {
+			err = errInvalidNumberOfArguments
+			return
+		}
+		box := geohash.BoundingBox(hash)
+		rect = geojson.NewRect(geometry.Rect{
+			Min: geometry.Point{X: box.MinLng, Y: box.MinLat},
+			Max: geometry.Point{X: box.MaxLng, Y: box.MaxLat},
+		})
+	case "quadkey":
+		var key string
+		if vs, key, ok = tokenval(vs); !ok || key == "" {
+			err = errInvalidNumberOfArguments
+			return
+		}
+		var minLat, minLon, maxLat, maxLon float64
+		minLat, minLon, maxLat, maxLon, err = bing.QuadKeyToBounds(key)
+		if err != nil {
+			err = errInvalidArgument(key)
+			return
+		}
+		rect = geojson.NewRect(geometry.Rect{
+			Min: geometry.Point{X: minLon, Y: minLat},
+			Max: geometry.Point{X: maxLon, Y: maxLat},
+		})
+	case "tile":
+		var sx, sy, sz string
+		if vs, sx, ok = tokenval(vs); !ok || sx == "" {
+			err = errInvalidNumberOfArguments
+			return
+		}
+		if vs, sy, ok = tokenval(vs); !ok || sy == "" {
+			err = errInvalidNumberOfArguments
+			return
+		}
+		if vs, sz, ok = tokenval(vs); !ok || sz == "" {
+			err = errInvalidNumberOfArguments
+			return
+		}
+		var x, y int64
+		var z uint64
+		if x, err = strconv.ParseInt(sx, 10, 64); err != nil {
+			err = errInvalidArgument(sx)
+			return
+		}
+		if y, err = strconv.ParseInt(sy, 10, 64); err != nil {
+			err = errInvalidArgument(sy)
+			return
+		}
+		if z, err = strconv.ParseUint(sz, 10, 64); err != nil {
+			err = errInvalidArgument(sz)
+			return
+		}
+		var minLat, minLon, maxLat, maxLon float64
+		minLat, minLon, maxLat, maxLon = bing.TileXYToBounds(x, y, z)
+		rect = geojson.NewRect(geometry.Rect{
+			Min: geometry.Point{X: minLon, Y: minLat},
+			Max: geometry.Point{X: maxLon, Y: maxLat},
+		})
+	}
+	nvs = vs
+	return
 }
 
 func (server *Server) cmdSearchArgs(
@@ -167,106 +281,11 @@ func (server *Server) cmdSearchArgs(
 		if err != nil {
 			return
 		}
-	case "bounds":
-		var sminLat, sminLon, smaxlat, smaxlon string
-		if vs, sminLat, ok = tokenval(vs); !ok || sminLat == "" {
-			err = errInvalidNumberOfArguments
-			return
-		}
-		if vs, sminLon, ok = tokenval(vs); !ok || sminLon == "" {
-			err = errInvalidNumberOfArguments
-			return
-		}
-		if vs, smaxlat, ok = tokenval(vs); !ok || smaxlat == "" {
-			err = errInvalidNumberOfArguments
-			return
-		}
-		if vs, smaxlon, ok = tokenval(vs); !ok || smaxlon == "" {
-			err = errInvalidNumberOfArguments
-			return
-		}
-		var minLat, minLon, maxLat, maxLon float64
-		if minLat, err = strconv.ParseFloat(sminLat, 64); err != nil {
-			err = errInvalidArgument(sminLat)
-			return
-		}
-		if minLon, err = strconv.ParseFloat(sminLon, 64); err != nil {
-			err = errInvalidArgument(sminLon)
-			return
-		}
-		if maxLat, err = strconv.ParseFloat(smaxlat, 64); err != nil {
-			err = errInvalidArgument(smaxlat)
-			return
-		}
-		if maxLon, err = strconv.ParseFloat(smaxlon, 64); err != nil {
-			err = errInvalidArgument(smaxlon)
-			return
-		}
-		s.obj = geojson.NewRect(geometry.Rect{
-			Min: geometry.Point{X: minLon, Y: minLat},
-			Max: geometry.Point{X: maxLon, Y: maxLat},
-		})
-	case "hash":
-		var hash string
-		if vs, hash, ok = tokenval(vs); !ok || hash == "" {
-			err = errInvalidNumberOfArguments
-			return
-		}
-		box := geohash.BoundingBox(hash)
-		s.obj = geojson.NewRect(geometry.Rect{
-			Min: geometry.Point{X: box.MinLng, Y: box.MinLat},
-			Max: geometry.Point{X: box.MaxLng, Y: box.MaxLat},
-		})
-	case "quadkey":
-		var key string
-		if vs, key, ok = tokenval(vs); !ok || key == "" {
-			err = errInvalidNumberOfArguments
-			return
-		}
-		var minLat, minLon, maxLat, maxLon float64
-		minLat, minLon, maxLat, maxLon, err = bing.QuadKeyToBounds(key)
+	case "bounds", "hash", "tile", "quadkey":
+		vs, s.obj, err = parseRectArea(ltyp, vs)
 		if err != nil {
-			err = errInvalidArgument(key)
 			return
 		}
-		s.obj = geojson.NewRect(geometry.Rect{
-			Min: geometry.Point{X: minLon, Y: minLat},
-			Max: geometry.Point{X: maxLon, Y: maxLat},
-		})
-	case "tile":
-		var sx, sy, sz string
-		if vs, sx, ok = tokenval(vs); !ok || sx == "" {
-			err = errInvalidNumberOfArguments
-			return
-		}
-		if vs, sy, ok = tokenval(vs); !ok || sy == "" {
-			err = errInvalidNumberOfArguments
-			return
-		}
-		if vs, sz, ok = tokenval(vs); !ok || sz == "" {
-			err = errInvalidNumberOfArguments
-			return
-		}
-		var x, y int64
-		var z uint64
-		if x, err = strconv.ParseInt(sx, 10, 64); err != nil {
-			err = errInvalidArgument(sx)
-			return
-		}
-		if y, err = strconv.ParseInt(sy, 10, 64); err != nil {
-			err = errInvalidArgument(sy)
-			return
-		}
-		if z, err = strconv.ParseUint(sz, 10, 64); err != nil {
-			err = errInvalidArgument(sz)
-			return
-		}
-		var minLat, minLon, maxLat, maxLon float64
-		minLat, minLon, maxLat, maxLon = bing.TileXYToBounds(x, y, z)
-		s.obj = geojson.NewRect(geometry.Rect{
-			Min: geometry.Point{X: minLon, Y: minLat},
-			Max: geometry.Point{X: maxLon, Y: maxLat},
-		})
 	case "get":
 		if s.clip {
 			err = errInvalidArgument("cannot clip with get")
@@ -323,9 +342,38 @@ func (server *Server) cmdSearchArgs(
 			s.roam.scan = scan
 		}
 	}
-	if len(vs) != 0 {
-		err = errInvalidNumberOfArguments
-		return
+
+	var clip_rect *geojson.Rect
+	var tok, ltok string
+	for len(vs) > 0 {
+		if vs, tok, ok = tokenval(vs); !ok || tok == "" {
+			err = errInvalidNumberOfArguments
+			return
+		}
+		if strings.ToLower(tok) != "clipby" {
+			err = errInvalidNumberOfArguments
+			return
+		}
+		if vs, tok, ok = tokenval(vs); !ok || tok == "" {
+			err = errInvalidNumberOfArguments
+			return
+		}
+		ltok = strings.ToLower(tok)
+		switch ltok {
+		case "bounds", "hash", "tile", "quadkey":
+			vs, clip_rect, err = parseRectArea(ltok, vs)
+			if err == errNotRectangle {
+				err = errInvalidArgument("cannot clipby " + ltok)
+				return
+			}
+			if err != nil {
+				return
+			}
+			s.obj = clip.Clip(s.obj, clip_rect, &server.geomIndexOpts)
+		default:
+			err = errInvalidArgument("cannot clipby " + ltok)
+			return
+		}
 	}
 	return
 }

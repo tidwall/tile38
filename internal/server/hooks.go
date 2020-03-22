@@ -191,16 +191,16 @@ func (s *Server) cmdSetHook(msg *Message, chanCmd bool) (
 	}
 
 	// remove previous hook from spatial index
-	if prevHook != nil && prevHook.Fence != nil && prevHook.Fence.obj != nil {
-		rect := prevHook.Fence.obj.Rect()
+	if prevHook != nil && prevHook.Fence != nil && prevHook.Fence.area.Obj() != nil {
+		rect := prevHook.Fence.area.Obj().Rect()
 		s.hookTree.Delete(
 			[2]float64{rect.Min.X, rect.Min.Y},
 			[2]float64{rect.Max.X, rect.Max.Y},
 			prevHook)
 	}
 	// add hook to spatial index
-	if hook != nil && hook.Fence != nil && hook.Fence.obj != nil {
-		rect := hook.Fence.obj.Rect()
+	if hook != nil && hook.Fence != nil && hook.Fence.area.Obj() != nil {
+		rect := hook.Fence.area.Obj().Rect()
 		s.hookTree.Insert(
 			[2]float64{rect.Min.X, rect.Min.Y},
 			[2]float64{rect.Max.X, rect.Max.Y},
@@ -240,8 +240,8 @@ func (s *Server) cmdDelHook(msg *Message, chanCmd bool) (
 		delete(s.hooks, hook.Name)
 		delete(s.hooksOut, hook.Name)
 		// remove hook from spatial index
-		if hook != nil && hook.Fence != nil && hook.Fence.obj != nil {
-			rect := hook.Fence.obj.Rect()
+		if hook != nil && hook.Fence != nil && hook.Fence.area != nil {
+			rect := hook.Fence.area.Rect(hook.ScanWriter.col.Bounds())
 			s.hookTree.Delete(
 				[2]float64{rect.Min.X, rect.Min.Y},
 				[2]float64{rect.Max.X, rect.Max.Y},
@@ -292,8 +292,8 @@ func (s *Server) cmdPDelHook(msg *Message, channel bool) (
 		delete(s.hooks, hook.Name)
 		delete(s.hooksOut, hook.Name)
 		// remove hook from spatial index
-		if hook != nil && hook.Fence != nil && hook.Fence.obj != nil {
-			rect := hook.Fence.obj.Rect()
+		if hook != nil && hook.Fence != nil && hook.Fence.area.Obj() != nil {
+			rect := hook.Fence.area.Obj().Rect()
 			s.hookTree.Delete(
 				[2]float64{rect.Min.X, rect.Min.Y},
 				[2]float64{rect.Max.X, rect.Max.Y},

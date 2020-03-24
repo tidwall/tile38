@@ -197,10 +197,13 @@ func Serve(host string, port int, dir string, http bool) error {
 	case "":
 	case "None":
 		server.geomParseOpts.IndexGeometryKind = geometry.None
+		geometry.DefaultIndexOptions.Kind = geometry.None
 	case "RTree":
 		server.geomParseOpts.IndexGeometryKind = geometry.RTree
+		geometry.DefaultIndexOptions.Kind = geometry.RTree
 	case "QuadTree":
 		server.geomParseOpts.IndexGeometryKind = geometry.QuadTree
+		geometry.DefaultIndexOptions.Kind = geometry.QuadTree
 	}
 	if server.geomParseOpts.IndexGeometryKind == geometry.None {
 		log.Debugf("Geom indexing: %s",

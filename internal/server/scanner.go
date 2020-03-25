@@ -195,12 +195,10 @@ func (sc *scanner) fieldMatch(fields []float64, o geojson.Object) (fvals []float
 			}
 		}
 	} else {
-		for idx := range sc.farr {
-			var value float64
-			if len(fields) > idx {
-				value = fields[idx]
-			}
-			sc.fvals[idx] = value
+		copy(sc.fvals, fields)
+		// fields might be shorter for this item, need to pad sw.fvals with zeros
+		for i := len(fields); i < len(sc.fvals); i++ {
+			sc.fvals[i] = 0
 		}
 		for _, where := range sc.wheres {
 			if where.field == "z" {
@@ -214,21 +212,13 @@ func (sc *scanner) fieldMatch(fields []float64, o geojson.Object) (fvals []float
 				}
 				continue
 			}
-			var value float64
-			idx, ok := sc.fmap[where.field]
-			if ok {
-				value = sc.fvals[idx]
-			}
+			value := sc.fvals[sc.fmap[where.field]]
 			if !where.match(value) {
 				return
 			}
 		}
 		for _, wherein := range sc.whereins {
-			var value float64
-			idx, ok := sc.fmap[wherein.field]
-			if ok {
-				value = sc.fvals[idx]
-			}
+			value := sc.fvals[sc.fmap[wherein.field]]
 			if !wherein.match(value) {
 				return
 			}

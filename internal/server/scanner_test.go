@@ -35,8 +35,8 @@ func BenchmarkFieldMatch(t *testing.B) {
 			{"bar", false, 10, false, 30},
 		},
 		whereins: []whereinT{
-			{"foo", map[float64]struct{}{1: {}, 2: {}}},
-			{"bar", map[float64]struct{}{11: {}, 25: {}}},
+			{"foo", []float64{1, 2}},
+			{"bar", []float64{11, 25}},
 		},
 		fmap: map[string]int{"foo": 0, "bar": 1},
 		farr: []string{"bar", "foo"},

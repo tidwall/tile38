@@ -116,6 +116,7 @@ func lc(s1, s2 string) bool {
 
 type whereT struct {
 	field string
+	index int
 	minx  bool
 	min   float64
 	maxx  bool
@@ -159,6 +160,7 @@ func zMinMaxFromWheres(wheres []whereT) (minZ, maxZ float64) {
 
 type whereinT struct {
 	field  string
+	index  int
 	valArr []float64
 }
 
@@ -328,7 +330,7 @@ func (s *Server) parseSearchScanBaseTokens(
 						return
 					}
 				}
-				t.wheres = append(t.wheres, whereT{field, minx, min, maxx, max})
+				t.wheres = append(t.wheres, whereT{field, -1, minx, min, maxx, max})
 				continue
 			case "wherein":
 				vs = nvs
@@ -359,7 +361,7 @@ func (s *Server) parseSearchScanBaseTokens(
 					}
 					valArr = append(valArr, val)
 				}
-				t.whereins = append(t.whereins, whereinT{field, valArr})
+				t.whereins = append(t.whereins, whereinT{field, -1, valArr})
 				continue
 			case "whereevalsha":
 				fallthrough

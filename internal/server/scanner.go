@@ -90,8 +90,6 @@ func (s *Server) newScanner(
 		s:           s,
 		cursor:      cursor,
 		limit:       limit,
-		wheres:      wheres,
-		whereins:    whereins,
 		whereevals:  whereevals,
 		output:      output,
 		nofields:    nofields,
@@ -111,6 +109,19 @@ func (s *Server) newScanner(
 	if sc.col != nil {
 		sc.fmap = sc.col.FieldMap()
 		sc.farr = sc.col.FieldArr()
+		// This fills index value in wheres/whereins
+		// so we don't have to map string field names for each tested object
+		var ok bool
+		for _, where := range wheres {
+			if where.index, ok = sc.fmap[where.field]; ok {
+				sc.wheres = append(sc.wheres, where)
+			}
+		}
+		for _, wherein := range whereins {
+			if wherein.index, ok = sc.fmap[wherein.field]; ok {
+				sc.whereins = append(sc.whereins, wherein)
+			}
+		}
 	}
 	sc.fvals = make([]float64, len(sc.farr))
 	return sc, nil
@@ -159,11 +170,8 @@ func (sc *scanner) fieldMatch(fields []float64, o geojson.Object) (fvals []float
 				continue
 			}
 			var value float64
-			idx, ok := sc.fmap[where.field]
-			if ok {
-				if len(fields) > idx {
-					value = fields[idx]
-				}
+			if len(fields) > where.index {
+				value = fields[where.index]
 			}
 			if !where.match(value) {
 				return
@@ -171,11 +179,8 @@ func (sc *scanner) fieldMatch(fields []float64, o geojson.Object) (fvals []float
 		}
 		for _, wherein := range sc.whereins {
 			var value float64
-			idx, ok := sc.fmap[wherein.field]
-			if ok {
-				if len(fields) > idx {
-					value = fields[idx]
-				}
+			if len(fields) > wherein.index {
+				value = fields[wherein.index]
 			}
 			if !wherein.match(value) {
 				return
@@ -212,13 +217,13 @@ func (sc *scanner) fieldMatch(fields []float64, o geojson.Object) (fvals []float
 				}
 				continue
 			}
-			value := sc.fvals[sc.fmap[where.field]]
+			value := sc.fvals[where.index]
 			if !where.match(value) {
 				return
 			}
 		}
 		for _, wherein := range sc.whereins {
-			value := sc.fvals[sc.fmap[wherein.field]]
+			value := sc.fvals[wherein.index]
 			if !wherein.match(value) {
 				return
 			}

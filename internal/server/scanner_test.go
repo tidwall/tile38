@@ -31,12 +31,12 @@ func BenchmarkFieldMatch(t *testing.B) {
 	}
 	sw := &scanWriter{
 		wheres: []whereT{
-			{"foo", false, 1, false, 3},
-			{"bar", false, 10, false, 30},
+			{"foo", 0, false, 1, false, 3},
+			{"bar", 1, false, 10, false, 30},
 		},
 		whereins: []whereinT{
-			{"foo", []float64{1, 2}},
-			{"bar", []float64{11, 25}},
+			{"foo", 0, []float64{1, 2}},
+			{"bar", 1, []float64{11, 25}},
 		},
 		fmap: map[string]int{"foo": 0, "bar": 1},
 		farr: []string{"bar", "foo"},

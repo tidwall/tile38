@@ -14,8 +14,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tidwall/geojson"
 	"github.com/tidwall/geojson/geo"
 	"github.com/tidwall/resp"
+	"github.com/tidwall/tile38/internal/deadline"
+	"github.com/tidwall/tile38/internal/glob"
 	"github.com/tidwall/tile38/internal/log"
 	lua "github.com/yuin/gopher-lua"
 	luajson "layeh.com/gopher-json"
@@ -155,18 +158,83 @@ func (pl *lStatePool) New() *lua.LState {
 		ls.Push(lua.LNumber(dt))
 		return 1
 	}
+	iterate := func(ls *lua.LState) int {
+		evalCmd := ls.GetGlobal("EVAL_CMD").String()
+		callback := ls.ToFunction(1)
+		cmd := ls.ToString(2)
+		nargs := ls.GetTop()
+
+		var vs []string
+		for i := 3; i <= nargs; i++ {
+			vs = append(vs, ls.ToString(i))
+		}
+
+		ctx := ls.Context()
+		var dl *deadline.Deadline
+		if ctx != nil {
+			dlt, ok := ls.Context().Deadline()
+			if ok {
+				dl = deadline.New(dlt)
+			}
+		}
+
+		itr := ls.NewUserData()
+		itr.Value = &luaScanIterator{
+			gomt: ls.GetTypeMetatable(luaGeoJSONObjectTypeName),
+		}
+		itr.Metatable = ls.GetTypeMetatable(luaScanIteratorTypeName)
+
+		coll := &luaScanCollector{
+			ls:  ls,
+			f:   callback,
+			itr: itr,
+		}
+
+		cursor, err := pl.s.luaTile38Iterate(coll, dl, evalCmd, strings.ToLower(cmd), vs)
+		if err != nil {
+			ls.RaiseError("%v", err)
+		}
+		ls.Push(lua.LString(strconv.FormatUint(cursor, 10)))
+		return 1
+	}
+	fieldIndexes := func(ls *lua.LState) int {
+		colName := ls.ToString(1)
+		col := pl.s.getCol(colName)
+		if col == nil {
+			ls.RaiseError("unknown key %s", colName)
+		}
+		fmap := col.FieldMap()
+
+		nargs := ls.GetTop()
+		nret := 0
+		for i := 2; i <= nargs; i++ {
+			name := ls.ToString(i)
+			fi, ok := fmap[name]
+			if !ok {
+				ls.RaiseError("unknown field %s", name)
+			}
+			ls.Push(lua.LNumber(fi + 1))
+			nret++
+		}
+		return nret
+	}
 	var exports = map[string]lua.LGFunction{
-		"call":         call,
-		"pcall":        pcall,
-		"error_reply":  errorReply,
-		"status_reply": statusReply,
-		"sha1hex":      sha1hex,
-		"distance_to":  distanceTo,
+		"call":          call,
+		"pcall":         pcall,
+		"error_reply":   errorReply,
+		"status_reply":  statusReply,
+		"sha1hex":       sha1hex,
+		"distance_to":   distanceTo,
+		"iterate":       iterate,
+		"field_indexes": fieldIndexes,
 	}
 	L.SetGlobal("tile38", L.SetFuncs(L.NewTable(), exports))
 
 	// Load json
 	L.SetGlobal("json", L.Get(luajson.Loader(L)))
+
+	// register the custom types to expose scan results
+	registerScanResultTypes(L)
 
 	// Prohibit creating new globals in this state
 	lockNewGlobals := func(ls *lua.LState) int {
@@ -842,4 +910,386 @@ func (s *Server) luaTile38NonAtomic(msg *Message) (resp.Value, error) {
 	}
 
 	return res, nil
+}
+
+func (s *Server) luaTile38Iterate(coll *luaScanCollector, dl *deadline.Deadline, evalcmd, cmd string, vs []string) (cursor uint64, err error) {
+	// Acquire a lock if we don't already have one
+	switch evalcmd {
+	case "evalna", "evalnasha":
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+	}
+
+	// Ensure fully up to date
+	if s.config.followHost() != "" && !s.fcuponce {
+		return 0, errCatchingUp
+	}
+
+	// Parse the command args
+	var lfs liveFenceSwitches
+	switch cmd {
+	case "nearby":
+		lfs, err = s.cmdSearchArgs(false, cmd, vs, nearbyTypes)
+	case "within", "intersects":
+		lfs, err = s.cmdSearchArgs(false, cmd, vs, withinOrIntersectsTypes)
+	case "scan":
+		lfs, err = s.cmdScanArgs(vs)
+	case "search":
+		lfs, err = s.cmdSeachValuesArgs(vs)
+	default:
+		err = errors.New("expected command to be nearby, within, intersects or scan")
+	}
+
+	if err != nil {
+		return
+	}
+
+	// Ensure we clean up lfs if needed
+	if lfs.usingLua() {
+		defer lfs.Close()
+		defer func() {
+			if r := recover(); r != nil {
+				err = errors.New(r.(string))
+				return
+			}
+		}()
+	}
+
+	// Fencing doesn't make sense
+	if lfs.fence {
+		return 0, errors.New("fence not supported")
+	}
+
+	sc, err := s.newScanner(
+		coll, lfs.key, lfs.output, lfs.precision, lfs.glob, cmd == "search",
+		lfs.cursor, lfs.limit, lfs.wheres, lfs.whereins, lfs.whereevals, lfs.nofields)
+
+	if err != nil {
+		return 0, err
+	}
+
+	// If collection doesn't exist, just return
+	if sc.col == nil {
+		return 0, nil
+	}
+
+	// Handle deadline exceeded errors
+	if dl != nil {
+		defer func() {
+			if dl.Hit() {
+				v := recover()
+				if v != nil {
+					if s, ok := v.(string); !ok || s != "deadline" {
+						panic(v)
+					}
+				}
+				err = errTimeout
+			}
+		}()
+	}
+
+	// Run the scan operation
+	switch cmd {
+	case "nearby":
+		iter := func(id string, o geojson.Object, fields []float64, dist float64) bool {
+			meters := 0.0
+			if lfs.distance {
+				meters = geo.DistanceFromHaversine(dist)
+			}
+			return sc.writeObject(ScanObjectParams{
+				id:              id,
+				o:               o,
+				fields:          fields,
+				distance:        meters,
+				noLock:          true,
+				ignoreGlobMatch: true,
+				skipTesting:     true,
+			})
+		}
+		s.nearestNeighbors(&lfs, sc, dl, lfs.obj.(*geojson.Circle), iter)
+	case "within":
+		sc.col.Within(lfs.obj, lfs.sparse, sc, dl, func(
+			id string, o geojson.Object, fields []float64,
+		) bool {
+			if s.hasExpired(lfs.key, id) {
+				return true
+			}
+			return sc.writeObject(ScanObjectParams{
+				id:     id,
+				o:      o,
+				fields: fields,
+				noLock: true,
+			})
+		})
+	case "intersects":
+		sc.col.Intersects(lfs.obj, lfs.sparse, sc, dl, func(
+			id string,
+			o geojson.Object,
+			fields []float64,
+		) bool {
+			if s.hasExpired(lfs.key, id) {
+				return true
+			}
+			params := ScanObjectParams{
+				id:     id,
+				o:      o,
+				fields: fields,
+				noLock: true,
+			}
+			if lfs.clip {
+				params.clip = lfs.obj
+			}
+			return sc.writeObject(params)
+		})
+	case "scan":
+		g := glob.Parse(sc.globPattern, lfs.desc)
+		if g.Limits[0] == "" && g.Limits[1] == "" {
+			sc.col.Scan(lfs.desc, sc,
+				dl,
+				func(id string, o geojson.Object, fields []float64) bool {
+					return sc.writeObject(ScanObjectParams{
+						id:     id,
+						o:      o,
+						fields: fields,
+					})
+				},
+			)
+		} else {
+			sc.col.ScanRange(g.Limits[0], g.Limits[1], lfs.desc, sc,
+				dl,
+				func(id string, o geojson.Object, fields []float64) bool {
+					return sc.writeObject(ScanObjectParams{
+						id:     id,
+						o:      o,
+						fields: fields,
+					})
+				},
+			)
+		}
+	case "search":
+		if sc.output == outputCount && len(sc.wheres) == 0 && sc.globEverything {
+			count := sc.col.Count() - int(lfs.cursor)
+			if count < 0 {
+				count = 0
+			}
+			sc.count = uint64(count)
+		} else {
+			g := glob.Parse(sc.globPattern, lfs.desc)
+			if g.Limits[0] == "" && g.Limits[1] == "" {
+				sc.col.SearchValues(lfs.desc, sc, dl,
+					func(id string, o geojson.Object, fields []float64) bool {
+						return sc.writeObject(ScanObjectParams{
+							id:     id,
+							o:      o,
+							fields: fields,
+							noLock: true,
+						})
+					},
+				)
+			} else {
+				// must disable globSingle for string value type matching because
+				// globSingle is only for ID matches, not values.
+				sc.globSingle = false
+				sc.col.SearchValuesRange(g.Limits[0], g.Limits[1], lfs.desc, sc,
+					dl,
+					func(id string, o geojson.Object, fields []float64) bool {
+						return sc.writeObject(ScanObjectParams{
+							id:     id,
+							o:      o,
+							fields: fields,
+							noLock: true,
+						})
+					},
+				)
+			}
+		}
+	}
+
+	return sc.cursor, nil
+}
+
+const luaGeoJSONObjectTypeName = "geojsonObject"
+const luaScanIteratorTypeName = "scanIterator"
+
+type luaScanIterator struct {
+	sc            *scanner
+	currentParams ScanObjectParams
+	gomt          lua.LValue
+}
+
+func registerScanResultTypes(ls *lua.LState) {
+	assertGObject := func(ls *lua.LState, idx int) geojson.Object {
+		ud := ls.CheckUserData(idx)
+		if v, ok := ud.Value.(geojson.Object); ok {
+			return v
+		}
+		ls.ArgError(idx, "geojsonObject expected")
+		return nil
+	}
+
+	gomt := ls.NewTypeMetatable(luaGeoJSONObjectTypeName)
+	ls.SetField(gomt, "__tostring", ls.NewFunction(func(ls *lua.LState) int {
+		obj := assertGObject(ls, 1)
+		ls.Push(lua.LString(obj.String()))
+		return 1
+	}))
+	ls.SetField(gomt, "__index", ls.SetFuncs(
+		ls.NewTable(),
+		map[string]lua.LGFunction{
+			"empty": func(ls *lua.LState) int {
+				obj := assertGObject(ls, 1)
+				ls.Push(lua.LBool(obj.Empty()))
+				return 1
+			},
+			"valid": func(ls *lua.LState) int {
+				obj := assertGObject(ls, 1)
+				ls.Push(lua.LBool(obj.Valid()))
+				return 1
+			},
+			"rect": func(ls *lua.LState) int {
+				obj := assertGObject(ls, 1)
+				ud := ls.NewUserData()
+				ud.Metatable = gomt
+				ud.Value = obj.Rect()
+				ls.Push(ud)
+				return 1
+			},
+			"center": func(ls *lua.LState) int {
+				obj := assertGObject(ls, 1)
+				ud := ls.NewUserData()
+				ud.Metatable = gomt
+				ud.Value = obj.Center()
+				ls.Push(ud)
+				return 1
+			},
+			"contains": func(ls *lua.LState) int {
+				obj := assertGObject(ls, 1)
+				other := assertGObject(ls, 2)
+				ls.Push(lua.LBool(obj.Contains(other)))
+				return 1
+			},
+			"within": func(ls *lua.LState) int {
+				obj := assertGObject(ls, 1)
+				other := assertGObject(ls, 2)
+				ls.Push(lua.LBool(obj.Within(other)))
+				return 1
+			},
+			"intersects": func(ls *lua.LState) int {
+				obj := assertGObject(ls, 1)
+				other := assertGObject(ls, 2)
+				ls.Push(lua.LBool(obj.Intersects(other)))
+				return 1
+			},
+			"json": func(ls *lua.LState) int {
+				obj := assertGObject(ls, 1)
+				ls.Push(lua.LString(obj.JSON()))
+				return 1
+			},
+			"distance": func(ls *lua.LState) int {
+				obj := assertGObject(ls, 1)
+				other := assertGObject(ls, 2)
+				ls.Push(lua.LNumber(obj.Distance(other)))
+				return 1
+			},
+			"num_points": func(ls *lua.LState) int {
+				obj := assertGObject(ls, 1)
+				ls.Push(lua.LNumber(obj.NumPoints()))
+				return 1
+			},
+		},
+	))
+
+	assertIterator := func(ls *lua.LState, idx int) *luaScanIterator {
+		ud := ls.CheckUserData(idx)
+		if v, ok := ud.Value.(*luaScanIterator); ok {
+			return v
+		}
+		ls.ArgError(idx, "iterator expected")
+		return nil
+	}
+
+	readFields := ls.NewFunction(func(ls *lua.LState) int {
+		itr := assertIterator(ls, 1)
+		nargs := ls.GetTop()
+
+		for i := 2; i <= nargs; i++ {
+			v := ls.CheckAny(i)
+			var fieldValue float64
+			if v.Type() == lua.LTNumber {
+				fi := int(v.(lua.LNumber)) - 1
+				if fi < len(itr.currentParams.fields) {
+					fieldValue = itr.currentParams.fields[fi]
+				}
+			} else {
+				fn := v.String()
+				fi, ok := itr.sc.fmap[fn]
+				if !ok {
+					ls.RaiseError("invalid field %s", fn)
+				}
+				if fi < len(itr.currentParams.fields) {
+					fieldValue = itr.currentParams.fields[fi]
+				}
+			}
+			ls.Push(lua.LNumber(fieldValue))
+		}
+		return nargs - 1
+	})
+
+	itrmt := ls.NewTypeMetatable(luaScanIteratorTypeName)
+	ls.SetFuncs(itrmt, map[string]lua.LGFunction{
+		"__index": func(ls *lua.LState) int {
+			itr := assertIterator(ls, 1)
+			v := ls.CheckString(2)
+			switch v {
+			case "id":
+				ls.Push(lua.LString(itr.currentParams.id))
+				return 1
+			case "object":
+				gobj := ls.NewUserData()
+				gobj.Metatable = itr.gomt
+				gobj.Value = itr.currentParams.o
+				ls.Push(gobj)
+				return 1
+			case "distance":
+				ls.Push(lua.LNumber(itr.currentParams.distance))
+				return 1
+			case "read_fields":
+				ls.Push(readFields)
+				return 1
+			}
+			ls.RaiseError("unknown property %s", v)
+			return 0
+		},
+	})
+}
+
+type luaScanCollector struct {
+	ls  *lua.LState
+	f   *lua.LFunction
+	itr lua.LValue
+}
+
+var _ scanCollector = (*luaScanCollector)(nil)
+
+func (coll *luaScanCollector) Init(sc *scanner) {
+}
+
+func (coll *luaScanCollector) ProcessItem(sc *scanner, opts ScanObjectParams) bool {
+	ls := coll.ls
+
+	itr := coll.itr.(*lua.LUserData).Value.(*luaScanIterator)
+	itr.sc = sc
+	itr.currentParams = opts
+
+	// Function to call
+	ls.Push(coll.f)
+	ls.Push(coll.itr)
+	ls.Call(1, 1)
+
+	result := ls.ToBool(-1)
+	ls.Pop(1)
+	return result
+}
+
+func (coll *luaScanCollector) Complete(sc *scanner, cursor uint64) {
 }

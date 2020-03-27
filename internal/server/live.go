@@ -96,15 +96,18 @@ func (server *Server) goLive(
 		cond: sync.NewCond(&sync.Mutex{}),
 	}
 	var err error
-	var sw *scanWriter
+	var sc *scanner
 	var wr bytes.Buffer
+	coll := &fenceScanCollector{
+		buffer: &wr,
+	}
 	s := inerr.(liveFenceSwitches)
 	lb.glob = s.glob
 	lb.key = s.key
 	lb.fence = &s
 	server.mu.RLock()
-	sw, err = server.newScanWriter(
-		&wr, msg, s.key, s.output, s.precision, s.glob, false,
+	sc, err = server.newScanner(
+		coll, s.key, s.output, s.precision, s.glob, false,
 		s.cursor, s.limit, s.wheres, s.whereins, s.whereevals, s.nofields)
 	server.mu.RUnlock()
 
@@ -187,7 +190,7 @@ func (server *Server) goLive(
 				// safely lock the fence because we are outside the main loop
 				server.mu.RLock()
 				defer server.mu.RUnlock()
-				msgs = FenceMatch("", sw, fence, nil, details)
+				msgs = FenceMatch("", sc, fence, nil, details)
 			}()
 			for _, msg := range msgs {
 				if err := writeLiveMessage(conn, []byte(msg), true, connType, websocket); err != nil {

@@ -45,7 +45,7 @@ type scanner struct {
 	nofields       bool
 	cursor         uint64
 	limit          uint64
-	hitLimit       bool
+	earlyStop      bool
 	once           bool
 	count          uint64
 	precision      uint64
@@ -135,7 +135,7 @@ func (sc *scanner) writeFoot() {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
 	cursor := sc.numberIters
-	if !sc.hitLimit {
+	if !sc.earlyStop {
 		cursor = 0
 	}
 	sc.collector.Complete(sc, cursor)
@@ -311,13 +311,15 @@ func (sc *scanner) writeObject(opts ScanObjectParams) bool {
 	if opts.clip != nil {
 		opts.o = clip.Clip(opts.o, opts.clip, &sw.s.geomIndexOpts)
 	}
-	keepGoing = sc.collector.ProcessItem(sc, opts) && keepGoing
+	keepProcessing := sc.collector.ProcessItem(sc, opts)
 	sc.numberItems++
-	if sc.numberItems == sc.limit {
-		sc.hitLimit = true
+	// Regular stop is when we exhausted all objects.
+	// Early stop is when we either hit the limit or ProcessItem() returned false (scripts)
+	if sc.numberItems == sc.limit || !keepProcessing {
+		sc.earlyStop = true
 		return false
 	}
-	return keepGoing
+	return keepProcessing && keepGoing
 }
 
 type scanCollector interface {

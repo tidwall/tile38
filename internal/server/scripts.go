@@ -1105,6 +1105,8 @@ func (s *Server) luaTile38Iterate(coll *luaScanCollector, dl *deadline.Deadline,
 		}
 	}
 
+	sc.writeFoot()
+
 	return nil
 }
 

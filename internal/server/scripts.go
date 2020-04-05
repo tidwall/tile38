@@ -190,11 +190,11 @@ func (pl *lStatePool) New() *lua.LState {
 			itr: itr,
 		}
 
-		cursor, err := pl.s.luaTile38Iterate(coll, dl, evalCmd, strings.ToLower(cmd), vs)
+		err := pl.s.luaTile38Iterate(coll, dl, evalCmd, strings.ToLower(cmd), vs)
 		if err != nil {
 			ls.RaiseError("%v", err)
 		}
-		ls.Push(lua.LString(strconv.FormatUint(cursor, 10)))
+		ls.Push(lua.LString(strconv.FormatUint(coll.cursor, 10)))
 		return 1
 	}
 	fieldIndexes := func(ls *lua.LState) int {
@@ -912,7 +912,7 @@ func (s *Server) luaTile38NonAtomic(msg *Message) (resp.Value, error) {
 	return res, nil
 }
 
-func (s *Server) luaTile38Iterate(coll *luaScanCollector, dl *deadline.Deadline, evalcmd, cmd string, vs []string) (cursor uint64, err error) {
+func (s *Server) luaTile38Iterate(coll *luaScanCollector, dl *deadline.Deadline, evalcmd, cmd string, vs []string) (err error) {
 	// Acquire a lock if we don't already have one
 	switch evalcmd {
 	case "evalna", "evalnasha":
@@ -922,7 +922,7 @@ func (s *Server) luaTile38Iterate(coll *luaScanCollector, dl *deadline.Deadline,
 
 	// Ensure fully up to date
 	if s.config.followHost() != "" && !s.fcuponce {
-		return 0, errCatchingUp
+		return errCatchingUp
 	}
 
 	// Parse the command args
@@ -957,7 +957,7 @@ func (s *Server) luaTile38Iterate(coll *luaScanCollector, dl *deadline.Deadline,
 
 	// Fencing doesn't make sense
 	if lfs.fence {
-		return 0, errors.New("fence not supported")
+		return errors.New("fence not supported")
 	}
 
 	sc, err := s.newScanner(
@@ -965,12 +965,12 @@ func (s *Server) luaTile38Iterate(coll *luaScanCollector, dl *deadline.Deadline,
 		lfs.cursor, lfs.limit, lfs.wheres, lfs.whereins, lfs.whereevals, lfs.nofields)
 
 	if err != nil {
-		return 0, err
+		return err
 	}
 
 	// If collection doesn't exist, just return
 	if sc.col == nil {
-		return 0, nil
+		return nil
 	}
 
 	// Handle deadline exceeded errors
@@ -1105,7 +1105,7 @@ func (s *Server) luaTile38Iterate(coll *luaScanCollector, dl *deadline.Deadline,
 		}
 	}
 
-	return sc.cursor, nil
+	return nil
 }
 
 const luaGeoJSONObjectTypeName = "geojsonObject"
@@ -1264,9 +1264,10 @@ func registerScanResultTypes(ls *lua.LState) {
 }
 
 type luaScanCollector struct {
-	ls  *lua.LState
-	f   *lua.LFunction
-	itr lua.LValue
+	ls     *lua.LState
+	f      *lua.LFunction
+	itr    lua.LValue
+	cursor uint64
 }
 
 var _ scanCollector = (*luaScanCollector)(nil)
@@ -1292,4 +1293,5 @@ func (coll *luaScanCollector) ProcessItem(sc *scanner, opts ScanObjectParams) bo
 }
 
 func (coll *luaScanCollector) Complete(sc *scanner, cursor uint64) {
+	coll.cursor = cursor
 }

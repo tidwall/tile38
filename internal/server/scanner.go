@@ -62,14 +62,12 @@ type scanWriter struct {
 
 // ScanWriterParams ...
 type ScanWriterParams struct {
-	id              string
-	o               geojson.Object
-	fields          []float64
-	distance        float64
-	noLock          bool
-	ignoreGlobMatch bool
-	clip            geojson.Object
-	skipTesting     bool
+	id       string
+	o        geojson.Object
+	fields   []float64
+	distance float64
+	noLock   bool
+	clip     geojson.Object
 }
 
 func (s *Server) newScanWriter(
@@ -337,13 +335,11 @@ func (sw *scanWriter) Step(n uint64) {
 
 // ok is whether the object passes the test and should be written
 // keepGoing is whether there could be more objects to test
-func (sw *scanWriter) testObject(id string, o geojson.Object, fields []float64, ignoreGlobMatch bool) (
+func (sw *scanWriter) testObject(id string, o geojson.Object, fields []float64) (
 	ok, keepGoing bool, fieldVals []float64) {
-	if !ignoreGlobMatch {
-		match, kg := sw.globMatch(id, o)
-		if !match {
-			return false, kg, fieldVals
-		}
+	match, kg := sw.globMatch(id, o)
+	if !match {
+		return false, kg, fieldVals
 	}
 	nf, ok := sw.fieldMatch(fields, o)
 	return ok, true, nf
@@ -355,13 +351,9 @@ func (sw *scanWriter) writeObject(opts ScanWriterParams) bool {
 		sw.mu.Lock()
 		defer sw.mu.Unlock()
 	}
-	var ok bool
-	keepGoing := true
-	if !opts.skipTesting {
-		ok, keepGoing, _ = sw.testObject(opts.id, opts.o, opts.fields, opts.ignoreGlobMatch)
-		if !ok {
-			return keepGoing
-		}
+	ok, keepGoing, _ := sw.testObject(opts.id, opts.o, opts.fields)
+	if !ok {
+		return keepGoing
 	}
 	sw.count++
 	if sw.output == outputCount {

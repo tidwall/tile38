@@ -500,15 +500,22 @@ func TestSpatialSearch(t *testing.T) {
 
 	var items []geojson.Object
 	exitems := []geojson.Object{
-		r2, p1, p4, r1, p3, r3, p2,
+		r2, p4, p1, r1, r3, p3, p2,
 	}
+
+	lastDist := float64(-1)
+	distsMonotonic := true
 	c.Nearby(q4, nil, nil,
-		func(id string, obj geojson.Object, fields []float64) bool {
+		func(id string, obj geojson.Object, fields []float64, dist float64) bool {
+			if dist < lastDist {
+				distsMonotonic = false
+			}
 			items = append(items, obj)
 			return true
 		},
 	)
 	expect(t, len(items) == 7)
+	expect(t, distsMonotonic)
 	expect(t, reflect.DeepEqual(items, exitems))
 }
 

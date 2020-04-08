@@ -2,6 +2,7 @@ package tests
 
 import (
 	"fmt"
+	"math/rand"
 	"sort"
 	"testing"
 )
@@ -428,4 +429,20 @@ func match(expectIn string) func(org, v interface{}) (resp, expect interface{}) 
 		})
 		return fmt.Sprintf("%v", org), expectIn
 	}
+}
+
+func subBenchSearch(b *testing.B, mc *mockServer) {
+	runBenchStep(b, mc, "KNN", keys_KNN_bench)
+}
+
+func keys_KNN_bench(mc *mockServer) error {
+	lat := rand.Float64()*180 - 90
+	lon := rand.Float64()*360 - 180
+	_, err := mc.conn.Do("NEARBY",
+		"mykey",
+		"LIMIT", 50,
+		"DISTANCE",
+		"POINTS",
+		"POINT", lat, lon)
+	return err
 }

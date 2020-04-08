@@ -366,8 +366,8 @@ func (server *Server) cmdNearby(msg *Message) (res resp.Value, err error) {
 	if msg.OutputType == JSON {
 		wr.WriteString(`{"ok":true`)
 	}
-	sw.writeHead()
-	if sw.col != nil {
+	sc.writeHead()
+	if sc.col != nil {
 		maxDist := s.obj.(*geojson.Circle).Meters()
 		iter := func(id string, o geojson.Object, fields []float64, dist float64) bool {
 			if server.hasExpired(s.key, id) {
@@ -390,7 +390,7 @@ func (server *Server) cmdNearby(msg *Message) (res resp.Value, err error) {
 				noLock:   true,
 			})
 		}
-		sw.col.Nearby(s.obj, sw, msg.Deadline, iter)
+		sc.col.Nearby(s.obj, sc, msg.Deadline, iter)
 	}
 	sc.writeFoot()
 	if msg.OutputType == JSON {

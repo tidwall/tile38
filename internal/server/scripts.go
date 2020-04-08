@@ -991,22 +991,31 @@ func (s *Server) luaTile38Iterate(coll *luaScanCollector, dl *deadline.Deadline,
 	// Run the scan operation
 	switch cmd {
 	case "nearby":
-		iter := func(id string, o geojson.Object, fields []float64, dist float64) bool {
-			meters := 0.0
-			if lfs.distance {
-				meters = geo.DistanceFromHaversine(dist)
+		if sc.col != nil {
+			maxDist := lfs.obj.(*geojson.Circle).Meters()
+			iter := func(id string, o geojson.Object, fields []float64, dist float64) bool {
+				if s.hasExpired(lfs.key, id) {
+					return true
+				}
+
+				if maxDist > 0 && dist > maxDist {
+					return false
+				}
+
+				meters := 0.0
+				if lfs.distance {
+					meters = dist
+				}
+				return sc.writeObject(ScanObjectParams{
+					id:       id,
+					o:        o,
+					fields:   fields,
+					distance: meters,
+					noLock:   true,
+				})
 			}
-			return sc.writeObject(ScanObjectParams{
-				id:              id,
-				o:               o,
-				fields:          fields,
-				distance:        meters,
-				noLock:          true,
-				ignoreGlobMatch: true,
-				skipTesting:     true,
-			})
+			sc.col.Nearby(lfs.obj, sc, dl, iter)
 		}
-		s.nearestNeighbors(&lfs, sc, dl, lfs.obj.(*geojson.Circle), iter)
 	case "within":
 		sc.col.Within(lfs.obj, lfs.sparse, sc, dl, func(
 			id string, o geojson.Object, fields []float64,

@@ -284,9 +284,9 @@ func (sc *scanner) Step(n uint64) {
 
 // ok is whether the object passes the test and should be written
 // keepGoing is whether there could be more objects to test
-func (sc *scanner) testObject(id string, o geojson.Object, fields []float64, ignoreGlobMatch bool) (
+func (sc *scanner) testObject(id string, o geojson.Object, fields []float64) (
 	ok, keepGoing bool, fieldVals []float64) {
-	match, kg := sw.globMatch(id, o)
+	match, kg := sc.globMatch(id, o)
 	if !match {
 		return false, kg, fieldVals
 	}
@@ -300,7 +300,7 @@ func (sc *scanner) writeObject(opts ScanObjectParams) bool {
 		sc.mu.Lock()
 		defer sc.mu.Unlock()
 	}
-	ok, keepGoing, _ := sw.testObject(opts.id, opts.o, opts.fields)
+	ok, keepGoing, _ := sc.testObject(opts.id, opts.o, opts.fields)
 	if !ok {
 		return keepGoing
 	}
@@ -309,7 +309,7 @@ func (sc *scanner) writeObject(opts ScanObjectParams) bool {
 		return sc.count < sc.limit
 	}
 	if opts.clip != nil {
-		opts.o = clip.Clip(opts.o, opts.clip, &sw.s.geomIndexOpts)
+		opts.o = clip.Clip(opts.o, opts.clip, &sc.s.geomIndexOpts)
 	}
 	keepProcessing := sc.collector.ProcessItem(sc, opts)
 	sc.numberItems++

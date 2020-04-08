@@ -17,6 +17,7 @@ import (
 	"github.com/tidwall/geojson"
 	"github.com/tidwall/geojson/geo"
 	"github.com/tidwall/resp"
+	"github.com/tidwall/tile38/internal/collection"
 	"github.com/tidwall/tile38/internal/deadline"
 	"github.com/tidwall/tile38/internal/glob"
 	"github.com/tidwall/tile38/internal/log"
@@ -218,6 +219,17 @@ func (pl *lStatePool) New() *lua.LState {
 		}
 		return nret
 	}
+	getObject := func(ls *lua.LState) int {
+		evalCmd := ls.GetGlobal("EVAL_CMD").String()
+		colName := ls.ToString(1)
+		id := ls.ToString(2)
+		result, err := pl.s.luaTile38Get(ls, evalCmd, colName, id)
+		if err != nil {
+			ls.RaiseError("%v", err)
+		}
+		ls.Push(result)
+		return 1
+	}
 	var exports = map[string]lua.LGFunction{
 		"call":          call,
 		"pcall":         pcall,
@@ -227,14 +239,15 @@ func (pl *lStatePool) New() *lua.LState {
 		"distance_to":   distanceTo,
 		"iterate":       iterate,
 		"field_indexes": fieldIndexes,
+		"get":           getObject,
 	}
 	L.SetGlobal("tile38", L.SetFuncs(L.NewTable(), exports))
 
 	// Load json
 	L.SetGlobal("json", L.Get(luajson.Loader(L)))
 
-	// register the custom types to expose scan results
-	registerScanResultTypes(L)
+	// register the custom types to expose call results
+	registerLuaResultTypes(L)
 
 	// Prohibit creating new globals in this state
 	lockNewGlobals := func(ls *lua.LState) int {
@@ -988,34 +1001,40 @@ func (s *Server) luaTile38Iterate(coll *luaScanCollector, dl *deadline.Deadline,
 		}()
 	}
 
+	// For the duration of this call, we need to pretend we are operating as
+	// a "evalro" command. This ensures that if the Lua callback function
+	// makes any tile38 calls we disallow any write commands and do not
+	// acquire additional locks if the original command was eval(sha?)na
+	// to prevent deadlock
+	coll.ls.SetGlobal("EVAL_CMD", lua.LString("evalro"))
+	defer coll.ls.SetGlobal("EVAL_CMD", lua.LString(evalcmd))
+
 	// Run the scan operation
 	switch cmd {
 	case "nearby":
-		if sc.col != nil {
-			maxDist := lfs.obj.(*geojson.Circle).Meters()
-			iter := func(id string, o geojson.Object, fields []float64, dist float64) bool {
-				if s.hasExpired(lfs.key, id) {
-					return true
-				}
-
-				if maxDist > 0 && dist > maxDist {
-					return false
-				}
-
-				meters := 0.0
-				if lfs.distance {
-					meters = dist
-				}
-				return sc.writeObject(ScanObjectParams{
-					id:       id,
-					o:        o,
-					fields:   fields,
-					distance: meters,
-					noLock:   true,
-				})
+		maxDist := lfs.obj.(*geojson.Circle).Meters()
+		iter := func(id string, o geojson.Object, fields []float64, dist float64) bool {
+			if s.hasExpired(lfs.key, id) {
+				return true
 			}
-			sc.col.Nearby(lfs.obj, sc, dl, iter)
+
+			if maxDist > 0 && dist > maxDist {
+				return false
+			}
+
+			meters := 0.0
+			if lfs.distance {
+				meters = dist
+			}
+			return sc.writeObject(ScanObjectParams{
+				id:       id,
+				o:        o,
+				fields:   fields,
+				distance: meters,
+				noLock:   true,
+			})
 		}
+		sc.col.Nearby(lfs.obj, sc, dl, iter)
 	case "within":
 		sc.col.Within(lfs.obj, lfs.sparse, sc, dl, func(
 			id string, o geojson.Object, fields []float64,
@@ -1119,8 +1138,45 @@ func (s *Server) luaTile38Iterate(coll *luaScanCollector, dl *deadline.Deadline,
 	return nil
 }
 
+func (s *Server) luaTile38Get(ls *lua.LState, evalcmd, key, id string) (result lua.LValue, err error) {
+	// Acquire a lock if we don't already have one
+	switch evalcmd {
+	case "evalna", "evalnasha":
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+	}
+
+	// Ensure fully up to date
+	if s.config.followHost() != "" && !s.fcuponce {
+		return lua.LNil, errCatchingUp
+	}
+
+	col := s.getCol(key)
+	if col == nil {
+		return lua.LNil, nil
+	}
+
+	o, fields, ok := col.Get(id)
+	ok = ok && !s.hasExpired(key, id)
+	if !ok {
+		return lua.LNil, nil
+	}
+
+	itemmt := ls.GetTypeMetatable(luaItemTypeName)
+	ud := ls.NewUserData()
+	ud.Value = luaCollectionItem{
+		id:     id,
+		col:    col,
+		fields: fields,
+		o:      o,
+	}
+	ud.Metatable = itemmt
+	return ud, nil
+}
+
 const luaGeoJSONObjectTypeName = "geojsonObject"
 const luaScanIteratorTypeName = "scanIterator"
+const luaItemTypeName = "collectionItem"
 
 type luaScanIterator struct {
 	sc            *scanner
@@ -1128,7 +1184,14 @@ type luaScanIterator struct {
 	gomt          lua.LValue
 }
 
-func registerScanResultTypes(ls *lua.LState) {
+type luaCollectionItem struct {
+	id     string
+	o      geojson.Object
+	fields []float64
+	col    *collection.Collection
+}
+
+func registerLuaResultTypes(ls *lua.LState) {
 	assertGObject := func(ls *lua.LState, idx int) geojson.Object {
 		ud := ls.CheckUserData(idx)
 		if v, ok := ud.Value.(geojson.Object); ok {
@@ -1219,7 +1282,7 @@ func registerScanResultTypes(ls *lua.LState) {
 		return nil
 	}
 
-	readFields := ls.NewFunction(func(ls *lua.LState) int {
+	readIteratorFields := ls.NewFunction(func(ls *lua.LState) int {
 		itr := assertIterator(ls, 1)
 		nargs := ls.GetTop()
 
@@ -1247,6 +1310,10 @@ func registerScanResultTypes(ls *lua.LState) {
 	})
 
 	itrmt := ls.NewTypeMetatable(luaScanIteratorTypeName)
+	ls.SetField(itrmt, "__tostring", ls.NewFunction(func(ls *lua.LState) int {
+		ls.Push(lua.LString("[scanIterator object]"))
+		return 1
+	}))
 	ls.SetFuncs(itrmt, map[string]lua.LGFunction{
 		"__index": func(ls *lua.LState) int {
 			itr := assertIterator(ls, 1)
@@ -1265,7 +1332,73 @@ func registerScanResultTypes(ls *lua.LState) {
 				ls.Push(lua.LNumber(itr.currentParams.distance))
 				return 1
 			case "read_fields":
-				ls.Push(readFields)
+				ls.Push(readIteratorFields)
+				return 1
+			}
+			ls.RaiseError("unknown property %s", v)
+			return 0
+		},
+	})
+
+	assertCollectionItem := func(ls *lua.LState, idx int) luaCollectionItem {
+		ud := ls.CheckUserData(idx)
+		if v, ok := ud.Value.(luaCollectionItem); ok {
+			return v
+		}
+		ls.ArgError(idx, "collection item expected")
+		return luaCollectionItem{}
+	}
+
+	readItemFields := ls.NewFunction(func(ls *lua.LState) int {
+		item := assertCollectionItem(ls, 1)
+		nargs := ls.GetTop()
+
+		for i := 2; i <= nargs; i++ {
+			v := ls.CheckAny(i)
+			var fieldValue float64
+			if v.Type() == lua.LTNumber {
+				fi := int(v.(lua.LNumber)) - 1
+				if fi < len(item.fields) {
+					fieldValue = item.fields[fi]
+				}
+			} else {
+				fn := v.String()
+				fi, ok := item.col.FieldMap()[fn]
+				if !ok {
+					ls.RaiseError("invalid field %s", fn)
+				}
+				if fi < len(item.fields) {
+					fieldValue = item.fields[fi]
+				}
+			}
+			ls.Push(lua.LNumber(fieldValue))
+		}
+		return nargs - 1
+	})
+
+	itemmt := ls.NewTypeMetatable(luaItemTypeName)
+	ls.SetField(itrmt, "__tostring", ls.NewFunction(func(ls *lua.LState) int {
+		obj := assertCollectionItem(ls, 1)
+		ls.Push(lua.LString(obj.id))
+		return 1
+	}))
+	ls.SetFuncs(itemmt, map[string]lua.LGFunction{
+		"__index": func(ls *lua.LState) int {
+			item := assertCollectionItem(ls, 1)
+			v := ls.CheckString(2)
+			switch v {
+			case "id":
+				ls.Push(lua.LString(item.id))
+				return 1
+			case "object":
+				gomt := ls.GetTypeMetatable(luaGeoJSONObjectTypeName)
+				gobj := ls.NewUserData()
+				gobj.Metatable = gomt
+				gobj.Value = item.o
+				ls.Push(gobj)
+				return 1
+			case "read_fields":
+				ls.Push(readItemFields)
 				return 1
 			}
 			ls.RaiseError("unknown property %s", v)

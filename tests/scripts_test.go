@@ -12,6 +12,7 @@ func subTestScripts(t *testing.T, mc *mockServer) {
 	runStep(t, mc, "READONLY", scripts_READONLY_test)
 	runStep(t, mc, "NONATOMIC", scripts_NONATOMIC_test)
 	runStep(t, mc, "ITERATE", scripts_ITERATE_test)
+	runStep(t, mc, "GET", scripts_GET_test)
 }
 
 func scripts_BASIC_test(mc *mockServer) error {
@@ -118,8 +119,16 @@ func scripts_ITERATE_test(mc *mockServer) error {
 		// Just make sure that we expect WITHIN to pick poly9 in this setup
 		{"WITHIN", "key2", "LIMIT", 1, "IDS", "GET", "mykey", "poly8"}, {"[1 [poly9]]"},
 
-		{"EVAL", script_ids, 0}, {"[1 [poly9]]"},  // early stop, cursor = 1
-		{"EVAL", script_obj, 0}, {"[0 [" + poly9 + "]]"},  // no early stop, cursor = 0
-		{"EVAL", script_fields, 0}, {"[1 [[1 10]]]"},  // early stop, cursor = 1
+		{"EVAL", script_ids, 0}, {"[1 [poly9]]"}, // early stop, cursor = 1
+		{"EVAL", script_obj, 0}, {"[0 [" + poly9 + "]]"}, // no early stop, cursor = 0
+		{"EVAL", script_fields, 0}, {"[1 [[1 10]]]"}, // early stop, cursor = 1
+	})
+}
+
+func scripts_GET_test(mc *mockServer) error {
+	return mc.DoBatch([][]interface{}{
+		{"EVALNA", "return tile38.get('mykey', 'myid')", "1", "mykey"}, {nil},
+		{"EVALNA", "return tile38.call('set', KEYS[1], ARGV[1], 'point', 33, -115)", "1", "mykey", "myid1"}, {"OK"},
+		{"EVALNA", "return tile38.get('mykey', 'myid1').object:json()", "1", "mykey", "myid1", "point"}, {`{"type":"Point","coordinates":[-115,33]}`},
 	})
 }

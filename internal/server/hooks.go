@@ -149,8 +149,11 @@ func (s *Server) cmdSetHook(msg *Message, chanCmd bool) (
 		hook.db = s.qdb
 	}
 	var wr bytes.Buffer
-	hook.ScanWriter, err = s.newScanWriter(
-		&wr, cmsg, args.key, args.output, args.precision, args.glob, false,
+	coll := &fenceScanCollector{
+		buffer: &wr,
+	}
+	hook.Scanner, err = s.newScanner(
+		coll, args.key, args.output, args.precision, args.glob, false,
 		args.cursor, args.limit, args.wheres, args.whereins, args.whereevals,
 		args.nofields)
 	if err != nil {
@@ -448,23 +451,23 @@ func (s *Server) cmdHooks(msg *Message, channel bool) (
 
 // Hook represents a hook.
 type Hook struct {
-	cond       *sync.Cond
-	Key        string
-	Name       string
-	Endpoints  []string
-	Message    *Message
-	Fence      *liveFenceSwitches
-	ScanWriter *scanWriter
-	Metas      []FenceMeta
-	db         *buntdb.DB
-	channel    bool
-	closed     bool
-	opened     bool
-	query      string
-	epm        *endpoint.Manager
-	expires    time.Time
-	counter    *aint // counter that grows when a message was sent
-	sig        int
+	cond      *sync.Cond
+	Key       string
+	Name      string
+	Endpoints []string
+	Message   *Message
+	Fence     *liveFenceSwitches
+	Scanner   *scanner
+	Metas     []FenceMeta
+	db        *buntdb.DB
+	channel   bool
+	closed    bool
+	opened    bool
+	query     string
+	epm       *endpoint.Manager
+	expires   time.Time
+	counter   *aint // counter that grows when a message was sent
+	sig       int
 }
 
 // Expires returns when the hook expires. Required by the expire.Item interface.

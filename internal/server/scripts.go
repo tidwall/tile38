@@ -14,8 +14,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tidwall/geojson"
 	"github.com/tidwall/geojson/geo"
 	"github.com/tidwall/resp"
+	"github.com/tidwall/tile38/internal/collection"
+	"github.com/tidwall/tile38/internal/deadline"
+	"github.com/tidwall/tile38/internal/glob"
 	"github.com/tidwall/tile38/internal/log"
 	lua "github.com/yuin/gopher-lua"
 	luajson "layeh.com/gopher-json"
@@ -155,18 +159,95 @@ func (pl *lStatePool) New() *lua.LState {
 		ls.Push(lua.LNumber(dt))
 		return 1
 	}
+	iterate := func(ls *lua.LState) int {
+		evalCmd := ls.GetGlobal("EVAL_CMD").String()
+		callback := ls.ToFunction(1)
+		cmd := ls.ToString(2)
+		nargs := ls.GetTop()
+
+		var vs []string
+		for i := 3; i <= nargs; i++ {
+			vs = append(vs, ls.ToString(i))
+		}
+
+		ctx := ls.Context()
+		var dl *deadline.Deadline
+		if ctx != nil {
+			dlt, ok := ls.Context().Deadline()
+			if ok {
+				dl = deadline.New(dlt)
+			}
+		}
+
+		itr := ls.NewUserData()
+		itr.Value = &luaScanIterator{
+			gomt: ls.GetTypeMetatable(luaGeoJSONObjectTypeName),
+		}
+		itr.Metatable = ls.GetTypeMetatable(luaScanIteratorTypeName)
+
+		coll := &luaScanCollector{
+			ls:  ls,
+			f:   callback,
+			itr: itr,
+		}
+
+		err := pl.s.luaTile38Iterate(coll, dl, evalCmd, strings.ToLower(cmd), vs)
+		if err != nil {
+			ls.RaiseError("%v", err)
+		}
+		ls.Push(lua.LString(strconv.FormatUint(coll.cursor, 10)))
+		return 1
+	}
+	fieldIndexes := func(ls *lua.LState) int {
+		colName := ls.ToString(1)
+		col := pl.s.getCol(colName)
+		if col == nil {
+			ls.RaiseError("unknown key %s", colName)
+		}
+		fmap := col.FieldMap()
+
+		nargs := ls.GetTop()
+		nret := 0
+		for i := 2; i <= nargs; i++ {
+			name := ls.ToString(i)
+			fi, ok := fmap[name]
+			if !ok {
+				ls.RaiseError("unknown field %s", name)
+			}
+			ls.Push(lua.LNumber(fi + 1))
+			nret++
+		}
+		return nret
+	}
+	getObject := func(ls *lua.LState) int {
+		evalCmd := ls.GetGlobal("EVAL_CMD").String()
+		colName := ls.ToString(1)
+		id := ls.ToString(2)
+		result, err := pl.s.luaTile38Get(ls, evalCmd, colName, id)
+		if err != nil {
+			ls.RaiseError("%v", err)
+		}
+		ls.Push(result)
+		return 1
+	}
 	var exports = map[string]lua.LGFunction{
-		"call":         call,
-		"pcall":        pcall,
-		"error_reply":  errorReply,
-		"status_reply": statusReply,
-		"sha1hex":      sha1hex,
-		"distance_to":  distanceTo,
+		"call":          call,
+		"pcall":         pcall,
+		"error_reply":   errorReply,
+		"status_reply":  statusReply,
+		"sha1hex":       sha1hex,
+		"distance_to":   distanceTo,
+		"iterate":       iterate,
+		"field_indexes": fieldIndexes,
+		"get":           getObject,
 	}
 	L.SetGlobal("tile38", L.SetFuncs(L.NewTable(), exports))
 
 	// Load json
 	L.SetGlobal("json", L.Get(luajson.Loader(L)))
+
+	// register the custom types to expose call results
+	registerLuaResultTypes(L)
 
 	// Prohibit creating new globals in this state
 	lockNewGlobals := func(ls *lua.LState) int {
@@ -842,4 +923,519 @@ func (s *Server) luaTile38NonAtomic(msg *Message) (resp.Value, error) {
 	}
 
 	return res, nil
+}
+
+func (s *Server) luaTile38Iterate(coll *luaScanCollector, dl *deadline.Deadline, evalcmd, cmd string, vs []string) (err error) {
+	// Acquire a lock if we don't already have one
+	switch evalcmd {
+	case "evalna", "evalnasha":
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+	}
+
+	// Ensure fully up to date
+	if s.config.followHost() != "" && !s.fcuponce {
+		return errCatchingUp
+	}
+
+	// Parse the command args
+	var lfs liveFenceSwitches
+	switch cmd {
+	case "nearby":
+		lfs, err = s.cmdSearchArgs(false, cmd, vs, nearbyTypes)
+	case "within", "intersects":
+		lfs, err = s.cmdSearchArgs(false, cmd, vs, withinOrIntersectsTypes)
+	case "scan":
+		lfs, err = s.cmdScanArgs(vs)
+	case "search":
+		lfs, err = s.cmdSeachValuesArgs(vs)
+	default:
+		err = errors.New("expected command to be nearby, within, intersects or scan")
+	}
+
+	if err != nil {
+		return
+	}
+
+	// Ensure we clean up lfs if needed
+	if lfs.usingLua() {
+		defer lfs.Close()
+		defer func() {
+			if r := recover(); r != nil {
+				err = errors.New(r.(string))
+				return
+			}
+		}()
+	}
+
+	// Fencing doesn't make sense
+	if lfs.fence {
+		return errors.New("fence not supported")
+	}
+
+	sc, err := s.newScanner(
+		coll, lfs.key, lfs.output, lfs.precision, lfs.glob, cmd == "search",
+		lfs.cursor, lfs.limit, lfs.wheres, lfs.whereins, lfs.whereevals, lfs.nofields)
+
+	if err != nil {
+		return err
+	}
+
+	// If collection doesn't exist, just return
+	if sc.col == nil {
+		return nil
+	}
+
+	// Handle deadline exceeded errors
+	if dl != nil {
+		defer func() {
+			if dl.Hit() {
+				v := recover()
+				if v != nil {
+					if s, ok := v.(string); !ok || s != "deadline" {
+						panic(v)
+					}
+				}
+				err = errTimeout
+			}
+		}()
+	}
+
+	// For the duration of this call, we need to pretend we are operating as
+	// a "evalro" command. This ensures that if the Lua callback function
+	// makes any tile38 calls we disallow any write commands and do not
+	// acquire additional locks if the original command was eval(sha?)na
+	// to prevent deadlock
+	coll.ls.SetGlobal("EVAL_CMD", lua.LString("evalro"))
+	defer coll.ls.SetGlobal("EVAL_CMD", lua.LString(evalcmd))
+
+	// Run the scan operation
+	switch cmd {
+	case "nearby":
+		maxDist := lfs.obj.(*geojson.Circle).Meters()
+		iter := func(id string, o geojson.Object, fields []float64, dist float64) bool {
+			if s.hasExpired(lfs.key, id) {
+				return true
+			}
+
+			if maxDist > 0 && dist > maxDist {
+				return false
+			}
+
+			meters := 0.0
+			if lfs.distance {
+				meters = dist
+			}
+			return sc.writeObject(ScanObjectParams{
+				id:       id,
+				o:        o,
+				fields:   fields,
+				distance: meters,
+				noLock:   true,
+			})
+		}
+		sc.col.Nearby(lfs.obj, sc, dl, iter)
+	case "within":
+		sc.col.Within(lfs.obj, lfs.sparse, sc, dl, func(
+			id string, o geojson.Object, fields []float64,
+		) bool {
+			if s.hasExpired(lfs.key, id) {
+				return true
+			}
+			return sc.writeObject(ScanObjectParams{
+				id:     id,
+				o:      o,
+				fields: fields,
+				noLock: true,
+			})
+		})
+	case "intersects":
+		sc.col.Intersects(lfs.obj, lfs.sparse, sc, dl, func(
+			id string,
+			o geojson.Object,
+			fields []float64,
+		) bool {
+			if s.hasExpired(lfs.key, id) {
+				return true
+			}
+			params := ScanObjectParams{
+				id:     id,
+				o:      o,
+				fields: fields,
+				noLock: true,
+			}
+			if lfs.clip {
+				params.clip = lfs.obj
+			}
+			return sc.writeObject(params)
+		})
+	case "scan":
+		g := glob.Parse(sc.globPattern, lfs.desc)
+		if g.Limits[0] == "" && g.Limits[1] == "" {
+			sc.col.Scan(lfs.desc, sc,
+				dl,
+				func(id string, o geojson.Object, fields []float64) bool {
+					return sc.writeObject(ScanObjectParams{
+						id:     id,
+						o:      o,
+						fields: fields,
+					})
+				},
+			)
+		} else {
+			sc.col.ScanRange(g.Limits[0], g.Limits[1], lfs.desc, sc,
+				dl,
+				func(id string, o geojson.Object, fields []float64) bool {
+					return sc.writeObject(ScanObjectParams{
+						id:     id,
+						o:      o,
+						fields: fields,
+					})
+				},
+			)
+		}
+	case "search":
+		if sc.output == outputCount && len(sc.wheres) == 0 && sc.globEverything {
+			count := sc.col.Count() - int(lfs.cursor)
+			if count < 0 {
+				count = 0
+			}
+			sc.count = uint64(count)
+		} else {
+			g := glob.Parse(sc.globPattern, lfs.desc)
+			if g.Limits[0] == "" && g.Limits[1] == "" {
+				sc.col.SearchValues(lfs.desc, sc, dl,
+					func(id string, o geojson.Object, fields []float64) bool {
+						return sc.writeObject(ScanObjectParams{
+							id:     id,
+							o:      o,
+							fields: fields,
+							noLock: true,
+						})
+					},
+				)
+			} else {
+				// must disable globSingle for string value type matching because
+				// globSingle is only for ID matches, not values.
+				sc.globSingle = false
+				sc.col.SearchValuesRange(g.Limits[0], g.Limits[1], lfs.desc, sc,
+					dl,
+					func(id string, o geojson.Object, fields []float64) bool {
+						return sc.writeObject(ScanObjectParams{
+							id:     id,
+							o:      o,
+							fields: fields,
+							noLock: true,
+						})
+					},
+				)
+			}
+		}
+	}
+
+	sc.writeFoot()
+
+	return nil
+}
+
+func (s *Server) luaTile38Get(ls *lua.LState, evalcmd, key, id string) (result lua.LValue, err error) {
+	// Acquire a lock if we don't already have one
+	switch evalcmd {
+	case "evalna", "evalnasha":
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+	}
+
+	// Ensure fully up to date
+	if s.config.followHost() != "" && !s.fcuponce {
+		return lua.LNil, errCatchingUp
+	}
+
+	col := s.getCol(key)
+	if col == nil {
+		return lua.LNil, nil
+	}
+
+	o, fields, ok := col.Get(id)
+	ok = ok && !s.hasExpired(key, id)
+	if !ok {
+		return lua.LNil, nil
+	}
+
+	itemmt := ls.GetTypeMetatable(luaItemTypeName)
+	ud := ls.NewUserData()
+	ud.Value = luaCollectionItem{
+		id:     id,
+		col:    col,
+		fields: fields,
+		o:      o,
+	}
+	ud.Metatable = itemmt
+	return ud, nil
+}
+
+const luaGeoJSONObjectTypeName = "geojsonObject"
+const luaScanIteratorTypeName = "scanIterator"
+const luaItemTypeName = "collectionItem"
+
+type luaScanIterator struct {
+	sc            *scanner
+	currentParams ScanObjectParams
+	gomt          lua.LValue
+}
+
+type luaCollectionItem struct {
+	id     string
+	o      geojson.Object
+	fields []float64
+	col    *collection.Collection
+}
+
+func registerLuaResultTypes(ls *lua.LState) {
+	assertGObject := func(ls *lua.LState, idx int) geojson.Object {
+		ud := ls.CheckUserData(idx)
+		if v, ok := ud.Value.(geojson.Object); ok {
+			return v
+		}
+		ls.ArgError(idx, "geojsonObject expected")
+		return nil
+	}
+
+	gomt := ls.NewTypeMetatable(luaGeoJSONObjectTypeName)
+	ls.SetField(gomt, "__tostring", ls.NewFunction(func(ls *lua.LState) int {
+		obj := assertGObject(ls, 1)
+		ls.Push(lua.LString(obj.String()))
+		return 1
+	}))
+	ls.SetField(gomt, "__index", ls.SetFuncs(
+		ls.NewTable(),
+		map[string]lua.LGFunction{
+			"empty": func(ls *lua.LState) int {
+				obj := assertGObject(ls, 1)
+				ls.Push(lua.LBool(obj.Empty()))
+				return 1
+			},
+			"valid": func(ls *lua.LState) int {
+				obj := assertGObject(ls, 1)
+				ls.Push(lua.LBool(obj.Valid()))
+				return 1
+			},
+			"rect": func(ls *lua.LState) int {
+				obj := assertGObject(ls, 1)
+				ud := ls.NewUserData()
+				ud.Metatable = gomt
+				ud.Value = obj.Rect()
+				ls.Push(ud)
+				return 1
+			},
+			"center": func(ls *lua.LState) int {
+				obj := assertGObject(ls, 1)
+				ud := ls.NewUserData()
+				ud.Metatable = gomt
+				ud.Value = obj.Center()
+				ls.Push(ud)
+				return 1
+			},
+			"contains": func(ls *lua.LState) int {
+				obj := assertGObject(ls, 1)
+				other := assertGObject(ls, 2)
+				ls.Push(lua.LBool(obj.Contains(other)))
+				return 1
+			},
+			"within": func(ls *lua.LState) int {
+				obj := assertGObject(ls, 1)
+				other := assertGObject(ls, 2)
+				ls.Push(lua.LBool(obj.Within(other)))
+				return 1
+			},
+			"intersects": func(ls *lua.LState) int {
+				obj := assertGObject(ls, 1)
+				other := assertGObject(ls, 2)
+				ls.Push(lua.LBool(obj.Intersects(other)))
+				return 1
+			},
+			"json": func(ls *lua.LState) int {
+				obj := assertGObject(ls, 1)
+				ls.Push(lua.LString(obj.JSON()))
+				return 1
+			},
+			"distance": func(ls *lua.LState) int {
+				obj := assertGObject(ls, 1)
+				other := assertGObject(ls, 2)
+				ls.Push(lua.LNumber(obj.Distance(other)))
+				return 1
+			},
+			"num_points": func(ls *lua.LState) int {
+				obj := assertGObject(ls, 1)
+				ls.Push(lua.LNumber(obj.NumPoints()))
+				return 1
+			},
+		},
+	))
+
+	assertIterator := func(ls *lua.LState, idx int) *luaScanIterator {
+		ud := ls.CheckUserData(idx)
+		if v, ok := ud.Value.(*luaScanIterator); ok {
+			return v
+		}
+		ls.ArgError(idx, "iterator expected")
+		return nil
+	}
+
+	readIteratorFields := ls.NewFunction(func(ls *lua.LState) int {
+		itr := assertIterator(ls, 1)
+		nargs := ls.GetTop()
+
+		for i := 2; i <= nargs; i++ {
+			v := ls.CheckAny(i)
+			var fieldValue float64
+			if v.Type() == lua.LTNumber {
+				fi := int(v.(lua.LNumber)) - 1
+				if fi < len(itr.currentParams.fields) {
+					fieldValue = itr.currentParams.fields[fi]
+				}
+			} else {
+				fn := v.String()
+				fi, ok := itr.sc.fmap[fn]
+				if !ok {
+					ls.RaiseError("invalid field %s", fn)
+				}
+				if fi < len(itr.currentParams.fields) {
+					fieldValue = itr.currentParams.fields[fi]
+				}
+			}
+			ls.Push(lua.LNumber(fieldValue))
+		}
+		return nargs - 1
+	})
+
+	itrmt := ls.NewTypeMetatable(luaScanIteratorTypeName)
+	ls.SetField(itrmt, "__tostring", ls.NewFunction(func(ls *lua.LState) int {
+		ls.Push(lua.LString("[scanIterator object]"))
+		return 1
+	}))
+	ls.SetFuncs(itrmt, map[string]lua.LGFunction{
+		"__index": func(ls *lua.LState) int {
+			itr := assertIterator(ls, 1)
+			v := ls.CheckString(2)
+			switch v {
+			case "id":
+				ls.Push(lua.LString(itr.currentParams.id))
+				return 1
+			case "object":
+				gobj := ls.NewUserData()
+				gobj.Metatable = itr.gomt
+				gobj.Value = itr.currentParams.o
+				ls.Push(gobj)
+				return 1
+			case "distance":
+				ls.Push(lua.LNumber(itr.currentParams.distance))
+				return 1
+			case "read_fields":
+				ls.Push(readIteratorFields)
+				return 1
+			}
+			ls.RaiseError("unknown property %s", v)
+			return 0
+		},
+	})
+
+	assertCollectionItem := func(ls *lua.LState, idx int) luaCollectionItem {
+		ud := ls.CheckUserData(idx)
+		if v, ok := ud.Value.(luaCollectionItem); ok {
+			return v
+		}
+		ls.ArgError(idx, "collection item expected")
+		return luaCollectionItem{}
+	}
+
+	readItemFields := ls.NewFunction(func(ls *lua.LState) int {
+		item := assertCollectionItem(ls, 1)
+		nargs := ls.GetTop()
+
+		for i := 2; i <= nargs; i++ {
+			v := ls.CheckAny(i)
+			var fieldValue float64
+			if v.Type() == lua.LTNumber {
+				fi := int(v.(lua.LNumber)) - 1
+				if fi < len(item.fields) {
+					fieldValue = item.fields[fi]
+				}
+			} else {
+				fn := v.String()
+				fi, ok := item.col.FieldMap()[fn]
+				if !ok {
+					ls.RaiseError("invalid field %s", fn)
+				}
+				if fi < len(item.fields) {
+					fieldValue = item.fields[fi]
+				}
+			}
+			ls.Push(lua.LNumber(fieldValue))
+		}
+		return nargs - 1
+	})
+
+	itemmt := ls.NewTypeMetatable(luaItemTypeName)
+	ls.SetField(itrmt, "__tostring", ls.NewFunction(func(ls *lua.LState) int {
+		obj := assertCollectionItem(ls, 1)
+		ls.Push(lua.LString(obj.id))
+		return 1
+	}))
+	ls.SetFuncs(itemmt, map[string]lua.LGFunction{
+		"__index": func(ls *lua.LState) int {
+			item := assertCollectionItem(ls, 1)
+			v := ls.CheckString(2)
+			switch v {
+			case "id":
+				ls.Push(lua.LString(item.id))
+				return 1
+			case "object":
+				gomt := ls.GetTypeMetatable(luaGeoJSONObjectTypeName)
+				gobj := ls.NewUserData()
+				gobj.Metatable = gomt
+				gobj.Value = item.o
+				ls.Push(gobj)
+				return 1
+			case "read_fields":
+				ls.Push(readItemFields)
+				return 1
+			}
+			ls.RaiseError("unknown property %s", v)
+			return 0
+		},
+	})
+}
+
+type luaScanCollector struct {
+	ls     *lua.LState
+	f      *lua.LFunction
+	itr    lua.LValue
+	cursor uint64
+}
+
+var _ scanCollector = (*luaScanCollector)(nil)
+
+func (coll *luaScanCollector) Init(sc *scanner) {
+}
+
+func (coll *luaScanCollector) ProcessItem(sc *scanner, opts ScanObjectParams) bool {
+	ls := coll.ls
+
+	itr := coll.itr.(*lua.LUserData).Value.(*luaScanIterator)
+	itr.sc = sc
+	itr.currentParams = opts
+
+	// Function to call
+	ls.Push(coll.f)
+	ls.Push(coll.itr)
+	ls.Call(1, 1)
+
+	result := ls.ToBool(-1)
+	ls.Pop(1)
+	return result
+}
+
+func (coll *luaScanCollector) Complete(sc *scanner, cursor uint64) {
+	coll.cursor = cursor
 }

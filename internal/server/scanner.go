@@ -114,18 +114,20 @@ func (s *Server) newScanner(
 		var ok bool
 		if len(wheres) > 0 {
 			sc.wheres = make([]whereT, 0, len(wheres))
-			for _, where := range wheres {
+			for i, where := range wheres {
 				if where.index, ok = sc.fmap[where.field]; ok {
-					sc.wheres = append(sc.wheres, where)
+					where.index = math.MaxInt32
 				}
+				sc.wheres[i] = where
 			}
 		}
 		if len(whereins) > 0 {
 			sc.whereins = make([]whereinT, 0, len(whereins))
-			for _, wherein := range whereins {
+			for i, wherein := range whereins {
 				if wherein.index, ok = sc.fmap[wherein.field]; ok {
-					sc.whereins = append(sc.whereins, wherein)
+					wherein.index = math.MaxInt32
 				}
+				sc.whereins[i] = wherein
 			}
 		}
 	}
@@ -223,13 +225,19 @@ func (sc *scanner) fieldMatch(fields []float64, o geojson.Object) (fvals []float
 				}
 				continue
 			}
-			value := sc.fvals[where.index]
+			var value float64
+			if where.index < len(sc.fvals) {
+				value = sc.fvals[where.index]
+			}
 			if !where.match(value) {
 				return
 			}
 		}
 		for _, wherein := range sc.whereins {
-			value := sc.fvals[wherein.index]
+			var value float64
+			if wherein.index < len(sc.fvals) {
+				value = sc.fvals[wherein.index]
+			}
 			if !wherein.match(value) {
 				return
 			}

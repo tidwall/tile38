@@ -280,7 +280,7 @@ func (s *Server) cmdTest(msg *Message) (res resp.Value, err error) {
 		if area1.IntersectsExpr(area2) {
 			result = 1
 			if doClip {
-				clipped = clip.Clip(area1.obj, area2.obj)
+				clipped = clip.Clip(area1.obj, area2.obj, nil)
 			}
 		}
 	}

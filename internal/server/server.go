@@ -80,6 +80,7 @@ type Server struct {
 
 	// env opts
 	geomParseOpts geojson.ParseOptions
+	geomIndexOpts geometry.IndexOptions
 
 	// atomics
 	followc            aint // counter increases when follow property changes
@@ -178,9 +179,11 @@ func Serve(host string, port int, dir string, http bool) error {
 	// T38IDXGEOM -- Min number of points in a geometry for indexing.
 	// T38IDXMULTI -- Min number of object in a Multi/Collection for indexing.
 	server.geomParseOpts = *geojson.DefaultParseOptions
+	server.geomIndexOpts = *geometry.DefaultIndexOptions
 	n, err := strconv.ParseUint(os.Getenv("T38IDXGEOM"), 10, 32)
 	if err == nil {
 		server.geomParseOpts.IndexGeometry = int(n)
+		server.geomIndexOpts.MinPoints = int(n)
 	}
 	n, err = strconv.ParseUint(os.Getenv("T38IDXMULTI"), 10, 32)
 	if err == nil {
@@ -197,10 +200,13 @@ func Serve(host string, port int, dir string, http bool) error {
 	case "":
 	case "None":
 		server.geomParseOpts.IndexGeometryKind = geometry.None
+		server.geomIndexOpts.Kind = geometry.None
 	case "RTree":
 		server.geomParseOpts.IndexGeometryKind = geometry.RTree
+		server.geomIndexOpts.Kind = geometry.RTree
 	case "QuadTree":
 		server.geomParseOpts.IndexGeometryKind = geometry.QuadTree
+		server.geomIndexOpts.Kind = geometry.QuadTree
 	}
 	if server.geomParseOpts.IndexGeometryKind == geometry.None {
 		log.Debugf("Geom indexing: %s",

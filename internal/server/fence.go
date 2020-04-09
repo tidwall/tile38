@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"math"
 	"sort"
 	"strconv"
@@ -14,8 +15,8 @@ import (
 )
 
 // FenceMatch executes a fence match returns back json messages for fence detection.
-func FenceMatch(hookName string, sw *scanWriter, fence *liveFenceSwitches, metas []FenceMeta, details *commandDetails) []string {
-	msgs := fenceMatch(hookName, sw, fence, metas, details)
+func FenceMatch(hookName string, sc *scanner, fence *liveFenceSwitches, metas []FenceMeta, details *commandDetails) []string {
+	msgs := fenceMatch(hookName, sc, fence, metas, details)
 	if len(fence.accept) == 0 {
 		return msgs
 	}
@@ -56,7 +57,7 @@ func hookJSONString(hookName string, metas []FenceMeta) string {
 	return string(appendHookDetails(nil, hookName, metas))
 }
 func fenceMatch(
-	hookName string, sw *scanWriter, fence *liveFenceSwitches,
+	hookName string, sc *scanner, fence *liveFenceSwitches,
 	metas []FenceMeta, details *commandDetails,
 ) []string {
 	if details.command == "drop" {
@@ -76,9 +77,9 @@ func fenceMatch(
 		return nil
 	}
 	if details.command == "fset" {
-		sw.mu.Lock()
-		nofields := sw.nofields
-		sw.mu.Unlock()
+		sc.mu.Lock()
+		nofields := sc.nofields
+		sc.mu.Unlock()
 		if nofields {
 			return nil
 		}
@@ -97,7 +98,7 @@ func fenceMatch(
 		if fence.roam.on {
 			if details.command == "set" {
 				roamNearbys, roamFaraways =
-					fenceMatchRoam(sw.s, fence, details.id,
+					fenceMatchRoam(sc.s, fence, details.id,
 						details.oldObj, details.obj)
 			}
 			if len(roamNearbys) == 0 && len(roamFaraways) == 0 {
@@ -163,15 +164,14 @@ func fenceMatch(
 		}
 		break
 	}
-	sw.mu.Lock()
+	sc.mu.Lock()
 	var distance float64
 	if fence.distance && fence.obj != nil {
 		distance = details.obj.Distance(fence.obj)
 	}
-	sw.fmap = details.fmap
-	sw.fullFields = true
-	sw.msg.OutputType = JSON
-	sw.writeObject(ScanWriterParams{
+	sc.fmap = details.fmap
+	sc.fullFields = true
+	sc.writeObject(ScanObjectParams{
 		id:       details.id,
 		o:        details.obj,
 		fields:   details.fields,
@@ -179,20 +179,15 @@ func fenceMatch(
 		distance: distance,
 	})
 
-	if sw.wr.Len() == 0 {
-		sw.mu.Unlock()
+	coll := sc.collector.(*fenceScanCollector)
+	if coll.buffer.Len() == 0 {
+		sc.mu.Unlock()
 		return nil
 	}
 
-	res := sw.wr.String()
-	sw.wr.Reset()
-	if len(res) > 0 && res[0] == ',' {
-		res = res[1:]
-	}
-	if sw.output == outputIDs {
-		res = `{"id":` + string(res) + `}`
-	}
-	sw.mu.Unlock()
+	res := coll.buffer.String()
+	coll.buffer.Reset()
+	sc.mu.Unlock()
 
 	if fence.groups == nil {
 		fence.groups = make(map[string]string)
@@ -235,12 +230,12 @@ func fenceMatch(
 		if len(msgs) > 0 {
 			var nmsgs []string
 			for i := range roamNearbys {
-				nmsg := extendRoamMessage(sw, fence,
+				nmsg := extendRoamMessage(sc, fence,
 					"nearby", msgs[0], roamNearbys[i])
 				nmsgs = append(nmsgs, string(nmsg))
 			}
 			for i := range roamFaraways {
-				nmsg := extendRoamMessage(sw, fence,
+				nmsg := extendRoamMessage(sc, fence,
 					"faraway", msgs[0], roamFaraways[i])
 				nmsgs = append(nmsgs, string(nmsg))
 			}
@@ -251,7 +246,7 @@ func fenceMatch(
 }
 
 func extendRoamMessage(
-	sw *scanWriter, fence *liveFenceSwitches,
+	sc *scanner, fence *liveFenceSwitches,
 	kind string, baseMsg string, match roamMatch,
 ) string {
 	// hack off the last '}'
@@ -267,7 +262,7 @@ func extendRoamMessage(
 		math.Floor(match.meters*1000)/1000, 'f', -1, 64)
 	if fence.roam.scan != "" {
 		nmsg = append(nmsg, `,"scan":[`...)
-		col := sw.s.getCol(fence.roam.key)
+		col := sc.s.getCol(fence.roam.key)
 		if col != nil {
 			obj, _, ok := col.Get(match.id)
 			if ok {
@@ -405,7 +400,6 @@ func fenceMatchRoam(
 ) (nearbys, faraways []roamMatch) {
 	oldNearbys := fenceMatchNearbys(s, fence, id, old)
 	newNearbys := fenceMatchNearbys(s, fence, id, obj)
-
 	// Go through all matching objects in new-nearbys and old-nearbys.
 	for i := 0; i < len(oldNearbys); i++ {
 		var match bool
@@ -420,6 +414,7 @@ func fenceMatchRoam(
 			// dwelling, more from old-nearbys
 			oldNearbys[i] = oldNearbys[len(oldNearbys)-1]
 			oldNearbys = oldNearbys[:len(oldNearbys)-1]
+			i--
 			if fence.nodwell {
 				// no dwelling allowed, remove from both lists
 				newNearbys[j] = newNearbys[len(newNearbys)-1]
@@ -428,14 +423,46 @@ func fenceMatchRoam(
 		}
 	}
 	faraways, nearbys = oldNearbys, newNearbys
+	// ensure the faraways distances are to the new object
 	for i := 0; i < len(faraways); i++ {
 		faraways[i].meters = faraways[i].obj.Distance(obj)
 	}
-	sort.Slice(faraways, func(i, j int) bool {
-		return faraways[i].meters < faraways[j].meters
-	})
-	sort.Slice(nearbys, func(i, j int) bool {
-		return nearbys[i].meters < nearbys[j].meters
-	})
+	sortRoamMatches(faraways)
+	sortRoamMatches(nearbys)
 	return nearbys, faraways
+}
+
+// sortRoamMatches stable sorts roam matches
+func sortRoamMatches(matches []roamMatch) {
+	sort.Slice(matches, func(i, j int) bool {
+		if matches[i].meters < matches[j].meters {
+			return true
+		}
+		if matches[i].meters > matches[j].meters {
+			return false
+		}
+		return matches[i].id < matches[j].id
+	})
+}
+
+type fenceScanCollector struct {
+	buffer *bytes.Buffer
+}
+
+var _ scanCollector = (*fenceScanCollector)(nil)
+
+func (coll *fenceScanCollector) Init(sc *scanner) {
+}
+
+func (coll *fenceScanCollector) ProcessItem(sc *scanner, opts ScanObjectParams) bool {
+	wr := coll.buffer
+	if sc.output == outputIDs {
+		wr.WriteString(`{"id":` + jsonString(opts.id) + "}")
+	} else {
+		writeScannedObjectJSON(wr, sc, opts)
+	}
+	return true
+}
+
+func (coll *fenceScanCollector) Complete(sc *scanner, cursor uint64) {
 }

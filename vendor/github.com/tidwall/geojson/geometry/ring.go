@@ -24,30 +24,59 @@ type ringResult struct {
 }
 
 func ringContainsPoint(ring Ring, point Point, allowOnEdge bool) ringResult {
-	// println("A")
-	var idx = -1
-	// find all intersecting segments on the y-axis
 	var in bool
+	var idx int
+	rect := Rect{Point{math.Inf(-1), point.Y}, Point{math.Inf(+1), point.Y}}
+	if bs, ok := ring.(*baseSeries); ok {
+		in, idx = ringContainsPointBaseSeries(rect, bs, point, allowOnEdge)
+	} else {
+		in, idx = ringContainsPointGeneric(rect, ring, point, allowOnEdge)
+	}
+	return ringResult{hit: in, idx: idx}
+}
+
+func containsPointSearcher(point Point, allowOnEdge bool, idx *int, in *bool, seg Segment, index int) bool {
+	// perform a raycast operation on the segments
+	res := seg.Raycast(point)
+	if res.On {
+		*in = allowOnEdge
+		*idx = index
+		return false
+	}
+	if res.In {
+		*in = !*in
+	}
+	return true
+}
+
+// NOTE: Although it may seem that ringContainsPointBaseSeries and ringContainsPointGeneric
+// are the same, they are not. Because the type of the `ring` argument is known in
+// ringContainsPointBaseSeries, the compiler can prove that the closure passed to
+// ring.Search does not escape, and hence save us 3 heap allocations and ~6% runtime.
+
+func ringContainsPointBaseSeries(rect Rect, ring *baseSeries, point Point, allowOnEdge bool) (bool, int) {
+	var idx = -1
+	var in bool
+
 	ring.Search(
-		Rect{Point{math.Inf(-1), point.Y}, Point{math.Inf(+1), point.Y}},
+		rect,
 		func(seg Segment, index int) bool {
-			// fmt.Printf("%v %v\n", point, seg)
-			// perform a raycast operation on the segments
-			res := seg.Raycast(point)
-			if res.On {
-				// println(1)
-				in = allowOnEdge
-				idx = index
-				return false
-			}
-			if res.In {
-				// println(2)
-				in = !in
-			}
-			return true
+			return containsPointSearcher(point, allowOnEdge, &idx, &in, seg, index)
 		},
 	)
-	return ringResult{hit: in, idx: idx}
+	return in, idx
+}
+
+func ringContainsPointGeneric(rect Rect, ring Ring, point Point, allowOnEdge bool) (bool, int) {
+	var idx = -1
+	var in bool
+	ring.Search(
+		rect,
+		func(seg Segment, index int) bool {
+			return containsPointSearcher(point, allowOnEdge, &idx, &in, seg, index)
+		},
+	)
+	return in, idx
 }
 
 func ringIntersectsPoint(ring Ring, point Point, allowOnEdge bool) ringResult {

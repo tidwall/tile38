@@ -253,7 +253,7 @@ func (s *Server) queueHooks(d *commandDetails) error {
 	for _, hook := range candidates {
 		// Calculate all matching fence messages for all candidates and append
 		// them to the appropriate message slice
-		msgs := FenceMatch(hook.Name, hook.ScanWriter, hook.Fence, hook.Metas, d)
+		msgs := FenceMatch(hook.Name, hook.Scanner, hook.Fence, hook.Metas, d)
 		if len(msgs) > 0 {
 			if hook.channel {
 				cmsgs = append(cmsgs, msgs...)

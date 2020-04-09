@@ -45,8 +45,9 @@ func (s *Server) cmdScan(msg *Message) (res resp.Value, err error) {
 		return NOMessage, err
 	}
 	wr := &bytes.Buffer{}
-	sw, err := s.newScanWriter(
-		wr, msg, args.key, args.output, args.precision, args.glob, false,
+	var respOut resp.Value
+	sc, err := s.newScanner(
+		newScanCollector(msg, wr, &respOut), args.key, args.output, args.precision, args.glob, false,
 		args.cursor, args.limit, args.wheres, args.whereins, args.whereevals,
 		args.nofields)
 	if err != nil {
@@ -55,22 +56,22 @@ func (s *Server) cmdScan(msg *Message) (res resp.Value, err error) {
 	if msg.OutputType == JSON {
 		wr.WriteString(`{"ok":true`)
 	}
-	sw.writeHead()
-	if sw.col != nil {
-		if sw.output == outputCount && len(sw.wheres) == 0 &&
-			len(sw.whereins) == 0 && sw.globEverything == true {
-			count := sw.col.Count() - int(args.cursor)
+	sc.writeHead()
+	if sc.col != nil {
+		if sc.output == outputCount && len(sc.wheres) == 0 &&
+			len(sc.whereins) == 0 && sc.globEverything == true {
+			count := sc.col.Count() - int(args.cursor)
 			if count < 0 {
 				count = 0
 			}
-			sw.count = uint64(count)
+			sc.count = uint64(count)
 		} else {
-			g := glob.Parse(sw.globPattern, args.desc)
+			g := glob.Parse(sc.globPattern, args.desc)
 			if g.Limits[0] == "" && g.Limits[1] == "" {
-				sw.col.Scan(args.desc, sw,
+				sc.col.Scan(args.desc, sc,
 					msg.Deadline,
 					func(id string, o geojson.Object, fields []float64) bool {
-						return sw.writeObject(ScanWriterParams{
+						return sc.writeObject(ScanObjectParams{
 							id:     id,
 							o:      o,
 							fields: fields,
@@ -78,10 +79,10 @@ func (s *Server) cmdScan(msg *Message) (res resp.Value, err error) {
 					},
 				)
 			} else {
-				sw.col.ScanRange(g.Limits[0], g.Limits[1], args.desc, sw,
+				sc.col.ScanRange(g.Limits[0], g.Limits[1], args.desc, sc,
 					msg.Deadline,
 					func(id string, o geojson.Object, fields []float64) bool {
-						return sw.writeObject(ScanWriterParams{
+						return sc.writeObject(ScanObjectParams{
 							id:     id,
 							o:      o,
 							fields: fields,
@@ -91,10 +92,10 @@ func (s *Server) cmdScan(msg *Message) (res resp.Value, err error) {
 			}
 		}
 	}
-	sw.writeFoot()
+	sc.writeFoot()
 	if msg.OutputType == JSON {
 		wr.WriteString(`,"elapsed":"` + time.Now().Sub(start).String() + "\"}")
 		return resp.BytesValue(wr.Bytes()), nil
 	}
-	return sw.respOut, nil
+	return respOut, nil
 }

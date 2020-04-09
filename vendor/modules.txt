@@ -81,7 +81,7 @@ github.com/tidwall/buntdb
 # github.com/tidwall/geoindex v1.1.0
 github.com/tidwall/geoindex
 github.com/tidwall/geoindex/child
-# github.com/tidwall/geojson v1.1.12
+# github.com/tidwall/geojson v1.1.13
 github.com/tidwall/geojson
 github.com/tidwall/geojson/geo
 github.com/tidwall/geojson/geometry

@@ -67,6 +67,8 @@ github.com/tidwall/geojson v1.1.10 h1:ALzsrTn62pq65DudSQpYDjjCUaq6dP1XQm51GVYgJy
 github.com/tidwall/geojson v1.1.10/go.mod h1:tBjfxeALRFLc25LLpjtWzy2nIrNmW1ze1EAhLtd8+QQ=
 github.com/tidwall/geojson v1.1.12 h1:Ol83kqH2zeYJHP16xteZtr8VRukIXeF/TqVvJodM41M=
 github.com/tidwall/geojson v1.1.12/go.mod h1:tBjfxeALRFLc25LLpjtWzy2nIrNmW1ze1EAhLtd8+QQ=
+github.com/tidwall/geojson v1.1.13 h1:P7f58SrQgyb9k3HjKStRLug4i/0U+1MJ00f/4Z92wcM=
+github.com/tidwall/geojson v1.1.13/go.mod h1:tBjfxeALRFLc25LLpjtWzy2nIrNmW1ze1EAhLtd8+QQ=
 github.com/tidwall/gjson v1.3.2 h1:+7p3qQFaH3fOMXAJSrdZwGKcOO/lYdGS0HqGhPqDdTI=
 github.com/tidwall/gjson v1.3.2/go.mod h1:P256ACg0Mn+j1RXIDXoss50DeIABTYK1PULOJHhxOls=
 github.com/tidwall/grect v0.0.0-20161006141115-ba9a043346eb h1:5NSYaAdrnblKByzd7XByQEJVT8+9v0W/tIY0Oo4OwrE=

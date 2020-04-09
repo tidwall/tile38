@@ -20,15 +20,19 @@ import (
 
 var errTimeout = errors.New("timeout")
 
-func mockCleanup() {
-	fmt.Printf("Cleanup: may take some time... ")
+func mockCleanup(silent bool) {
+	if !silent {
+		fmt.Printf("Cleanup: may take some time... ")
+	}
 	files, _ := ioutil.ReadDir(".")
 	for _, file := range files {
 		if strings.HasPrefix(file.Name(), "data-mock-") {
 			os.RemoveAll(file.Name())
 		}
 	}
-	fmt.Printf("OK\n")
+	if !silent {
+		fmt.Printf("OK\n")
+	}
 }
 
 type mockServer struct {
@@ -39,11 +43,13 @@ type mockServer struct {
 	conn redis.Conn
 }
 
-func mockOpenServer() (*mockServer, error) {
+func mockOpenServer(silent bool) (*mockServer, error) {
 	rand.Seed(time.Now().UnixNano())
 	port := rand.Int()%20000 + 20000
 	dir := fmt.Sprintf("data-mock-%d", port)
-	fmt.Printf("Starting test server at port %d\n", port)
+	if !silent {
+		fmt.Printf("Starting test server at port %d\n", port)
+	}
 	logOutput := ioutil.Discard
 	if os.Getenv("PRINTLOG") == "1" {
 		logOutput = os.Stderr

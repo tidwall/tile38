@@ -28,7 +28,7 @@ require (
 	github.com/tidwall/buntdb v1.1.0
 	github.com/tidwall/cities v0.0.0-20190730194520-dbe1ae0b862c // indirect
 	github.com/tidwall/geoindex v1.1.0
-	github.com/tidwall/geojson v1.1.12
+	github.com/tidwall/geojson v1.1.13
 	github.com/tidwall/gjson v1.3.2
 	github.com/tidwall/grect v0.0.0-20161006141115-ba9a043346eb // indirect
 	github.com/tidwall/lotsa v0.0.0-20180225195211-a03631ac7f1c // indirect

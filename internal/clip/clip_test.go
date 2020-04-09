@@ -13,8 +13,8 @@ func LO(points []geometry.Point) *geojson.LineString {
 
 func RO(minX, minY, maxX, maxY float64) *geojson.Rect {
 	return geojson.NewRect(geometry.Rect{
-		Min: geometry.Point{X: 1.5, Y: 0.5},
-		Max: geometry.Point{X: 2.5, Y: 1.8},
+		Min: geometry.Point{X: minX, Y: minY},
+		Max: geometry.Point{X: maxX, Y: maxY},
 	})
 }
 
@@ -27,7 +27,7 @@ func TestClipLineStringSimple(t *testing.T) {
 		{X: 1, Y: 1},
 		{X: 2, Y: 2},
 		{X: 3, Y: 1}})
-	clipped := Clip(ls, RO(1.5, 0.5, 2.5, 1.8))
+	clipped := Clip(ls, RO(1.5, 0.5, 2.5, 1.8), nil)
 	cl, ok := clipped.(*geojson.MultiLineString)
 	if !ok {
 		t.Fatal("wrong type")
@@ -56,13 +56,48 @@ func TestClipPolygonSimple(t *testing.T) {
 		},
 	}
 	polygon := PPO(exterior, holes)
-	clipped := Clip(polygon, RO(1.3, 1.3, 1.4, 2.15))
+	clipped := Clip(polygon, RO(1.3, 1.3, 1.4, 2.15), nil)
 	cp, ok := clipped.(*geojson.Polygon)
 	if !ok {
 		t.Fatal("wrong type")
 	}
-	if !cp.Base().Exterior.Empty() && len(cp.Base().Holes) != 1 {
-		t.Fatal("result must have two parts in Polygon")
+	if cp.Base().Exterior.Empty() {
+		t.Fatal("Empty result.")
+	}
+	if len(cp.Base().Holes) != 1 {
+		t.Fatal("result must be a two-ring Polygon")
+	}
+}
+
+func TestClipPolygon2(t *testing.T) {
+	exterior := []geometry.Point{
+		{X: 2, Y: 2},
+		{X: 1, Y: 2},
+		{X: 1.5, Y: 1.5},
+		{X: 1, Y: 1},
+		{X: 2, Y: 1},
+		{X: 2, Y: 2},
+	}
+	holes := [][]geometry.Point{
+		[]geometry.Point{
+			{X: 1.9, Y: 1.9},
+			{X: 1.2, Y: 1.9},
+			{X: 1.45, Y: 1.65},
+			{X: 1.9, Y: 1.5},
+			{X: 1.9, Y: 1.9},
+		},
+	}
+	polygon := PPO(exterior, holes)
+	clipped := Clip(polygon, RO(1.1, 0.8, 1.15, 2.1))
+	cp, ok := clipped.(*geojson.Polygon)
+	if !ok {
+		t.Fatal("wrong type")
+	}
+	if cp.Base().Exterior.Empty() {
+		t.Fatal("Empty result.")
+	}
+	if len(cp.Base().Holes) != 0 {
+		t.Fatal("result must be a single-ring Polygon")
 	}
 }
 

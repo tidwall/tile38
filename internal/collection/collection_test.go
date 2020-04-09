@@ -643,36 +643,63 @@ func TestManyCollections(t *testing.T) {
 type testPointItem struct {
 	id     string
 	object geojson.Object
+	fields []float64
 }
 
-func BenchmarkInsert(t *testing.B) {
+func makeBenchFields(nFields int) []float64 {
+	if nFields == 0 {
+		return nil
+	}
+
+	return make([]float64, nFields)
+}
+
+func BenchmarkInsert_Fields(t *testing.B) {
+	benchmarkInsert(t, 1)
+}
+
+func BenchmarkInsert_NoFields(t *testing.B) {
+	benchmarkInsert(t, 0)
+}
+
+func benchmarkInsert(t *testing.B, nFields int) {
 	rand.Seed(time.Now().UnixNano())
 	items := make([]testPointItem, t.N)
 	for i := 0; i < t.N; i++ {
 		items[i] = testPointItem{
 			fmt.Sprintf("%d", i),
 			PO(rand.Float64()*360-180, rand.Float64()*180-90),
+			makeBenchFields(nFields),
 		}
 	}
 	col := New()
 	t.ResetTimer()
 	for i := 0; i < t.N; i++ {
-		col.Set(items[i].id, items[i].object, nil, nil)
+		col.Set(items[i].id, items[i].object, nil, items[i].fields)
 	}
 }
 
-func BenchmarkReplace(t *testing.B) {
+func BenchmarkReplace_Fields(t *testing.B) {
+	benchmarkReplace(t, 1)
+}
+
+func BenchmarkReplace_NoFields(t *testing.B) {
+	benchmarkReplace(t, 0)
+}
+
+func benchmarkReplace(t *testing.B, nFields int) {
 	rand.Seed(time.Now().UnixNano())
 	items := make([]testPointItem, t.N)
 	for i := 0; i < t.N; i++ {
 		items[i] = testPointItem{
 			fmt.Sprintf("%d", i),
 			PO(rand.Float64()*360-180, rand.Float64()*180-90),
+			makeBenchFields(nFields),
 		}
 	}
 	col := New()
 	for i := 0; i < t.N; i++ {
-		col.Set(items[i].id, items[i].object, nil, nil)
+		col.Set(items[i].id, items[i].object, nil, items[i].fields)
 	}
 	t.ResetTimer()
 	for _, i := range rand.Perm(t.N) {
@@ -683,18 +710,27 @@ func BenchmarkReplace(t *testing.B) {
 	}
 }
 
-func BenchmarkGet(t *testing.B) {
+func BenchmarkGet_Fields(t *testing.B) {
+	benchmarkGet(t, 1)
+}
+
+func BenchmarkGet_NoFields(t *testing.B) {
+	benchmarkGet(t, 0)
+}
+
+func benchmarkGet(t *testing.B, nFields int) {
 	rand.Seed(time.Now().UnixNano())
 	items := make([]testPointItem, t.N)
 	for i := 0; i < t.N; i++ {
 		items[i] = testPointItem{
 			fmt.Sprintf("%d", i),
 			PO(rand.Float64()*360-180, rand.Float64()*180-90),
+			makeBenchFields(nFields),
 		}
 	}
 	col := New()
 	for i := 0; i < t.N; i++ {
-		col.Set(items[i].id, items[i].object, nil, nil)
+		col.Set(items[i].id, items[i].object, nil, items[i].fields)
 	}
 	t.ResetTimer()
 	for _, i := range rand.Perm(t.N) {
@@ -705,18 +741,27 @@ func BenchmarkGet(t *testing.B) {
 	}
 }
 
-func BenchmarkRemove(t *testing.B) {
+func BenchmarkRemove_Fields(t *testing.B) {
+	benchmarkRemove(t, 1)
+}
+
+func BenchmarkRemove_NoFields(t *testing.B) {
+	benchmarkRemove(t, 0)
+}
+
+func benchmarkRemove(t *testing.B, nFields int) {
 	rand.Seed(time.Now().UnixNano())
 	items := make([]testPointItem, t.N)
 	for i := 0; i < t.N; i++ {
 		items[i] = testPointItem{
 			fmt.Sprintf("%d", i),
 			PO(rand.Float64()*360-180, rand.Float64()*180-90),
+			makeBenchFields(nFields),
 		}
 	}
 	col := New()
 	for i := 0; i < t.N; i++ {
-		col.Set(items[i].id, items[i].object, nil, nil)
+		col.Set(items[i].id, items[i].object, nil, items[i].fields)
 	}
 	t.ResetTimer()
 	for _, i := range rand.Perm(t.N) {
@@ -724,5 +769,37 @@ func BenchmarkRemove(t *testing.B) {
 		if o != items[i].object {
 			t.Fatal("shoot!")
 		}
+	}
+}
+
+func BenchmarkScan_Fields(t *testing.B) {
+	benchmarkScan(t, 1)
+}
+
+func BenchmarkScan_NoFields(t *testing.B) {
+	benchmarkScan(t, 0)
+}
+
+func benchmarkScan(t *testing.B, nFields int) {
+	rand.Seed(time.Now().UnixNano())
+	items := make([]testPointItem, t.N)
+	for i := 0; i < t.N; i++ {
+		items[i] = testPointItem{
+			fmt.Sprintf("%d", i),
+			PO(rand.Float64()*360-180, rand.Float64()*180-90),
+			makeBenchFields(nFields),
+		}
+	}
+	col := New()
+	for i := 0; i < t.N; i++ {
+		col.Set(items[i].id, items[i].object, nil, items[i].fields)
+	}
+	t.ResetTimer()
+	for i := 0; i < t.N; i++ {
+		var scanIteration int
+		col.Scan(true, nil, nil, func(id string, obj geojson.Object, fields []float64) bool {
+			scanIteration++
+			return scanIteration <= 500
+		})
 	}
 }

@@ -90,8 +90,6 @@ func (s *Server) newScanner(
 		s:           s,
 		cursor:      cursor,
 		limit:       limit,
-		wheres:      wheres,
-		whereins:    whereins,
 		whereevals:  whereevals,
 		output:      output,
 		nofields:    nofields,
@@ -111,6 +109,27 @@ func (s *Server) newScanner(
 	if sc.col != nil {
 		sc.fmap = sc.col.FieldMap()
 		sc.farr = sc.col.FieldArr()
+		// This fills index value in wheres/whereins
+		// so we don't have to map string field names for each tested object
+		var ok bool
+		if len(wheres) > 0 {
+			sc.wheres = make([]whereT, len(wheres))
+			for i, where := range wheres {
+				if where.index, ok = sc.fmap[where.field]; !ok {
+					where.index = math.MaxInt32
+				}
+				sc.wheres[i] = where
+			}
+		}
+		if len(whereins) > 0 {
+			sc.whereins = make([]whereinT, len(whereins))
+			for i, wherein := range whereins {
+				if wherein.index, ok = sc.fmap[wherein.field]; !ok {
+					wherein.index = math.MaxInt32
+				}
+				sc.whereins[i] = wherein
+			}
+		}
 	}
 	sc.fvals = make([]float64, len(sc.farr))
 	return sc, nil
@@ -159,11 +178,8 @@ func (sc *scanner) fieldMatch(fields []float64, o geojson.Object) (fvals []float
 				continue
 			}
 			var value float64
-			idx, ok := sc.fmap[where.field]
-			if ok {
-				if len(fields) > idx {
-					value = fields[idx]
-				}
+			if where.index < len(fields) {
+				value = fields[where.index]
 			}
 			if !where.match(value) {
 				return
@@ -171,11 +187,8 @@ func (sc *scanner) fieldMatch(fields []float64, o geojson.Object) (fvals []float
 		}
 		for _, wherein := range sc.whereins {
 			var value float64
-			idx, ok := sc.fmap[wherein.field]
-			if ok {
-				if len(fields) > idx {
-					value = fields[idx]
-				}
+			if wherein.index < len(fields) {
+				value = fields[wherein.index]
 			}
 			if !wherein.match(value) {
 				return
@@ -195,12 +208,10 @@ func (sc *scanner) fieldMatch(fields []float64, o geojson.Object) (fvals []float
 			}
 		}
 	} else {
-		for idx := range sc.farr {
-			var value float64
-			if len(fields) > idx {
-				value = fields[idx]
-			}
-			sc.fvals[idx] = value
+		copy(sc.fvals, fields)
+		// fields might be shorter for this item, need to pad sw.fvals with zeros
+		for i := len(fields); i < len(sc.fvals); i++ {
+			sc.fvals[i] = 0
 		}
 		for _, where := range sc.wheres {
 			if where.field == "z" {
@@ -215,9 +226,8 @@ func (sc *scanner) fieldMatch(fields []float64, o geojson.Object) (fvals []float
 				continue
 			}
 			var value float64
-			idx, ok := sc.fmap[where.field]
-			if ok {
-				value = sc.fvals[idx]
+			if where.index < len(sc.fvals) {
+				value = sc.fvals[where.index]
 			}
 			if !where.match(value) {
 				return
@@ -225,9 +235,8 @@ func (sc *scanner) fieldMatch(fields []float64, o geojson.Object) (fvals []float
 		}
 		for _, wherein := range sc.whereins {
 			var value float64
-			idx, ok := sc.fmap[wherein.field]
-			if ok {
-				value = sc.fvals[idx]
+			if wherein.index < len(sc.fvals) {
+				value = sc.fvals[wherein.index]
 			}
 			if !wherein.match(value) {
 				return

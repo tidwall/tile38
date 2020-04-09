@@ -14,8 +14,10 @@ func subTestSearch(t *testing.T, mc *mockServer) {
 	runStep(t, mc, "INTERSECTS_CIRCLE", keys_INTERSECTS_CIRCLE_test)
 	runStep(t, mc, "WITHIN", keys_WITHIN_test)
 	runStep(t, mc, "WITHIN_CURSOR", keys_WITHIN_CURSOR_test)
+	runStep(t, mc, "WITHIN_CLIPBY", keys_WITHIN_CLIPBY_test)
 	runStep(t, mc, "INTERSECTS", keys_INTERSECTS_test)
 	runStep(t, mc, "INTERSECTS_CURSOR", keys_INTERSECTS_CURSOR_test)
+	runStep(t, mc, "INTERSECTS_CLIPBY", keys_INTERSECTS_CLIPBY_test)
 	runStep(t, mc, "SCAN_CURSOR", keys_SCAN_CURSOR_test)
 	runStep(t, mc, "SEARCH_CURSOR", keys_SEARCH_CURSOR_test)
 	runStep(t, mc, "MATCH", keys_MATCH_test)
@@ -143,6 +145,50 @@ func keys_WITHIN_CURSOR_test(mc *mockServer) error {
 	})
 }
 
+func keys_WITHIN_CLIPBY_test(mc *mockServer) error {
+	jagged := `{
+		"type":"Polygon",
+		"coordinates":[[
+			[-122.47781753540039,37.74655746554895],
+			[-122.48777389526366,37.7355619376922],
+			[-122.4707794189453,37.73271097867418],
+			[-122.46528625488281,37.735969208590504],
+			[-122.45189666748047,37.73922729512254],
+			[-122.4565315246582,37.75008654795525],
+			[-122.46683120727538,37.75307256315459],
+			[-122.47781753540039,37.74655746554895]
+		]]
+	}`
+
+	return mc.DoBatch([][]interface{}{
+		{"SET", "mykey", "point1", "FIELD", "foo", 1, "POINT", 37.73963454585715, -122.4810791015625}, {"OK"},
+		{"SET", "mykey", "point2", "FIELD", "foo", 2, "POINT", 37.75130811419222, -122.47438430786133}, {"OK"},
+		{"SET", "mykey", "point3", "FIELD", "foo", 1, "POINT", 37.74816932695052, -122.47713088989258}, {"OK"},
+		{"SET", "mykey", "point4", "FIELD", "foo", 2, "POINT", 37.74503040657439, -122.47571468353271}, {"OK"},
+		{"SET", "other", "jagged", "OBJECT", jagged}, {"OK"},
+
+		{"WITHIN", "mykey", "IDS", "GET", "other", "jagged"}, {"[0 [point1 point4]]"},
+		{"WITHIN", "mykey", "IDS", "BOUNDS",
+			37.737734023260884, -122.47816085815431, 37.74886496155229, -122.45464324951172,
+		}, {"[0 [point3 point4]]"},
+		{"WITHIN", "mykey", "IDS", "GET", "other", "jagged", "CLIPBY", "BOUNDS",
+			37.737734023260884, -122.47816085815431, 37.74886496155229, -122.45464324951172,
+		}, {"[0 [point4]]"},
+		{"WITHIN", "mykey", "IDS", "BOUNDS",
+			37.74411415606583, -122.48034954071045, 37.7536833241461, -122.47163772583008,
+		}, {"[0 [point2 point3 point4]]"},
+		{"WITHIN", "mykey", "IDS", "GET", "other", "jagged", "CLIPBY", "BOUNDS",
+			37.74411415606583, -122.48034954071045, 37.7536833241461, -122.47163772583008,
+		}, {"[0 [point4]]"},
+		{"WITHIN", "mykey", "IDS", "GET", "other", "jagged",
+			"CLIPBY", "BOUNDS",
+			37.74411415606583, -122.48034954071045, 37.7536833241461, -122.47163772583008,
+			"CLIPBY", "BOUNDS",
+			37.737734023260884, -122.47816085815431, 37.74886496155229, -122.45464324951172,
+		}, {"[0 [point4]]"},
+	})
+}
+
 func keys_INTERSECTS_test(mc *mockServer) error {
 	return mc.DoBatch([][]interface{}{
 		{"SET", "mykey", "point1", "POINT", 37.7335, -122.4412}, {"OK"},
@@ -190,6 +236,50 @@ func keys_INTERSECTS_test(mc *mockServer) error {
 		{"SET", "key7", "multipoly17", "OBJECT", `{"type":"MultiPolygon","coordinates":[[[[-122.44056701660155,37.7332964524295],[-122.44029879570007,37.7332964524295],[-122.44029879570007,37.73375464605226],[-122.44056701660155,37.73375464605226],[-122.44056701660155,37.7332964524295]]],[[[-122.44032025337218,37.73267703802467],[-122.44013786315918,37.73267703802467],[-122.44013786315918,37.732838255971316],[-122.44032025337218,37.732838255971316],[-122.44032025337218,37.73267703802467]]]]}`}, {"OK"},
 		{"SET", "key7", "multipoly17.1", "OBJECT", `{"type":"MultiPolygon","coordinates":[[[[-122.4407172203064,37.73270249351328],[-122.44049191474916,37.73270249351328],[-122.44049191474916,37.73286371140448],[-122.4407172203064,37.73286371140448],[-122.4407172203064,37.73270249351328]]],[[[-122.44032025337218,37.73267703802467],[-122.44013786315918,37.73267703802467],[-122.44013786315918,37.732838255971316],[-122.44032025337218,37.732838255971316],[-122.44032025337218,37.73267703802467]]]]}`}, {"OK"},
 		{"INTERSECTS", "key7", "IDS", "GET", "mykey", "multipoly5"}, {"[0 [multipoly15 multipoly16 multipoly17]]"},
+	})
+}
+
+func keys_INTERSECTS_CLIPBY_test(mc *mockServer) error {
+	jagged := `{
+		"type":"Polygon",
+		"coordinates":[[
+			[-122.47781753540039,37.74655746554895],
+			[-122.48777389526366,37.7355619376922],
+			[-122.4707794189453,37.73271097867418],
+			[-122.46528625488281,37.735969208590504],
+			[-122.45189666748047,37.73922729512254],
+			[-122.4565315246582,37.75008654795525],
+			[-122.46683120727538,37.75307256315459],
+			[-122.47781753540039,37.74655746554895]
+		]]
+	}`
+
+	return mc.DoBatch([][]interface{}{
+		{"SET", "mykey", "point1", "FIELD", "foo", 1, "POINT", 37.73963454585715, -122.4810791015625}, {"OK"},
+		{"SET", "mykey", "point2", "FIELD", "foo", 2, "POINT", 37.75130811419222, -122.47438430786133}, {"OK"},
+		{"SET", "mykey", "point3", "FIELD", "foo", 1, "POINT", 37.74816932695052, -122.47713088989258}, {"OK"},
+		{"SET", "mykey", "point4", "FIELD", "foo", 2, "POINT", 37.74503040657439, -122.47571468353271}, {"OK"},
+		{"SET", "other", "jagged", "OBJECT", jagged}, {"OK"},
+
+		{"INTERSECTS", "mykey", "IDS", "GET", "other", "jagged"}, {"[0 [point1 point4]]"},
+		{"INTERSECTS", "mykey", "IDS", "BOUNDS",
+			37.737734023260884, -122.47816085815431, 37.74886496155229, -122.45464324951172,
+		}, {"[0 [point3 point4]]"},
+		{"INTERSECTS", "mykey", "IDS", "GET", "other", "jagged", "CLIPBY", "BOUNDS",
+			37.737734023260884, -122.47816085815431, 37.74886496155229, -122.45464324951172,
+		}, {"[0 [point4]]"},
+		{"INTERSECTS", "mykey", "IDS", "BOUNDS",
+			37.74411415606583, -122.48034954071045, 37.7536833241461, -122.47163772583008,
+		}, {"[0 [point2 point3 point4]]"},
+		{"INTERSECTS", "mykey", "IDS", "GET", "other", "jagged", "CLIPBY", "BOUNDS",
+			37.74411415606583, -122.48034954071045, 37.7536833241461, -122.47163772583008,
+		}, {"[0 [point4]]"},
+		{"INTERSECTS", "mykey", "IDS", "GET", "other", "jagged",
+			"CLIPBY", "BOUNDS",
+			37.74411415606583, -122.48034954071045, 37.7536833241461, -122.47163772583008,
+			"CLIPBY", "BOUNDS",
+			37.737734023260884, -122.47816085815431, 37.74886496155229, -122.45464324951172,
+		}, {"[0 [point4]]"},
 	})
 }
 

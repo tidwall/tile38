@@ -18,6 +18,7 @@ var errIDNotFound = errors.New("id not found")
 var errIDAlreadyExists = errors.New("id already exists")
 var errPathNotFound = errors.New("path not found")
 var errKeyHasHooksSet = errors.New("key has hooks set")
+var errNotRectangle = errors.New("not a rectangle")
 
 func errInvalidArgument(arg string) error {
 	return fmt.Errorf("invalid argument '%s'", arg)

@@ -112,14 +112,20 @@ func (s *Server) newScanner(
 		// This fills index value in wheres/whereins
 		// so we don't have to map string field names for each tested object
 		var ok bool
-		for _, where := range wheres {
-			if where.index, ok = sc.fmap[where.field]; ok {
-				sc.wheres = append(sc.wheres, where)
+		if len(wheres) > 0 {
+			sc.wheres = make([]whereT, 0, len(wheres))
+			for _, where := range wheres {
+				if where.index, ok = sc.fmap[where.field]; ok {
+					sc.wheres = append(sc.wheres, where)
+				}
 			}
 		}
-		for _, wherein := range whereins {
-			if wherein.index, ok = sc.fmap[wherein.field]; ok {
-				sc.whereins = append(sc.whereins, wherein)
+		if len(whereins) > 0 {
+			sc.whereins = make([]whereinT, 0, len(whereins))
+			for _, wherein := range whereins {
+				if wherein.index, ok = sc.fmap[wherein.field]; ok {
+					sc.whereins = append(sc.whereins, wherein)
+				}
 			}
 		}
 	}

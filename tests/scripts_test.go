@@ -12,7 +12,6 @@ func subTestScripts(t *testing.T, mc *mockServer) {
 	runStep(t, mc, "READONLY", scripts_READONLY_test)
 	runStep(t, mc, "NONATOMIC", scripts_NONATOMIC_test)
 	runStep(t, mc, "ITERATE", scripts_ITERATE_test)
-	runStep(t, mc, "GET", scripts_GET_test)
 }
 
 func scripts_BASIC_test(mc *mockServer) error {
@@ -109,26 +108,36 @@ func scripts_ITERATE_test(mc *mockServer) error {
 		return {cursor, result}
 	`
 
+	script_nearby_ids := `
+        local result = {}
+		local cursor
+
+		local function process(iterator)
+			result[#result + 1] = iterator.id
+			return false  -- early stop, after the first object
+		end
+
+		cursor = tile38.iterate(
+			process, 'NEARBY', 'key2', 'ids', 'point', 37.7335, -122.4412)
+
+		return {cursor, result}
+	`
+
 	poly9 := `{"type":"Polygon","coordinates":[[[-122.44037926197052,37.73313523548048],[-122.44017541408539,37.73313523548048],[-122.44017541408539,37.73336857568778],[-122.44037926197052,37.73336857568778],[-122.44037926197052,37.73313523548048]]]}`
 
 	return mc.DoBatch([][]interface{}{
 		{"SET", "mykey", "poly8", "OBJECT", `{"type":"Polygon","coordinates":[[[-122.4408378,37.7341129],[-122.4408378,37.733],[-122.44,37.733],[-122.44,37.7341129],[-122.4408378,37.7341129]],[[-122.44060993194579,37.73345766902749],[-122.44044363498686,37.73345766902749],[-122.44044363498686,37.73355524732416],[-122.44060993194579,37.73355524732416],[-122.44060993194579,37.73345766902749]],[[-122.44060724973677,37.7336888869566],[-122.4402102828026,37.7336888869566],[-122.4402102828026,37.7339752567853],[-122.44060724973677,37.7339752567853],[-122.44060724973677,37.7336888869566]]]}`}, {"OK"},
 		{"SET", "key2", "poly9", "FIELD", "foo", 1, "FIELD", "bar", 10, "OBJECT", poly9}, {"OK"},
 		{"SET", "key2", "poly10", "OBJECT", `{"type":"Polygon","coordinates":[[[-122.44040071964262,37.73359343010089],[-122.4402666091919,37.73359343010089],[-122.4402666091919,37.73373767596864],[-122.44040071964262,37.73373767596864],[-122.44040071964262,37.73359343010089]]]}`}, {"OK"},
+		{"SET", "key2", "poly11", "OBJECT", `{"type":"Polygon","coordinates":[[[-122.44040071964262,37.73359343010089],[-122.4402666091919,37.73359343010089],[-122.4402666091919,37.73373767596864],[-122.44040071964262,37.73373767596864],[-122.44040071964262,37.73359343010089]]]}`}, {"OK"},
+		{"SET", "key2", "poly12", "OBJECT", `{"type":"Polygon","coordinates":[[[-122.44040071964262,37.73359343010089],[-122.4402666091919,37.73359343010089],[-122.4402666091919,37.73373767596864],[-122.44040071964262,37.73373767596864],[-122.44040071964262,37.73359343010089]]]}`}, {"OK"},
 
 		// Just make sure that we expect WITHIN to pick poly9 in this setup
 		{"WITHIN", "key2", "LIMIT", 1, "IDS", "GET", "mykey", "poly8"}, {"[1 [poly9]]"},
 
-		{"EVAL", script_ids, 0}, {"[1 [poly9]]"}, // early stop, cursor = 1
-		{"EVAL", script_obj, 0}, {"[0 [" + poly9 + "]]"}, // no early stop, cursor = 0
-		{"EVAL", script_fields, 0}, {"[1 [[1 10]]]"}, // early stop, cursor = 1
-	})
-}
-
-func scripts_GET_test(mc *mockServer) error {
-	return mc.DoBatch([][]interface{}{
-		{"EVALNA", "return tile38.get('mykey', 'myid')", "1", "mykey"}, {nil},
-		{"EVALNA", "return tile38.call('set', KEYS[1], ARGV[1], 'point', 33, -115)", "1", "mykey", "myid1"}, {"OK"},
-		{"EVALNA", "return tile38.get('mykey', 'myid1').object:json()", "1", "mykey", "myid1", "point"}, {`{"type":"Point","coordinates":[-115,33]}`},
+		{"EVAL", script_ids, 0}, {"[1 [poly9]]"},  // early stop, cursor = 1
+		{"EVAL", script_obj, 0}, {"[0 [" + poly9 + "]]"},  // no early stop, cursor = 0
+		{"EVAL", script_fields, 0}, {"[1 [[1 10]]]"},  // early stop, cursor = 1
+		{"EVAL", script_nearby_ids, 0}, {"[1 [poly10]]"},  // early stop, cursor = 1
 	})
 }

@@ -27,6 +27,11 @@ func scripts_BASIC_test(mc *mockServer) error {
 		{"EVAL", "return ARGV[1] .. ' and ' .. ARGV[2]", 0, "arg1", "arg2"}, {"arg1 and arg2"},
 		{"EVAL", "return tile38.sha1hex('asdf')", 0}, {"3da541559918a808c2402bba5012f6c60b27661c"},
 		{"EVAL", "return tile38.distance_to(37.7341129, -122.4408378, 37.733, -122.43)", 0}, {"961"},
+		{"EVAL", "return tile38.get('mykey', 'myid1')", "0"}, {nil},
+		{"EVAL", "return tile38.call('set', KEYS[1], ARGV[1], 'point', 33.1234, -115.1234)", "1", "mykey", "myid1"}, {"OK"},
+		{"EVAL", "local obj = tile38.get('mykey', 'myid1').object; return {tostring(obj.x), tostring(obj.y)}", "0"}, {"[-115.1234 33.1234]"},
+		{"EVAL", "return tile38.call('set', KEYS[1], ARGV[1], 'string', 'foobar')", "1", "mykey", "myid2"}, {"OK"},
+		{"EVAL", "local obj = tile38.get('mykey', 'myid2').object; return tostring(obj)", "0"}, {"foobar"},
 	})
 }
 
@@ -84,7 +89,7 @@ func scripts_ITERATE_test(mc *mockServer) error {
 		local cursor
 
 		local function process(iterator)
-			result[#result + 1] = iterator.object:json()
+			result[#result + 1] = iterator.object.json
 			return true  -- no early stop, go through all objects
 		end
 
@@ -135,9 +140,9 @@ func scripts_ITERATE_test(mc *mockServer) error {
 		// Just make sure that we expect WITHIN to pick poly9 in this setup
 		{"WITHIN", "key2", "LIMIT", 1, "IDS", "GET", "mykey", "poly8"}, {"[1 [poly9]]"},
 
-		{"EVAL", script_ids, 0}, {"[1 [poly9]]"},  // early stop, cursor = 1
-		{"EVAL", script_obj, 0}, {"[0 [" + poly9 + "]]"},  // no early stop, cursor = 0
-		{"EVAL", script_fields, 0}, {"[1 [[1 10]]]"},  // early stop, cursor = 1
-		{"EVAL", script_nearby_ids, 0}, {"[1 [poly10]]"},  // early stop, cursor = 1
+		{"EVAL", script_ids, 0}, {"[1 [poly9]]"}, // early stop, cursor = 1
+		{"EVAL", script_obj, 0}, {"[0 [" + poly9 + "]]"}, // no early stop, cursor = 0
+		{"EVAL", script_fields, 0}, {"[1 [[1 10]]]"}, // early stop, cursor = 1
+		{"EVAL", script_nearby_ids, 0}, {"[1 [poly10]]"}, // early stop, cursor = 1
 	})
 }

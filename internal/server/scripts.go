@@ -1201,77 +1201,98 @@ func registerLuaResultTypes(ls *lua.LState) {
 		return nil
 	}
 
-	gomt := ls.NewTypeMetatable(luaGeoJSONObjectTypeName)
-	ls.SetField(gomt, "__tostring", ls.NewFunction(func(ls *lua.LState) int {
+	geoContains := ls.NewFunction(func(ls *lua.LState) int {
 		obj := assertGObject(ls, 1)
-		ls.Push(lua.LString(obj.String()))
+		other := assertGObject(ls, 2)
+		ls.Push(lua.LBool(obj.Contains(other)))
 		return 1
-	}))
-	ls.SetField(gomt, "__index", ls.SetFuncs(
-		ls.NewTable(),
-		map[string]lua.LGFunction{
-			"empty": func(ls *lua.LState) int {
-				obj := assertGObject(ls, 1)
+	})
+
+	geoWithin := ls.NewFunction(func(ls *lua.LState) int {
+		obj := assertGObject(ls, 1)
+		other := assertGObject(ls, 2)
+		ls.Push(lua.LBool(obj.Within(other)))
+		return 1
+	})
+
+	geoIntersects := ls.NewFunction(func(ls *lua.LState) int {
+		obj := assertGObject(ls, 1)
+		other := assertGObject(ls, 2)
+		ls.Push(lua.LBool(obj.Intersects(other)))
+		return 1
+	})
+
+	geoDistance := ls.NewFunction(func(ls *lua.LState) int {
+		obj := assertGObject(ls, 1)
+		other := assertGObject(ls, 2)
+		ls.Push(lua.LNumber(obj.Distance(other)))
+		return 1
+	})
+
+	gomt := ls.NewTypeMetatable(luaGeoJSONObjectTypeName)
+	ls.SetFuncs(gomt, map[string]lua.LGFunction{
+		"__tostring": func(ls *lua.LState) int {
+			obj := assertGObject(ls, 1)
+			ls.Push(lua.LString(obj.String()))
+			return 1
+		},
+		"__index": func(ls *lua.LState) int {
+			obj := assertGObject(ls, 1)
+			v := ls.CheckString(2)
+			switch v {
+			case "empty":
 				ls.Push(lua.LBool(obj.Empty()))
 				return 1
-			},
-			"valid": func(ls *lua.LState) int {
-				obj := assertGObject(ls, 1)
+			case "valid":
 				ls.Push(lua.LBool(obj.Valid()))
 				return 1
-			},
-			"rect": func(ls *lua.LState) int {
-				obj := assertGObject(ls, 1)
+			case "rect":
 				ud := ls.NewUserData()
 				ud.Metatable = gomt
-				ud.Value = obj.Rect()
+				rect := obj.Rect()
+				ud.Value = geojson.NewRect(rect)
 				ls.Push(ud)
 				return 1
-			},
-			"center": func(ls *lua.LState) int {
-				obj := assertGObject(ls, 1)
+			case "center":
 				ud := ls.NewUserData()
 				ud.Metatable = gomt
-				ud.Value = obj.Center()
+				point := obj.Center()
+				ud.Value = geojson.NewPoint(point)
 				ls.Push(ud)
 				return 1
-			},
-			"contains": func(ls *lua.LState) int {
-				obj := assertGObject(ls, 1)
-				other := assertGObject(ls, 2)
-				ls.Push(lua.LBool(obj.Contains(other)))
+			case "contains":
+				ls.Push(geoContains)
 				return 1
-			},
-			"within": func(ls *lua.LState) int {
-				obj := assertGObject(ls, 1)
-				other := assertGObject(ls, 2)
-				ls.Push(lua.LBool(obj.Within(other)))
+			case "within":
+				ls.Push(geoWithin)
 				return 1
-			},
-			"intersects": func(ls *lua.LState) int {
-				obj := assertGObject(ls, 1)
-				other := assertGObject(ls, 2)
-				ls.Push(lua.LBool(obj.Intersects(other)))
+			case "intersects":
+				ls.Push(geoIntersects)
 				return 1
-			},
-			"json": func(ls *lua.LState) int {
-				obj := assertGObject(ls, 1)
+			case "json":
 				ls.Push(lua.LString(obj.JSON()))
 				return 1
-			},
-			"distance": func(ls *lua.LState) int {
-				obj := assertGObject(ls, 1)
-				other := assertGObject(ls, 2)
-				ls.Push(lua.LNumber(obj.Distance(other)))
+			case "distance":
+				ls.Push(geoDistance)
 				return 1
-			},
-			"num_points": func(ls *lua.LState) int {
-				obj := assertGObject(ls, 1)
+			case "num_points":
 				ls.Push(lua.LNumber(obj.NumPoints()))
 				return 1
-			},
+			case "x":
+				if pt, ok := obj.(*geojson.Point); ok {
+					ls.Push(lua.LNumber(pt.Base().X))
+					return 1
+				}
+			case "y":
+				if pt, ok := obj.(*geojson.Point); ok {
+					ls.Push(lua.LNumber(pt.Base().Y))
+					return 1
+				}
+			}
+			ls.RaiseError("unknown property %s", v)
+			return 0
 		},
-	))
+	})
 
 	assertIterator := func(ls *lua.LState, idx int) *luaScanIterator {
 		ud := ls.CheckUserData(idx)

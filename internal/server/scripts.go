@@ -1201,6 +1201,34 @@ func registerLuaResultTypes(ls *lua.LState) {
 		return nil
 	}
 
+	geoContains := ls.NewFunction(func(ls *lua.LState) int {
+		obj := assertGObject(ls, 1)
+		other := assertGObject(ls, 2)
+		ls.Push(lua.LBool(obj.Contains(other)))
+		return 1
+	})
+
+	geoWithin := ls.NewFunction(func(ls *lua.LState) int {
+		obj := assertGObject(ls, 1)
+		other := assertGObject(ls, 2)
+		ls.Push(lua.LBool(obj.Within(other)))
+		return 1
+	})
+
+	geoIntersects := ls.NewFunction(func(ls *lua.LState) int {
+		obj := assertGObject(ls, 1)
+		other := assertGObject(ls, 2)
+		ls.Push(lua.LBool(obj.Intersects(other)))
+		return 1
+	})
+
+	geoDistance := ls.NewFunction(func(ls *lua.LState) int {
+		obj := assertGObject(ls, 1)
+		other := assertGObject(ls, 2)
+		ls.Push(lua.LNumber(obj.Distance(other)))
+		return 1
+	})
+
 	gomt := ls.NewTypeMetatable(luaGeoJSONObjectTypeName)
 	ls.SetFuncs(gomt, map[string]lua.LGFunction{
 		"__tostring": func(ls *lua.LState) int {
@@ -1233,23 +1261,19 @@ func registerLuaResultTypes(ls *lua.LState) {
 				ls.Push(ud)
 				return 1
 			case "contains":
-				other := assertGObject(ls, 2)
-				ls.Push(lua.LBool(obj.Contains(other)))
+				ls.Push(geoContains)
 				return 1
 			case "within":
-				other := assertGObject(ls, 2)
-				ls.Push(lua.LBool(obj.Within(other)))
+				ls.Push(geoWithin)
 				return 1
 			case "intersects":
-				other := assertGObject(ls, 2)
-				ls.Push(lua.LBool(obj.Intersects(other)))
+				ls.Push(geoIntersects)
 				return 1
 			case "json":
 				ls.Push(lua.LString(obj.JSON()))
 				return 1
 			case "distance":
-				other := assertGObject(ls, 2)
-				ls.Push(lua.LNumber(obj.Distance(other)))
+				ls.Push(geoDistance)
 				return 1
 			case "num_points":
 				ls.Push(lua.LNumber(obj.NumPoints()))

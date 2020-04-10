@@ -750,18 +750,16 @@ func nextStep(step uint64, cursor Cursor, deadline *deadline.Deadline) {
 
 func geodeticDistAlgo(center [2]float64) func(
 	min, max [2]float64, data interface{}, item bool,
-	add func(min, max [2]float64, data interface{}, item bool, dist float64),
-) {
+) float64 {
 	const earthRadius = 6371e3
 	return func(
 		min, max [2]float64, data interface{}, item bool,
-		add func(min, max [2]float64, data interface{}, item bool, dist float64),
-	) {
-		add(min, max, data, item, earthRadius*pointRectDistGeodeticDeg(
+	) float64 {
+		return earthRadius * pointRectDistGeodeticDeg(
 			center[1], center[0],
 			min[1], min[0],
 			max[1], max[0],
-		))
+		)
 	}
 }
 

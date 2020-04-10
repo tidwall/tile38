@@ -12,6 +12,13 @@ type Interface interface {
 	Insert(min, max [2]float64, data interface{})
 	// Delete an item from the structure
 	Delete(min, max [2]float64, data interface{})
+	// Replace an item in the structure. This is effectively just a Delete
+	// followed by an Insert. But for some structures it may be possible to
+	// optimize the operation to avoid multiple passes
+	Replace(
+		oldMin, oldMax [2]float64, oldData interface{},
+		newMin, newMax [2]float64, newData interface{},
+	)
 	// Search the structure for items that intersects the rect param
 	Search(
 		min, max [2]float64,
@@ -81,38 +88,21 @@ func (index *Index) Children(parent interface{}, reuse []child.Child) (
 // largest dist.
 // Take a look at the SimpleBoxAlgo function for a usage example.
 func (index *Index) Nearby(
-	algo func(
-		min, max [2]float64, data interface{}, item bool,
-		add func(min, max [2]float64, data interface{}, item bool, dist float64),
-	),
+	algo func(min, max [2]float64, data interface{}, item bool) (dist float64),
 	iter func(min, max [2]float64, data interface{}, dist float64) bool,
 ) {
 	var q queue
 	var parent interface{}
 	var children []child.Child
 
-	var added []qnode
-	add := func(min, max [2]float64, data interface{}, item bool, dist float64) {
-		added = append(added, qnode{
-			dist: dist,
-			child: child.Child{
-				Data: data,
-				Min:  min,
-				Max:  max,
-				Item: item,
-			},
-		})
-	}
-
 	for {
 		// gather all children for parent
 		children = index.tree.Children(parent, children[:0])
 		for _, child := range children {
-			added = added[:0]
-			algo(child.Min, child.Max, child.Data, child.Item, add)
-			for _, node := range added {
-				q.push(node)
-			}
+			q.push(qnode{
+				dist:  algo(child.Min, child.Max, child.Data, child.Item),
+				child: child,
+			})
 		}
 		for {
 			node, ok := q.pop()
@@ -151,49 +141,44 @@ type qnode struct {
 	child child.Child
 }
 
-type queue struct {
-	nodes []qnode
-	len   int
-	size  int
-}
+type queue []qnode
 
 func (q *queue) push(node qnode) {
-	if q.nodes == nil {
-		q.nodes = make([]qnode, 2)
-	} else {
-		q.nodes = append(q.nodes, qnode{})
+	*q = append(*q, node)
+	nodes := *q
+	i := len(nodes) - 1
+	for parent := (i - 1) / 2; i != 0 && nodes[parent].dist > nodes[i].dist; parent = (i - 1) / 2 {
+		nodes[parent], nodes[i] = nodes[i], nodes[parent]
+		i = parent
 	}
-	i := q.len + 1
-	j := i / 2
-	for i > 1 && q.nodes[j].dist > node.dist {
-		q.nodes[i] = q.nodes[j]
-		i = j
-		j = j / 2
-	}
-	q.nodes[i] = node
-	q.len++
 }
 
 func (q *queue) pop() (qnode, bool) {
-	if q.len == 0 {
+	nodes := *q
+	if len(nodes) == 0 {
 		return qnode{}, false
 	}
-	n := q.nodes[1]
-	q.nodes[1] = q.nodes[q.len]
-	q.len--
-	var j, k int
-	i := 1
-	for i != q.len+1 {
-		k = q.len + 1
-		j = 2 * i
-		if j <= q.len && q.nodes[j].dist < q.nodes[k].dist {
-			k = j
+	var n qnode
+	n, nodes[0] = nodes[0], nodes[len(*q)-1]
+	nodes = nodes[:len(nodes)-1]
+	*q = nodes
+
+	i := 0
+	for {
+		smallest := i
+		left := i*2 + 1
+		right := i*2 + 2
+		if left < len(nodes) && nodes[left].dist <= nodes[smallest].dist {
+			smallest = left
 		}
-		if j+1 <= q.len && q.nodes[j+1].dist < q.nodes[k].dist {
-			k = j + 1
+		if right < len(nodes) && nodes[right].dist <= nodes[smallest].dist {
+			smallest = right
 		}
-		q.nodes[i] = q.nodes[k]
-		i = k
+		if smallest == i {
+			break
+		}
+		nodes[smallest], nodes[i] = nodes[i], nodes[smallest]
+		i = smallest
 	}
 	return n, true
 }
@@ -203,55 +188,6 @@ func (index *Index) Scan(
 	iter func(min, max [2]float64, data interface{}) bool,
 ) {
 	index.tree.Scan(iter)
-}
-
-// SimpleBoxAlgo performs box-distance algorithm on rectangles.
-func SimpleBoxAlgo(targetMin, targetMax [2]float64) (
-	algo func(
-		min, max [2]float64, data interface{}, item bool,
-		add func(min, max [2]float64, data interface{}, item bool, dist float64),
-	),
-) {
-	return func(
-		min, max [2]float64, data interface{}, item bool,
-		add func(min, max [2]float64, data interface{}, item bool, dist float64),
-	) {
-		add(min, max, data, item, boxDist(targetMin, targetMax, min, max))
-	}
-}
-
-func boxDist(amin, amax, bmin, bmax [2]float64) float64 {
-	var dist float64
-	var min, max float64
-	if amin[0] > bmin[0] {
-		min = amin[0]
-	} else {
-		min = bmin[0]
-	}
-	if amax[0] < bmax[0] {
-		max = amax[0]
-	} else {
-		max = bmax[0]
-	}
-	squared := min - max
-	if squared > 0 {
-		dist += squared * squared
-	}
-	if amin[1] > bmin[1] {
-		min = amin[1]
-	} else {
-		min = bmin[1]
-	}
-	if amax[1] < bmax[1] {
-		max = amax[1]
-	} else {
-		max = bmax[1]
-	}
-	squared = min - max
-	if squared > 0 {
-		dist += squared * squared
-	}
-	return dist
 }
 
 func (index *Index) svg(child child.Child, height int) []byte {
@@ -293,15 +229,6 @@ func (index *Index) svg(child child.Child, height int) []byte {
 	}
 	return out
 }
-
-const (
-	// Continue to first child rectangle and/or next sibling.
-	Continue = iota
-	// Ignore child rectangles but continue to next sibling.
-	Ignore
-	// Stop iterating
-	Stop
-)
 
 const svgScale = 4.0
 

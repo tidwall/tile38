@@ -255,35 +255,6 @@ func fit(min, max [2]float64, value interface{}, target *rect) {
 	target.data = value
 }
 
-type overlapsResult int
-
-const (
-	not overlapsResult = iota
-	intersects
-	contains
-)
-
-// overlaps detects if r insersects or contains b.
-// return not, intersects, contains
-func (r *rect) overlaps(b *rect) overlapsResult {
-	if b.min[0] > r.max[0] || b.max[0] < r.min[0] {
-		return not
-	}
-	if r.min[0] > b.min[0] || b.max[0] > r.max[0] {
-		if b.min[1] > r.max[1] || b.max[1] < r.min[1] {
-			return not
-		}
-		return intersects
-	}
-	if b.min[1] > r.max[1] || b.max[1] < r.min[1] {
-		return not
-	}
-	if r.min[1] > b.min[1] || b.max[1] > r.max[1] {
-		return intersects
-	}
-	return contains
-}
-
 // contains return struct when b is fully contained inside of n
 func (r *rect) intersects(b *rect) bool {
 	if b.min[0] > r.max[0] || b.max[0] < r.min[0] {
@@ -309,15 +280,24 @@ func (r *rect) search(
 				}
 			}
 		}
+	} else if height == 1 {
+		for i := 0; i < n.count; i++ {
+			if target.intersects(&n.boxes[i]) {
+				cn := n.boxes[i].data.(*node)
+				for i := 0; i < cn.count; i++ {
+					if target.intersects(&cn.boxes[i]) {
+						if !iter(cn.boxes[i].min, cn.boxes[i].max,
+							cn.boxes[i].data) {
+							return false
+						}
+					}
+				}
+			}
+		}
 	} else {
 		for i := 0; i < n.count; i++ {
-			switch target.overlaps(&n.boxes[i]) {
-			case intersects:
+			if target.intersects(&n.boxes[i]) {
 				if !n.boxes[i].search(target, height-1, iter) {
-					return false
-				}
-			case contains:
-				if !n.boxes[i].scan(height-1, iter) {
 					return false
 				}
 			}
@@ -333,11 +313,8 @@ func (tr *RTree) search(
 	if tr.root.data == nil {
 		return
 	}
-	res := target.overlaps(&tr.root)
-	if res == intersects {
+	if target.intersects(&tr.root) {
 		tr.root.search(target, tr.height, iter)
-	} else if res == contains {
-		tr.root.scan(tr.height, iter)
 	}
 }
 
@@ -360,6 +337,15 @@ func (r *rect) scan(
 		for i := 0; i < n.count; i++ {
 			if !iter(n.boxes[i].min, n.boxes[i].max, n.boxes[i].data) {
 				return false
+			}
+		}
+	} else if height == 1 {
+		for i := 0; i < n.count; i++ {
+			cn := n.boxes[i].data.(*node)
+			for j := 0; j < cn.count; j++ {
+				if !iter(cn.boxes[i].min, cn.boxes[j].max, cn.boxes[j].data) {
+					return false
+				}
 			}
 		}
 	} else {
@@ -537,4 +523,14 @@ func (tr *RTree) Children(
 		}
 	}
 	return children
+}
+
+// Replace an item in the structure. This is effectively just a Delete
+// followed by an Insert.
+func (tr *RTree) Replace(
+	oldMin, oldMax [2]float64, oldData interface{},
+	newMin, newMax [2]float64, newData interface{},
+) {
+	tr.Delete(oldMin, oldMax, oldData)
+	tr.Insert(newMin, newMax, newData)
 }

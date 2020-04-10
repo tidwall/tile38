@@ -19,17 +19,16 @@ func PO(x, y float64) *geojson.Point {
 	return geojson.NewPoint(geometry.Point{X: x, Y: y})
 }
 
-
 func BenchmarkFieldMatch(t *testing.B) {
 	rand.Seed(time.Now().UnixNano())
 	items := make([]testPointItem, t.N)
 	for i := 0; i < t.N; i++ {
 		items[i] = testPointItem{
 			PO(rand.Float64()*360-180, rand.Float64()*180-90),
-			[]float64{rand.Float64()*9+1, math.Round(rand.Float64()*30) + 1},
+			[]float64{rand.Float64()*9 + 1, math.Round(rand.Float64()*30) + 1},
 		}
 	}
-	sw := &scanWriter{
+	sw := &scanner{
 		wheres: []whereT{
 			{"foo", 0, false, 1, false, 3},
 			{"bar", 1, false, 10, false, 30},

@@ -19,6 +19,7 @@ func subTestSearch(t *testing.T, mc *mockServer) {
 	runStep(t, mc, "INTERSECTS_CURSOR", keys_INTERSECTS_CURSOR_test)
 	runStep(t, mc, "INTERSECTS_CLIPBY", keys_INTERSECTS_CLIPBY_test)
 	runStep(t, mc, "SCAN_CURSOR", keys_SCAN_CURSOR_test)
+	runStep(t, mc, "SCANLIMIT", keys_SCANLIMIT_test)
 	runStep(t, mc, "SEARCH_CURSOR", keys_SEARCH_CURSOR_test)
 	runStep(t, mc, "MATCH", keys_MATCH_test)
 	runStep(t, mc, "FIELDS", keys_FIELDS_search_test)
@@ -372,6 +373,23 @@ func keys_SCAN_CURSOR_test(mc *mockServer) error {
 			"[8 [id8]]"},
 		{"SCAN", "mykey", "CURSOR", 6, "LIMIT", 1, "WHERE", "foo", 8, 9, "IDS"}, {
 			"[8 [id8]]"},
+	})
+}
+
+func keys_SCANLIMIT_test(mc *mockServer) error {
+	return mc.DoBatch([][]interface{}{
+		{"SET", "mykey", "id1", "FIELD", "foo", 1, "STRING", "bar1"}, {"OK"},
+		{"SET", "mykey", "id2", "FIELD", "foo", 2, "STRING", "bar2"}, {"OK"},
+		{"SET", "mykey", "id3", "FIELD", "foo", 3, "STRING", "bar3"}, {"OK"},
+		{"SET", "mykey", "id4", "FIELD", "foo", 4, "STRING", "bar4"}, {"OK"},
+		{"SET", "mykey", "id5", "FIELD", "foo", 5, "STRING", "bar5"}, {"OK"},
+		{"SET", "mykey", "id6", "FIELD", "foo", 6, "STRING", "bar6"}, {"OK"},
+		{"SET", "mykey", "id7", "FIELD", "foo", 7, "STRING", "bar7"}, {"OK"},
+		{"SET", "mykey", "id8", "FIELD", "foo", 8, "STRING", "bar8"}, {"OK"},
+		{"SET", "mykey", "id9", "FIELD", "foo", 9, "STRING", "bar9"}, {"OK"},
+		{"SCAN", "mykey", "LIMIT", "2/3", "WHERE", "foo", 3, 10, "IDS"}, {"[3 [id3]]"},
+		{"SCAN", "mykey", "LIMIT", "2/3", "WHERE", "foo", 4, 10, "IDS"}, {"[3 []]"},
+		{"SCAN", "mykey", "LIMIT", "2/3", "WHERE", "foo", 1, 10, "IDS"}, {"[2 [id1 id2]]"},
 	})
 }
 

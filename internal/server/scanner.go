@@ -44,7 +44,7 @@ type scanner struct {
 	numberItems    uint64
 	nofields       bool
 	cursor         uint64
-	limit          uint64
+	limit          limitT
 	earlyStop      bool
 	once           bool
 	count          uint64
@@ -70,7 +70,7 @@ type ScanObjectParams struct {
 func (s *Server) newScanner(
 	collector scanCollector, key string, output outputT,
 	precision uint64, globPattern string, matchValues bool,
-	cursor, limit uint64, wheres []whereT, whereins []whereinT, whereevals []whereevalT, nofields bool,
+	cursor uint64, limit limitT, wheres []whereT, whereins []whereinT, whereevals []whereevalT, nofields bool,
 ) (
 	*scanner, error,
 ) {
@@ -79,17 +79,26 @@ func (s *Server) newScanner(
 		return nil, errors.New("invalid output type")
 	case outputIDs, outputObjects, outputCount, outputBounds, outputPoints, outputHashes:
 	}
-	if limit == 0 {
+	limitMatched := limit.matched
+	if limitMatched == 0 {
 		if output == outputCount {
-			limit = math.MaxUint64
+			limitMatched = math.MaxUint64
 		} else {
-			limit = limitItems
+			limitMatched = limitItems
 		}
 	}
+
+	limitScanned := limit.scanned
+	if limitScanned == 0 {
+		limitScanned = math.MaxUint64
+	}
 	sc := &scanner{
-		s:           s,
-		cursor:      cursor,
-		limit:       limit,
+		s:      s,
+		cursor: cursor,
+		limit: limitT{
+			matched: limitMatched,
+			scanned: limitScanned,
+		},
 		whereevals:  whereevals,
 		output:      output,
 		nofields:    nofields,
@@ -309,13 +318,17 @@ func (sc *scanner) writeObject(opts ScanObjectParams) bool {
 		sc.mu.Lock()
 		defer sc.mu.Unlock()
 	}
+	atScanLimit := sc.numberIters-sc.cursor == sc.limit.scanned
+	if atScanLimit {
+		sc.earlyStop = true
+	}
 	ok, keepGoing, _ := sc.testObject(opts.id, opts.o, opts.fields)
 	if !ok {
-		return keepGoing
+		return keepGoing && !atScanLimit
 	}
 	sc.count++
 	if sc.output == outputCount {
-		return sc.count < sc.limit
+		return sc.count < sc.limit.matched && !atScanLimit
 	}
 	if opts.clip != nil {
 		opts.o = clip.Clip(opts.o, opts.clip, &sc.s.geomIndexOpts)
@@ -324,11 +337,11 @@ func (sc *scanner) writeObject(opts ScanObjectParams) bool {
 	sc.numberItems++
 	// Regular stop is when we exhausted all objects.
 	// Early stop is when we either hit the limit or ProcessItem() returned false (scripts)
-	if sc.numberItems == sc.limit || !keepProcessing {
+	if sc.numberItems == sc.limit.matched || !keepProcessing {
 		sc.earlyStop = true
 		return false
 	}
-	return keepProcessing && keepGoing
+	return keepProcessing && keepGoing && !atScanLimit
 }
 
 type scanCollector interface {

@@ -88,7 +88,7 @@ func TestClipPolygon2(t *testing.T) {
 		},
 	}
 	polygon := PPO(exterior, holes)
-	clipped := Clip(polygon, RO(1.1, 0.8, 1.15, 2.1))
+	clipped := Clip(polygon, RO(1.1, 0.8, 1.15, 2.1), nil)
 	cp, ok := clipped.(*geojson.Polygon)
 	if !ok {
 		t.Fatal("wrong type")

@@ -232,6 +232,11 @@ func (whereeval whereevalT) match(fieldsWithNames map[string]float64) bool {
 	panic(fmt.Sprintf("Script returned value of type %s", ret.Type()))
 }
 
+type limitT struct {
+	matched uint64
+	scanned uint64
+}
+
 type searchScanBaseTokens struct {
 	key        string
 	cursor     uint64
@@ -249,7 +254,7 @@ type searchScanBaseTokens struct {
 	whereevals []whereevalT
 	nofields   bool
 	ulimit     bool
-	limit      uint64
+	limit      limitT
 	usparse    bool
 	sparse     uint8
 	desc       bool
@@ -675,7 +680,20 @@ func (s *Server) parseSearchScanBaseTokens(
 	}
 	if slimit != "" {
 		t.ulimit = true
-		if t.limit, err = strconv.ParseUint(slimit, 10, 64); err != nil || t.limit == 0 {
+		parts := strings.Split(slimit, "/")
+		switch len(parts) {
+		case 2:
+			if t.limit.scanned, err = strconv.ParseUint(parts[1], 10, 64); err != nil || t.limit.scanned == 0 {
+				err = errInvalidArgument(slimit)
+				return
+			}
+			fallthrough
+		case 1:
+			if t.limit.matched, err = strconv.ParseUint(parts[0], 10, 64); err != nil || t.limit.matched == 0 {
+				err = errInvalidArgument(slimit)
+				return
+			}
+		default:
 			err = errInvalidArgument(slimit)
 			return
 		}
@@ -688,7 +706,8 @@ func (s *Server) parseSearchScanBaseTokens(
 			return
 		}
 		t.sparse = uint8(sparse)
-		t.limit = math.MaxUint64
+		t.limit.matched = math.MaxUint64
+		t.limit.scanned = math.MaxUint64
 	}
 	vsout = vs
 	tout = t

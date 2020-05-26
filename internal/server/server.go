@@ -859,6 +859,15 @@ func (server *Server) handleInputCommand(client *Client, msg *Message) error {
 	case "aofshrink":
 		server.mu.RLock()
 		defer server.mu.RUnlock()
+	case "snapshot":
+		switch strings.ToLower(msg.Args[1]) {
+		case "load": // snapshot load is write
+			server.mu.Lock()
+			defer server.mu.Unlock()
+		default: // snapshot save is read
+			server.mu.RLock()
+			defer server.mu.RUnlock()
+		}
 	case "client":
 		server.mu.Lock()
 		defer server.mu.Unlock()
@@ -1059,7 +1068,7 @@ func (server *Server) command(msg *Message, client *Client) (
 		res, err = server.cmdConfigSet(msg)
 	case "config rewrite":
 		res, err = server.cmdConfigRewrite(msg)
-	case "config", "script":
+	case "config", "script", "snapshot":
 		// These get rewritten into "config foo" and "script bar"
 		err = fmt.Errorf("unknown command '%s'", msg.Args[0])
 		if len(msg.Args) > 1 {
@@ -1080,6 +1089,12 @@ func (server *Server) command(msg *Message, client *Client) (
 		res, err = server.cmdScriptExists(msg)
 	case "script flush":
 		res, err = server.cmdScriptFlush(msg)
+	case "snapshot save":
+		go server.saveSnapshot()
+		res = OKMessage(msg, time.Now())
+	case "snapshot load":
+		go server.loadSnapshot(msg)
+		res = OKMessage(msg, time.Now())
 	case "subscribe":
 		res, err = server.cmdSubscribe(msg)
 	case "psubscribe":

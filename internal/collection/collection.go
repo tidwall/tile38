@@ -1,7 +1,12 @@
 package collection
 
 import (
+	"encoding/binary"
+	"errors"
+	"io"
 	"math"
+	"os"
+	"path/filepath"
 	"runtime"
 
 	"github.com/tidwall/btree"
@@ -11,6 +16,7 @@ import (
 	"github.com/tidwall/geojson/geometry"
 	"github.com/tidwall/rbang"
 	"github.com/tidwall/tile38/internal/deadline"
+	"github.com/tidwall/tile38/internal/log"
 	"github.com/tidwall/tinybtree"
 )
 
@@ -68,6 +74,171 @@ func New() *Collection {
 		fieldValues: &fieldValues{},
 	}
 	return col
+}
+
+func (c *Collection) Save(dir string, snapshotId uint64) (err error) {
+	if err = c.saveFields(filepath.Join(dir, "fields"), snapshotId); err != nil {
+		log.Errorf("Failed to save fields")
+		return
+	}
+	log.Infof("Saved fields")
+	return
+}
+
+func (c *Collection) Load(dir string, snapshotId uint64) (err error) {
+	if err = c.loadFields(filepath.Join(dir, "fields"), snapshotId); err != nil {
+		log.Errorf("Failed to load fields")
+		return
+	}
+	log.Infof("Loaded fields")
+
+	return
+}
+
+func (c *Collection) saveFields(fieldsFile string, snapshotId uint64) (err error) {
+	var f *os.File
+	f, err = os.Create(fieldsFile)
+	log.Infof("Created fields file: %s", fieldsFile)
+	if err != nil {
+		return
+	}
+	defer func() {
+		if f.Close() != nil {
+			log.Errorf("Failed to close %s", fieldsFile)
+		}
+	}()
+
+	if err = binary.Write(f, binary.BigEndian, snapshotId); err != nil {
+		log.Errorf("Failed to write snapshotId into fields file")
+		return
+	}
+	log.Infof("Wrote snapshotId into fields file")
+
+	nFields := len(c.fieldMap)
+	if err = binary.Write(f, binary.BigEndian, uint64(nFields)); err != nil {
+		log.Errorf("Failed to write nFields into fields file")
+		return
+	}
+	log.Infof("Wrote nFields into fields file")
+
+	for name, idx := range c.fieldMap {
+		nameBytes := []byte(name)
+		nBytes := len(nameBytes)
+		if err = binary.Write(f, binary.BigEndian, uint64(nBytes)); err != nil {
+			log.Errorf("Failed to write nBytes into fields file")
+			return
+		}
+		log.Infof("Wrote nBytes into lenName file")
+
+		if _, err = f.Write(nameBytes); err != nil {
+			log.Errorf("Failed to write nameBytes into fields file")
+			return
+		}
+		log.Infof("Wrote nameBytes into fields file")
+
+		if err = binary.Write(f, binary.BigEndian, uint64(idx)); err != nil {
+			log.Errorf("Failed to write idx into fields file")
+			return
+		}
+		log.Infof("Wrote idx into fields file")
+	}
+
+	if err = saveFieldValues(f, c.fieldValues, len(c.fieldArr)); err != nil {
+		log.Errorf("Failed to save field values")
+		return
+	}
+
+	if err = binary.Write(f, binary.BigEndian, snapshotId); err != nil {
+		log.Errorf("Failed to write snapshotId into fields file")
+		return
+	}
+	log.Infof("Wrote snapshotId into fields file")
+
+	return
+}
+
+func (c * Collection) loadFields(fieldsFile string, snapshotId uint64) (err error) {
+	var f *os.File
+	f, err = os.Open(fieldsFile)
+	log.Infof("Opened fields file: %s", fieldsFile)
+	if err != nil {
+		return
+	}
+	defer func() {
+		if f.Close() != nil {
+			log.Errorf("Failed to close %s", fieldsFile)
+		}
+	}()
+
+	var word uint64
+	if _, err  = f.Seek(-8, io.SeekEnd); err != nil {
+		log.Errorf("Failed to seek the end of fields file")
+		return
+	}
+	if err = binary.Read(f, binary.BigEndian, &word); err != nil {
+		log.Errorf("Failed to read snapshotId from the end of fields file")
+		return
+	}
+	if word != snapshotId {
+		err = errors.New("SnapshotId at the end does not match")
+		log.Errorf("expected %v found %v", snapshotId, word)
+		return
+	}
+	if _, err  = f.Seek(0, io.SeekStart); err != nil {
+		log.Errorf("Failed to seek the beginning of fields file")
+		return
+	}
+	if err = binary.Read(f, binary.BigEndian, &word); err != nil {
+		log.Errorf("Failed to read snapshotId from the beginning of fields file")
+		return
+	}
+	if word != snapshotId {
+		err = errors.New("SnapshotId at the beginning does not match")
+		return
+	}
+
+	var nFields, nBytes, idx uint64
+	if err = binary.Read(f, binary.BigEndian, &nFields); err != nil {
+		log.Errorf("Failed to nFields from fields file")
+		return
+	}
+	log.Infof("Read nFields from fields file")
+
+	c.fieldMap = make(map[string]int)
+	for i := uint64(0); i < nFields; i++ {
+		if err = binary.Read(f, binary.BigEndian, &nBytes); err != nil {
+			log.Errorf("Failed to read nBytes from fields file")
+			return
+		}
+		log.Infof("Read nBytes from fields file")
+		nameBytes := make([]byte, nBytes)
+		if _, err = f.Read(nameBytes); err != nil {
+			log.Errorf("Failed to read nameBytes from fields file")
+			return
+		}
+		log.Infof("Read nameBytes from fields file")
+		if err = binary.Read(f, binary.BigEndian, &idx); err != nil {
+			log.Errorf("Failed to read idx from fields file")
+			return
+		}
+		log.Infof("Read idx from fields file")
+
+		field := string(nameBytes)
+		c.fieldMap[field] = int(idx)
+		c.addToFieldArr(field)
+	}
+
+	if c.fieldValues, err = loadFieldValues(f); err != nil {
+		log.Errorf("Failed to load field values")
+		return
+	}
+	log.Infof("Loaded field values")
+
+	log.Infof("map: %v", c.fieldMap)
+	log.Infof("arr: %v", c.fieldArr)
+	//log.Infof("values: %v", c.fieldValues)
+
+	return
 }
 
 // Count returns the number of objects in collection.

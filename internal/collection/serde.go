@@ -18,6 +18,12 @@ func (c *Collection) Save(dir string, snapshotId uint64) (err error) {
 		return
 	}
 	log.Infof("Saved fields")
+
+	if err = c.saveStats(filepath.Join(dir, "stats"), snapshotId); err != nil {
+		log.Errorf("Failed to save stats")
+		return
+	}
+	log.Infof("Saved stats")
 	return
 }
 
@@ -27,6 +33,139 @@ func (c *Collection) Load(dir string, snapshotId uint64) (err error) {
 		return
 	}
 	log.Infof("Loaded fields")
+
+	if err = c.loadStats(filepath.Join(dir, "stats"), snapshotId); err != nil {
+		log.Errorf("Failed to load stats")
+		return
+	}
+	log.Infof("Loaded stats")
+
+	return
+}
+
+func (c *Collection) saveStats(statsFile string, snapshotId uint64) (err error) {
+	var f *os.File
+	f, err = os.Create(statsFile)
+	log.Infof("Created stats file: %s", statsFile)
+	if err != nil {
+		return
+	}
+	defer func() {
+		if f.Close() != nil {
+			log.Errorf("Failed to close %s", statsFile)
+		}
+	}()
+
+	if err = binary.Write(f, binary.BigEndian, snapshotId); err != nil {
+		log.Errorf("Failed to write snapshotId into fields file")
+		return
+	}
+	log.Infof("Wrote snapshotId into stats file")
+
+	if err = binary.Write(f, binary.BigEndian, uint64(c.weight)); err != nil {
+		log.Errorf("Failed to write weight into fields file")
+		return
+	}
+	log.Infof("Wrote weight into stats file")
+
+	if err = binary.Write(f, binary.BigEndian, uint64(c.points)); err != nil {
+		log.Errorf("Failed to write points into fields file")
+		return
+	}
+	log.Infof("Wrote points into stats file")
+
+	if err = binary.Write(f, binary.BigEndian, uint64(c.objects)); err != nil {
+		log.Errorf("Failed to write objects into fields file")
+		return
+	}
+	log.Infof("Wrote objects into stats file")
+
+	if err = binary.Write(f, binary.BigEndian, uint64(c.nobjects)); err != nil {
+		log.Errorf("Failed to write nobjects into fields file")
+		return
+	}
+	log.Infof("Wrote nobjects into stats file")
+
+	if err = binary.Write(f, binary.BigEndian, snapshotId); err != nil {
+		log.Errorf("Failed to write snapshotId into stats file")
+		return
+	}
+	log.Infof("Wrote snapshotId into stats file")
+	return
+}
+
+func (c * Collection) loadStats(statsFile string, snapshotId uint64) (err error) {
+	var f *os.File
+	f, err = os.Open(statsFile)
+	log.Infof("Opened stats file: %s", statsFile)
+	if err != nil {
+		return
+	}
+	defer func() {
+		if f.Close() != nil {
+			log.Errorf("Failed to close %s", statsFile)
+		}
+	}()
+
+	var word uint64
+	if _, err = f.Seek(-8, io.SeekEnd); err != nil {
+		log.Errorf("Failed to seek the end of stats file")
+		return
+	}
+	if err = binary.Read(f, binary.BigEndian, &word); err != nil {
+		log.Errorf("Failed to read snapshotId from the end of stats file")
+		return
+	}
+	if word != snapshotId {
+		err = errors.New("SnapshotId at the end does not match")
+		log.Errorf("expected %v found %v", snapshotId, word)
+		return
+	}
+	if _, err = f.Seek(0, io.SeekStart); err != nil {
+		log.Errorf("Failed to seek the beginning of stats file")
+		return
+	}
+	if err = binary.Read(f, binary.BigEndian, &word); err != nil {
+		log.Errorf("Failed to read snapshotId from the beginning of stats file")
+		return
+	}
+	if word != snapshotId {
+		err = errors.New("SnapshotId at the beginning does not match")
+		return
+	}
+
+	if err = binary.Read(f, binary.BigEndian, &word); err != nil {
+		log.Errorf("Failed to read weight from stats file")
+		return
+	}
+	log.Infof("Read weight from stats file")
+	c.weight = int(word)
+
+	if err = binary.Read(f, binary.BigEndian, &word); err != nil {
+		log.Errorf("Failed to read points from stats file")
+		return
+	}
+	log.Infof("Read points from stats file")
+	c.points = int(word)
+
+	if err = binary.Read(f, binary.BigEndian, &word); err != nil {
+		log.Errorf("Failed to read objects from stats file")
+		return
+	}
+	log.Infof("Read objects from stats file")
+	c.objects = int(word)
+
+	if err = binary.Read(f, binary.BigEndian, &word); err != nil {
+		log.Errorf("Failed to read nobjects from stats file")
+		return
+	}
+	log.Infof("Read nobjects from stats file")
+	c.nobjects = int(word)
+
+	log.Infof("weight: %v", c.weight)
+	log.Infof("points: %v", c.points)
+	log.Infof("objects: %v", c.objects)
+	log.Infof("nobjects: %v", c.nobjects)
 
 	return
 }

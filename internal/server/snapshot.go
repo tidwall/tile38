@@ -37,6 +37,7 @@ func (s *Server) saveSnapshot() {
 			log.Errorf("Failed to create collection dir: %v", err)
 			return
 		}
+		log.Infof("Saving collection %s ...", key)
 		if err := col.Save(colDir, snapshotId); err != nil {
 			log.Errorf("Snapshot failed: %v", err)
 			return
@@ -78,6 +79,7 @@ func (s *Server) loadSnapshot(msg *Message) {
 	}
 
 	for _, key := range keys {
+		log.Infof("Loading collection %s ...", key)
 		colDir := filepath.Join(snapshotDir, key)
 		col := collection.New()
 		if err := col.Load(colDir, snapshotId); err != nil {
@@ -86,4 +88,5 @@ func (s *Server) loadSnapshot(msg *Message) {
 		}
 		s.setCol(key, col)
 	}
+	log.Infof("Loaded snapshot %s", snapshotIdStr)
 }

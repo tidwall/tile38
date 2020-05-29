@@ -2,12 +2,19 @@ package geoindex
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/tidwall/geoindex/child"
 )
 
 // Interface is a tree-like structure that contains geospatial data
 type Interface interface {
+	// Save tree to disk
+	Save(f io.Writer, saveValue func (w io.Writer, data interface{}) error) (err error)
+
+	// Load tree from disk
+	Load(f io.Reader, loadValue func (r io.Reader, obuf []byte) (interface{}, []byte, error)) (err error)
+
 	// Insert an item into the structure
 	Insert(min, max [2]float64, data interface{})
 	// Delete an item from the structure
@@ -55,6 +62,16 @@ func Wrap(tree Interface) *Index {
 // Insert an item into the index
 func (index *Index) Insert(min, max [2]float64, data interface{}) {
 	index.tree.Insert(min, max, data)
+}
+
+// Insert an item into the index
+func (index *Index) Save(f io.Writer, saveValue func (w io.Writer, value interface{}) error) (err error) {
+	return index.tree.Save(f, saveValue)
+}
+
+func (index *Index) Load(f io.Reader, loadValue func (r io.Reader, obuf []byte) (interface{}, []byte, error)) (err error) {
+	err = index.tree.Load(f, loadValue)
+	return
 }
 
 // Search the index for items that intersects the rect param
@@ -141,44 +158,49 @@ type qnode struct {
 	child child.Child
 }
 
-type queue []qnode
+type queue struct {
+	nodes []qnode
+	len   int
+	size  int
+}
 
 func (q *queue) push(node qnode) {
-	*q = append(*q, node)
-	nodes := *q
-	i := len(nodes) - 1
-	for parent := (i - 1) / 2; i != 0 && nodes[parent].dist > nodes[i].dist; parent = (i - 1) / 2 {
-		nodes[parent], nodes[i] = nodes[i], nodes[parent]
-		i = parent
+	if q.nodes == nil {
+		q.nodes = make([]qnode, 2)
+	} else {
+		q.nodes = append(q.nodes, qnode{})
 	}
+	i := q.len + 1
+	j := i / 2
+	for i > 1 && q.nodes[j].dist > node.dist {
+		q.nodes[i] = q.nodes[j]
+		i = j
+		j = j / 2
+	}
+	q.nodes[i] = node
+	q.len++
 }
 
 func (q *queue) pop() (qnode, bool) {
-	nodes := *q
-	if len(nodes) == 0 {
+	if q.len == 0 {
 		return qnode{}, false
 	}
-	var n qnode
-	n, nodes[0] = nodes[0], nodes[len(*q)-1]
-	nodes = nodes[:len(nodes)-1]
-	*q = nodes
-
-	i := 0
-	for {
-		smallest := i
-		left := i*2 + 1
-		right := i*2 + 2
-		if left < len(nodes) && nodes[left].dist <= nodes[smallest].dist {
-			smallest = left
+	n := q.nodes[1]
+	q.nodes[1] = q.nodes[q.len]
+	q.len--
+	var j, k int
+	i := 1
+	for i != q.len+1 {
+		k = q.len + 1
+		j = 2 * i
+		if j <= q.len && q.nodes[j].dist < q.nodes[k].dist {
+			k = j
 		}
-		if right < len(nodes) && nodes[right].dist <= nodes[smallest].dist {
-			smallest = right
+		if j+1 <= q.len && q.nodes[j+1].dist < q.nodes[k].dist {
+			k = j + 1
 		}
-		if smallest == i {
-			break
-		}
-		nodes[smallest], nodes[i] = nodes[i], nodes[smallest]
-		i = smallest
+		q.nodes[i] = q.nodes[k]
+		i = k
 	}
 	return n, true
 }

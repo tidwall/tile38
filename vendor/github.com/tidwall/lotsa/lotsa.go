@@ -3,12 +3,16 @@ package lotsa
 import (
 	"fmt"
 	"io"
+	"runtime"
 	"sync"
 	"time"
 )
 
 // Output is used to print elased time and ops/sec
 var Output io.Writer
+
+// MemUsage is used to output the memory usage
+var MemUsage bool
 
 // Ops executed a number of operations over a multiple goroutines.
 // count is the number of operations.
@@ -18,8 +22,13 @@ func Ops(count, threads int, op func(i, thread int)) {
 	var start time.Time
 	var wg sync.WaitGroup
 	wg.Add(threads)
+	var ms1 runtime.MemStats
 	output := Output
 	if output != nil {
+		if MemUsage {
+			runtime.GC()
+			runtime.ReadMemStats(&ms1)
+		}
 		start = time.Now()
 	}
 	for i := 0; i < threads; i++ {
@@ -35,15 +44,16 @@ func Ops(count, threads int, op func(i, thread int)) {
 		}(i, s, e)
 	}
 	wg.Wait()
+
 	if output != nil {
 		dur := time.Since(start)
-		var ss string
-		if threads != 1 {
-			ss = fmt.Sprintf("over %d threads ", threads)
+		var alloc uint64
+		if MemUsage {
+			var ms2 runtime.MemStats
+			runtime.ReadMemStats(&ms2)
+			alloc = ms2.HeapAlloc - ms1.HeapAlloc
 		}
-		fmt.Fprintf(output, "%s ops %sin %.0fms %s/sec\n",
-			commaize(count), ss, dur.Seconds()*1000,
-			commaize(int(float64(count)/dur.Seconds())))
+		WriteOutput(output, count, threads, dur, alloc)
 	}
 }
 
@@ -56,4 +66,42 @@ func commaize(n int) string {
 		s2 = string(s1[i]) + s2
 	}
 	return s2
+}
+
+func memstr(alloc uint64) string {
+	switch {
+	case alloc <= 1024:
+		return fmt.Sprintf("%d bytes", alloc)
+	case alloc <= 1024*1024:
+		return fmt.Sprintf("%.1f KB", float64(alloc)/1024)
+	case alloc <= 1024*1024*1024:
+		return fmt.Sprintf("%.1f MB", float64(alloc)/1024/1024)
+	default:
+		return fmt.Sprintf("%.1f GB", float64(alloc)/1024/1024/1024)
+	}
+}
+
+// WriteOutput writes an output line to the specified writer
+func WriteOutput(w io.Writer, count, threads int, elapsed time.Duration, alloc uint64) {
+	var ss string
+	if threads != 1 {
+		ss = fmt.Sprintf("over %d threads ", threads)
+	}
+	var nsop int
+	if count > 0 {
+		nsop = int(elapsed / time.Duration(count))
+	}
+	var allocstr string
+	if alloc > 0 {
+		var bops uint64
+		if count > 0 {
+			bops = alloc / uint64(count)
+		}
+		allocstr = fmt.Sprintf(", %s, %d bytes/op", memstr(alloc), bops)
+	}
+	fmt.Fprintf(w, "%s ops %sin %.0fms, %s/sec, %d ns/op%s\n",
+		commaize(count), ss, elapsed.Seconds()*1000,
+		commaize(int(float64(count)/elapsed.Seconds())),
+		nsop, allocstr,
+	)
 }

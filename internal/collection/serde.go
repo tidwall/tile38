@@ -1,6 +1,7 @@
 package collection
 
 import (
+	"bufio"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -106,37 +107,31 @@ func (c *Collection) saveStats(statsFile string, snapshotId uint64) (err error) 
 		log.Errorf("Failed to write snapshotId into fields file")
 		return
 	}
-	log.Infof("Wrote snapshotId into stats file")
 
 	if err = binary.Write(f, binary.BigEndian, uint64(c.weight)); err != nil {
 		log.Errorf("Failed to write weight into fields file")
 		return
 	}
-	log.Infof("Wrote weight into stats file")
 
 	if err = binary.Write(f, binary.BigEndian, uint64(c.points)); err != nil {
 		log.Errorf("Failed to write points into fields file")
 		return
 	}
-	log.Infof("Wrote points into stats file")
 
 	if err = binary.Write(f, binary.BigEndian, uint64(c.objects)); err != nil {
 		log.Errorf("Failed to write objects into fields file")
 		return
 	}
-	log.Infof("Wrote objects into stats file")
 
 	if err = binary.Write(f, binary.BigEndian, uint64(c.nobjects)); err != nil {
 		log.Errorf("Failed to write nobjects into fields file")
 		return
 	}
-	log.Infof("Wrote nobjects into stats file")
 
 	if err = binary.Write(f, binary.BigEndian, snapshotId); err != nil {
 		log.Errorf("Failed to write snapshotId into stats file")
 		return
 	}
-	log.Infof("Wrote snapshotId into stats file")
 	return
 }
 
@@ -163,34 +158,29 @@ func (c * Collection) loadStats(statsFile string, snapshotId uint64) (err error)
 		log.Errorf("Failed to read weight from stats file")
 		return
 	}
-	log.Infof("Read weight from stats file")
 	c.weight = int(word)
 
 	if err = binary.Read(f, binary.BigEndian, &word); err != nil {
 		log.Errorf("Failed to read points from stats file")
 		return
 	}
-	log.Infof("Read points from stats file")
 	c.points = int(word)
 
 	if err = binary.Read(f, binary.BigEndian, &word); err != nil {
 		log.Errorf("Failed to read objects from stats file")
 		return
 	}
-	log.Infof("Read objects from stats file")
 	c.objects = int(word)
 
 	if err = binary.Read(f, binary.BigEndian, &word); err != nil {
 		log.Errorf("Failed to read nobjects from stats file")
 		return
 	}
-	log.Infof("Read nobjects from stats file")
 	c.nobjects = int(word)
 
-	log.Infof("weight: %v", c.weight)
-	log.Infof("points: %v", c.points)
-	log.Infof("objects: %v", c.objects)
-	log.Infof("nobjects: %v", c.nobjects)
+	if err = verifySnapshotId(f, snapshotId); err != nil {
+		return
+	}
 
 	return
 }
@@ -212,14 +202,12 @@ func (c *Collection) saveFields(fieldsFile string, snapshotId uint64) (err error
 		log.Errorf("Failed to write snapshotId into fields file")
 		return
 	}
-	log.Infof("Wrote snapshotId into fields file")
 
 	nFields := len(c.fieldMap)
 	if err = binary.Write(f, binary.BigEndian, uint64(nFields)); err != nil {
 		log.Errorf("Failed to write nFields into fields file")
 		return
 	}
-	log.Infof("Wrote nFields into fields file")
 
 	for name, idx := range c.fieldMap {
 		nameBytes := []byte(name)
@@ -228,19 +216,16 @@ func (c *Collection) saveFields(fieldsFile string, snapshotId uint64) (err error
 			log.Errorf("Failed to write nBytes into fields file")
 			return
 		}
-		log.Infof("Wrote nBytes into lenName file")
 
 		if _, err = f.Write(nameBytes); err != nil {
 			log.Errorf("Failed to write nameBytes into fields file")
 			return
 		}
-		log.Infof("Wrote nameBytes into fields file")
 
 		if err = binary.Write(f, binary.BigEndian, uint64(idx)); err != nil {
 			log.Errorf("Failed to write idx into fields file")
 			return
 		}
-		log.Infof("Wrote idx into fields file")
 	}
 
 	if err = saveFieldValues(f, c.fieldValues, len(c.fieldArr)); err != nil {
@@ -252,7 +237,6 @@ func (c *Collection) saveFields(fieldsFile string, snapshotId uint64) (err error
 		log.Errorf("Failed to write snapshotId into fields file")
 		return
 	}
-	log.Infof("Wrote snapshotId into fields file")
 
 	return
 }
@@ -279,7 +263,6 @@ func (c * Collection) loadFields(fieldsFile string, snapshotId uint64) (err erro
 		log.Errorf("Failed to nFields from fields file")
 		return
 	}
-	log.Infof("Read nFields from fields file")
 
 	c.fieldMap = make(map[string]int)
 	for i := uint64(0); i < nFields; i++ {
@@ -287,18 +270,15 @@ func (c * Collection) loadFields(fieldsFile string, snapshotId uint64) (err erro
 			log.Errorf("Failed to read nBytes from fields file")
 			return
 		}
-		log.Infof("Read nBytes from fields file")
 		nameBytes := make([]byte, nBytes)
 		if _, err = io.ReadFull(f, nameBytes); err != nil {
 			log.Errorf("Failed to read nameBytes from fields file")
 			return
 		}
-		log.Infof("Read nameBytes from fields file")
 		if err = binary.Read(f, binary.BigEndian, &idx); err != nil {
 			log.Errorf("Failed to read idx from fields file")
 			return
 		}
-		log.Infof("Read idx from fields file")
 
 		field := string(nameBytes)
 		c.fieldMap[field] = int(idx)
@@ -309,11 +289,10 @@ func (c * Collection) loadFields(fieldsFile string, snapshotId uint64) (err erro
 		log.Errorf("Failed to load field values")
 		return
 	}
-	log.Infof("Loaded field values")
 
-	log.Infof("map: %v", c.fieldMap)
-	log.Infof("arr: %v", c.fieldArr)
-	//log.Infof("values: %v", c.fieldValues)
+	if err = verifySnapshotId(f, snapshotId); err != nil {
+		return
+	}
 
 	return
 }
@@ -325,31 +304,25 @@ func saveFieldValues(f *os.File, fv *fieldValues, nCols int) (err error) {
 		log.Errorf("Failed to write nFreelistBytes into fields file")
 		return
 	}
-	log.Infof("Wrote nFreelistBytes into fields file")
 
 	if _, err = f.Write(freeListBytes); err != nil {
 		log.Errorf("Failed to write freeList into fields file")
 		return
 	}
-	log.Infof("Wrote freeList into fields file")
 
 	nRows := len(fv.data)
 	if err = binary.Write(f, binary.BigEndian, uint64(nRows)); err != nil {
 		log.Errorf("Failed to write nRows into fields file")
 		return
 	}
-	log.Infof("Wrote nRows into fields file")
 
 	if err = binary.Write(f, binary.BigEndian, uint64(nCols)); err != nil {
 		log.Errorf("Failed to write nCols into fields file")
 		return
 	}
-	log.Infof("Wrote nCols into fields file")
 
 	zeros := make([]float64, nCols)
 	for i, row := range fv.data {
-		// log.Infof("ROW %d: %v length %d", i, row, len(row))
-		// log.Infof("bytes: %v", floatsAsBytes(row))
 		if _, err = f.Write(floatsAsBytes(row)); err != nil {
 			log.Errorf("Failed to write row %d into fields file", i)
 			return
@@ -357,14 +330,12 @@ func saveFieldValues(f *os.File, fv *fieldValues, nCols int) (err error) {
 		// shorter rows need to be zero-padded at the end
 		if len(row) < nCols {
 			pad := zeros[:nCols-len(row)]
-			// log.Infof("pad bytes: %v", floatsAsBytes(pad))
 			if _, err = f.Write(floatsAsBytes(pad)); err != nil {
 				log.Errorf("Failed to zero-pad row %d into file", i)
 				return
 			}
 		}
 	}
-	log.Infof("Wrote data into fields file")
 	return
 }
 
@@ -374,30 +345,25 @@ func loadFieldValues(f *os.File) (fv *fieldValues, err error) {
 		log.Errorf("Failed to read nFreelistBytes from fields file")
 		return
 	}
-	log.Infof("Read nFreelistBytes from fields file: %v", nFreelistBytes)
 	byteFreeList := make([]byte, nFreelistBytes)
 	if _, err = io.ReadFull(f, byteFreeList); err != nil {
 		log.Errorf("Failed to read freeList from fields file")
 		return
 	}
-	log.Infof("Read freeList from fields file")
 
 	if err = binary.Read(f, binary.BigEndian, &nRows); err != nil {
 		log.Errorf("Failed to nRows from fields file")
 		return
 	}
-	log.Infof("Read nRows from fields file: %v", nRows)
 	if err = binary.Read(f, binary.BigEndian, &nCols); err != nil {
 		log.Errorf("Failed to nCols from fields file")
 		return
 	}
-	log.Infof("Read nCols from fields file: %v", nCols)
 	byteData := make([]byte, 8*nRows*nCols)
 	if _, err = io.ReadFull(f, byteData); err != nil {
 		log.Errorf("Failed to read fields data from fields file")
 		return
 	}
-	log.Infof("Read fields data from fields file")
 
 	fv = &fieldValues{
 		freelist: bytesAsFreeList(byteFreeList),
@@ -432,23 +398,34 @@ func (c *Collection) saveItems(dataFile string, treeFile string, snapshotId uint
 		}
 	}()
 
-	if err = binary.Write(df, binary.BigEndian, snapshotId); err != nil {
+	bdw := bufio.NewWriter(df)
+	defer func() {
+		if bdw.Flush() != nil {
+			log.Errorf("Failed to flush %s", dataFile)
+		}
+	}()
+
+	btw := bufio.NewWriter(tf)
+	defer func() {
+		if btw.Flush() != nil {
+			log.Errorf("Failed to flush %s", treeFile)
+		}
+	}()
+
+	if err = binary.Write(bdw, binary.BigEndian, snapshotId); err != nil {
 		log.Errorf("Failed to write snapshotId into items data file")
 		return
 	}
-	log.Infof("Wrote snapshotId into items data file")
 
-	if err = binary.Write(tf, binary.BigEndian, snapshotId); err != nil {
-		log.Errorf("Failed to write snapshotId into items data file")
+	if err = binary.Write(btw, binary.BigEndian, snapshotId); err != nil {
+		log.Errorf("Failed to write snapshotId into tree data file")
 		return
 	}
-	log.Infof("Wrote snapshotId into items tree file")
 
-	if err = binary.Write(df, binary.BigEndian, uint32(c.items.Len())); err != nil {
+	if err = binary.Write(bdw, binary.BigEndian, uint32(c.items.Len())); err != nil {
 		log.Errorf("Failed to write tree length into items data file")
 		return
 	}
-	log.Infof("Wrote tree length into items data file")
 
 	itemMap = make(map[*itemT]uint32, c.items.Len())
 	var itemNum uint32
@@ -460,40 +437,36 @@ func (c *Collection) saveItems(dataFile string, treeFile string, snapshotId uint
 		}
 
 		// using closure to access data file, into which we dump the actual data
-		if err = saveString(df, item.id); err != nil {
+		if err = saveString(bdw, item.id); err != nil {
 			return
 		}
-		if err = binary.Write(df, binary.BigEndian, int32(item.fieldValuesSlot)); err != nil {
+		if err = binary.Write(bdw, binary.BigEndian, int32(item.fieldValuesSlot)); err != nil {
 			return
 		}
-		if err = binary.Write(df, binary.BigEndian, objIsSpatial(item.obj)); err != nil {
+		if err = binary.Write(bdw, binary.BigEndian, objIsSpatial(item.obj)); err != nil {
 			return
 		}
-		if err = saveString(df, item.obj.String()); err != nil {
+		if err = saveString(bdw, item.obj.String()); err != nil {
 			return
 		}
-		log.Printf("SAVING: number %d ID %v", itemNum, item.id)
 
 		itemNum++
 		return
 	}
 
-	if err = c.items.Save(tf, itemSaver); err != nil {
+	if err = c.items.Save(btw, itemSaver); err != nil {
 		log.Errorf("Failed to save items tree and data")
 	}
-	log.Infof("Saved items tree and data")
 
-	if err = binary.Write(df, binary.BigEndian, snapshotId); err != nil {
-		log.Errorf("Failed to write snapshotId into items data file")
+	if err = binary.Write(bdw, binary.BigEndian, snapshotId); err != nil {
+		log.Errorf( "Failed to write snapshotId into items data file")
 		return
 	}
-	log.Infof("Wrote snapshotId into items data file")
 
-	if err = binary.Write(tf, binary.BigEndian, snapshotId); err != nil {
+	if err = binary.Write(btw, binary.BigEndian, snapshotId); err != nil {
 		log.Errorf("Failed to write snapshotId into items tree file")
 		return
 	}
-	log.Infof("Wrote snapshotId into items tree file")
 
 	return
 }
@@ -510,16 +483,16 @@ func (c * Collection) loadItemsData(dataFile string, snapshotId uint64, parseOpt
 			log.Errorf("Failed to close %s", dataFile)
 		}
 	}()
+	br := bufio.NewReader(f)
 
-	if err = verifySnapshotId(f, snapshotId); err != nil {
+	if err = verifySnapshotId(br, snapshotId); err != nil {
 		return
 	}
 
 	var word uint32
-	if err = binary.Read(f, binary.BigEndian, &word); err != nil {
+	if err = binary.Read(br, binary.BigEndian, &word); err != nil {
 		log.Errorf("Failed to read tree length from items data file")
 	}
-	log.Infof("Read tree length from items data file")
 	nItems := int(word)
 	itemList = make([]*itemT, nItems)
 	buf := make([]byte, 0)
@@ -528,19 +501,19 @@ func (c * Collection) loadItemsData(dataFile string, snapshotId uint64, parseOpt
 	var spatial bool
 	var fvs int32
 	for i := 0; i < nItems; i++ {
-		if idStr, buf, err = loadString(f, buf); err != nil {
+		if idStr, buf, err = loadString(br, buf); err != nil {
 			log.Errorf("Failed to read ID from data file, item %d", i)
 			return
 		}
-		if err = binary.Read(f, binary.BigEndian, &fvs); err != nil {
+		if err = binary.Read(br, binary.BigEndian, &fvs); err != nil {
 			log.Errorf("Failed to read fieldValuesSlot from data file, item %d", i)
 			return
 		}
-		if err = binary.Read(f, binary.BigEndian, &spatial); err != nil {
+		if err = binary.Read(br, binary.BigEndian, &spatial); err != nil {
 			log.Errorf("Failed to read spatial bool from data file, item %d", i)
 			return
 		}
-		if objStr, buf, err = loadString(f, buf); err != nil {
+		if objStr, buf, err = loadString(br, buf); err != nil {
 			log.Errorf("Failed to read object from data file, item %d", i)
 			return
 		}
@@ -552,10 +525,12 @@ func (c * Collection) loadItemsData(dataFile string, snapshotId uint64, parseOpt
 		} else {
 			obj = String(objStr)
 		}
-		log.Printf("LOADING: number %d ID %v", i, idStr)
 		itemList[i] = &itemT{id: idStr, fieldValuesSlot: fieldValuesSlot(fvs), obj: obj}
 	}
 
+	if err = verifySnapshotId(br, snapshotId); err != nil {
+		return
+	}
 	return
 }
 
@@ -571,8 +546,9 @@ func (c * Collection) loadItemsTree(treeFile string, itemList []*itemT, snapshot
 			log.Errorf("Failed to close %s", treeFile)
 		}
 	}()
+	br := bufio.NewReader(f)
 
-	if err = verifySnapshotId(f, snapshotId); err != nil {
+	if err = verifySnapshotId(br, snapshotId); err != nil {
 		return
 	}
 
@@ -584,11 +560,13 @@ func (c * Collection) loadItemsTree(treeFile string, itemList []*itemT, snapshot
 		return itemList[itemNum], obuf,nil
 	}
 
-	if c.items, err = tinybtree.Load(f, itemLoader); err != nil {
+	if c.items, err = tinybtree.Load(br, itemLoader); err != nil {
 		log.Errorf("Failed to load itemsTree")
 	}
-	log.Infof("Loaded itemsTree")
 
+	if err = verifySnapshotId(br, snapshotId); err != nil {
+		return
+	}
 	return
 }
 
@@ -604,12 +582,17 @@ func (c * Collection) saveValuesTree(treeFile string, itemMap map[*itemT]uint32,
 			log.Errorf("Failed to close %s", treeFile)
 		}
 	}()
+	bw := bufio.NewWriter(f)
+	defer func() {
+		if bw.Flush() != nil {
+			log.Errorf("Failed to flush %s", treeFile)
+		}
+	}()
 
-	if err = binary.Write(f, binary.BigEndian, snapshotId); err != nil {
+	if err = binary.Write(bw, binary.BigEndian, snapshotId); err != nil {
 		log.Errorf("Failed to write snapshotId into valuesTree file")
 		return
 	}
-	log.Infof("Wrote snapshotId into valuesTree file")
 
 	itemSaver := func (w io.Writer, itm btree.Item) (err error) {
 		item := itm.(*itemT)
@@ -619,16 +602,14 @@ func (c * Collection) saveValuesTree(treeFile string, itemMap map[*itemT]uint32,
 		return
 	}
 
-	if err = c.values.Save(f, itemSaver); err != nil {
+	if err = c.values.Save(bw, itemSaver); err != nil {
 		log.Errorf("Failed to save values tree")
 	}
-	log.Infof("Saved values tree")
 
-	if err = binary.Write(f, binary.BigEndian, snapshotId); err != nil {
+	if err = binary.Write(bw, binary.BigEndian, snapshotId); err != nil {
 		log.Errorf("Failed to write snapshotId into valuesTree file")
 		return
 	}
-	log.Infof("Wrote snapshotId into valuesTree file")
 	return
 }
 
@@ -644,8 +625,9 @@ func (c * Collection) loadValuesTree(treeFile string, itemList []*itemT, snapsho
 			log.Errorf("Failed to close %s", treeFile)
 		}
 	}()
+	br := bufio.NewReader(f)
 
-	if err = verifySnapshotId(f, snapshotId); err != nil {
+	if err = verifySnapshotId(br, snapshotId); err != nil {
 		return
 	}
 
@@ -657,11 +639,13 @@ func (c * Collection) loadValuesTree(treeFile string, itemList []*itemT, snapsho
 		return itemList[itemNum], obuf,nil
 	}
 
-	if c.values, err = btree.Load(f, itemLoader); err != nil {
+	if c.values, err = btree.Load(br, itemLoader); err != nil {
 		log.Errorf("Failed to load valuesTree")
 	}
-	log.Infof("Loaded valuesTree")
 
+	if err = verifySnapshotId(br, snapshotId); err != nil {
+		return
+	}
 	return
 }
 
@@ -677,12 +661,17 @@ func (c *Collection) saveIndexTree(indexFile string, itemMap map[*itemT]uint32, 
 			log.Errorf("Failed to close %s", indexFile)
 		}
 	}()
+	bw := bufio.NewWriter(f)
+	defer func() {
+		if bw.Flush() != nil {
+			log.Errorf("Failed to flush %s", indexFile)
+		}
+	}()
 
-	if err = binary.Write(f, binary.BigEndian, snapshotId); err != nil {
+	if err = binary.Write(bw, binary.BigEndian, snapshotId); err != nil {
 		log.Errorf("Failed to write snapshotId into indexTree file")
 		return
 	}
-	log.Infof("Wrote snapshotId into indexTree file")
 
 	itemSaver := func (w io.Writer, data interface{}) (err error) {
 		item := data.(*itemT)
@@ -692,16 +681,14 @@ func (c *Collection) saveIndexTree(indexFile string, itemMap map[*itemT]uint32, 
 		return
 	}
 
-	if err = c.index.Save(f, itemSaver); err != nil {
+	if err = c.index.Save(bw, itemSaver); err != nil {
 		log.Errorf("Failed to save indexTree")
 	}
-	log.Infof("Saved indexTree")
 
-	if err = binary.Write(f, binary.BigEndian, snapshotId); err != nil {
+	if err = binary.Write(bw, binary.BigEndian, snapshotId); err != nil {
 		log.Errorf("Failed to write snapshotId into IndexTree file")
 		return
 	}
-	log.Infof("Wrote snapshotId into indexTree file")
 	return
 }
 
@@ -717,8 +704,9 @@ func (c * Collection) loadIndexTree(treeFile string, itemList []*itemT, snapshot
 			log.Errorf("Failed to close %s", treeFile)
 		}
 	}()
+	br := bufio.NewReader(f)
 
-	if err = verifySnapshotId(f, snapshotId); err != nil {
+	if err = verifySnapshotId(br, snapshotId); err != nil {
 		return
 	}
 
@@ -731,10 +719,12 @@ func (c * Collection) loadIndexTree(treeFile string, itemList []*itemT, snapshot
 	}
 
 	c.index = geoindex.Wrap(&rbang.RTree{})
-	if err = c.index.Load(f, itemLoader); err != nil {
+	if err = c.index.Load(br, itemLoader); err != nil {
 		log.Errorf("Failed to load valuesTree")
 	}
-	log.Infof("Loaded valuesTree")
+	if err = verifySnapshotId(br, snapshotId); err != nil {
+		return
+	}
 
 	return
 }
@@ -774,7 +764,7 @@ func loadString(r io.Reader, buf []byte) (s string, newBuf []byte, err error) {
 		return
 	}
 	newBuf = ensureLen(buf, int(numBytes))
-	if _, err = r.Read(newBuf); err != nil {
+	if _, err = io.ReadFull(r, newBuf); err != nil {
 		return
 	}
 	return string(newBuf), newBuf,nil
@@ -811,31 +801,15 @@ func bytesAsFloats(row []byte) []float64 {
 	return *(*[]float64)(unsafe.Pointer(&row))
 }
 
-func verifySnapshotId(f *os.File, snapshotId uint64) (err error){
+func verifySnapshotId(w io.Reader, snapshotId uint64) (err error){
 	var word uint64
-	if _, err  = f.Seek(-8, io.SeekEnd); err != nil {
-		log.Errorf("Failed to seek the end of file")
-		return
-	}
-	if err = binary.Read(f, binary.BigEndian, &word); err != nil {
-		log.Errorf("Failed to read snapshotId from the end of file")
+	if err = binary.Read(w, binary.BigEndian, &word); err != nil {
+		log.Errorf("Failed to read snapshotId")
 		return
 	}
 	if word != snapshotId {
-		err = errors.New("SnapshotId at the end does not match")
+		err = errors.New("SnapshotId does not match")
 		log.Errorf("expected %v found %v", snapshotId, word)
-		return
-	}
-	if _, err  = f.Seek(0, io.SeekStart); err != nil {
-		log.Errorf("Failed to seek the beginning of file")
-		return
-	}
-	if err = binary.Read(f, binary.BigEndian, &word); err != nil {
-		log.Errorf("Failed to read snapshotId from the beginning of file")
-		return
-	}
-	if word != snapshotId {
-		err = errors.New("SnapshotId at the beginning does not match")
 		return
 	}
 	return

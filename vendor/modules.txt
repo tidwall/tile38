@@ -74,13 +74,13 @@ github.com/pierrec/xxHash/xxHash32
 github.com/rcrowley/go-metrics
 # github.com/streadway/amqp v0.0.0-20170926065634-cefed15a0bd8
 github.com/streadway/amqp
-# github.com/tidwall/btree v0.0.0-20170113224114-9876f1454cf0
+# github.com/tidwall/btree v0.0.0-20170113224114-9876f1454cf0 => /Users/aroitman/go/src/github.com/tidwall/btree
 github.com/tidwall/btree
 # github.com/tidwall/buntdb v1.1.0
 github.com/tidwall/buntdb
 # github.com/tidwall/cities v0.0.0-20190730194520-dbe1ae0b862c
 github.com/tidwall/cities
-# github.com/tidwall/geoindex v1.4.0 => github.com/housecanary/geoindex v1.4.0-allocfix
+# github.com/tidwall/geoindex v1.4.0 => /Users/aroitman/go/src/github.com/tidwall/geoindex
 github.com/tidwall/geoindex
 github.com/tidwall/geoindex/algo
 github.com/tidwall/geoindex/child
@@ -92,13 +92,13 @@ github.com/tidwall/geojson/geometry
 github.com/tidwall/gjson
 # github.com/tidwall/grect v0.0.0-20161006141115-ba9a043346eb
 github.com/tidwall/grect
-# github.com/tidwall/lotsa v0.0.0-20180225195211-a03631ac7f1c
+# github.com/tidwall/lotsa v1.0.1
 github.com/tidwall/lotsa
 # github.com/tidwall/match v1.0.1
 github.com/tidwall/match
 # github.com/tidwall/pretty v1.0.0
 github.com/tidwall/pretty
-# github.com/tidwall/rbang v1.2.1
+# github.com/tidwall/rbang v1.2.1 => /Users/aroitman/go/src/github.com/tidwall/rbang
 github.com/tidwall/rbang
 # github.com/tidwall/redbench v0.0.0-20181110173744-17c5b5b864a4
 github.com/tidwall/redbench
@@ -113,7 +113,7 @@ github.com/tidwall/rtree
 github.com/tidwall/rtree/base
 # github.com/tidwall/sjson v1.0.2
 github.com/tidwall/sjson
-# github.com/tidwall/tinybtree v0.0.0-20181217131827-de5932d649b5
+# github.com/tidwall/tinybtree v0.0.0-20181217131827-de5932d649b5 => /Users/aroitman/go/src/github.com/tidwall/tinybtree
 github.com/tidwall/tinybtree
 # github.com/tidwall/tinyqueue v0.0.0-20180302190814-1e39f5511563
 github.com/tidwall/tinyqueue

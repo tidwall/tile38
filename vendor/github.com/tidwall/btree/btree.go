@@ -822,6 +822,16 @@ func (t *BTree) Len() int {
 	return t.length
 }
 
+// Context returns the context of the tree.
+func (t *BTree) Context() interface{} {
+	return t.ctx
+}
+
+// SetContext will replace the context of the tree.
+func (t *BTree) SetContext(ctx interface{}) {
+	t.ctx = ctx
+}
+
 // Int implements the Item interface for integers.
 type Int int
 

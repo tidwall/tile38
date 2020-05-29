@@ -26,10 +26,12 @@ require (
 	github.com/stretchr/testify v1.4.0 // indirect
 	github.com/tidwall/btree v0.0.0-20170113224114-9876f1454cf0
 	github.com/tidwall/buntdb v1.1.0
+	github.com/tidwall/cities v0.0.0-20190730194520-dbe1ae0b862c // indirect
 	github.com/tidwall/geoindex v1.4.0
 	github.com/tidwall/geojson v1.1.13
 	github.com/tidwall/gjson v1.3.2
 	github.com/tidwall/grect v0.0.0-20161006141115-ba9a043346eb // indirect
+	github.com/tidwall/lotsa v0.0.0-20180225195211-a03631ac7f1c // indirect
 	github.com/tidwall/match v1.0.1
 	github.com/tidwall/pretty v1.0.0
 	github.com/tidwall/rbang v1.2.1
@@ -52,10 +54,4 @@ require (
 	layeh.com/gopher-json v0.0.0-20161224164157-c128cc74278b
 )
 
-replace github.com/tidwall/geoindex => /Users/aroitman/go/src/github.com/tidwall/geoindex
-
-replace github.com/tidwall/tinybtree => /Users/aroitman/go/src/github.com/tidwall/tinybtree
-
-replace github.com/tidwall/btree => /Users/aroitman/go/src/github.com/tidwall/btree
-
-replace github.com/tidwall/rbang => /Users/aroitman/go/src/github.com/tidwall/rbang
+replace github.com/tidwall/geoindex v1.4.0 => github.com/housecanary/geoindex v1.4.0-allocfix

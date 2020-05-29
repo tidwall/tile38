@@ -81,8 +81,6 @@ github.com/tidwall/grect v0.0.0-20161006141115-ba9a043346eb h1:5NSYaAdrnblKByzd7
 github.com/tidwall/grect v0.0.0-20161006141115-ba9a043346eb/go.mod h1:lKYYLFIr9OIgdgrtgkZ9zgRxRdvPYsExnYBsEAd8W5M=
 github.com/tidwall/lotsa v0.0.0-20180225195211-a03631ac7f1c h1:RPDCLM+i790uM7bB5TqKW5eFKbX1k5zZUsHVhZd2r/c=
 github.com/tidwall/lotsa v0.0.0-20180225195211-a03631ac7f1c/go.mod h1:X6NiU+4yHA3fE3Puvpnn1XMDrFZrE9JO2/w+UMuqgR8=
-github.com/tidwall/lotsa v1.0.1 h1:w4gpDvI7RdkgbMC0q5ndKqG2ffrwCgerUY/gM2TYkH4=
-github.com/tidwall/lotsa v1.0.1/go.mod h1:X6NiU+4yHA3fE3Puvpnn1XMDrFZrE9JO2/w+UMuqgR8=
 github.com/tidwall/match v1.0.1 h1:PnKP62LPNxHKTwvHHZZzdOAOCtsJTjo6dZLCwpKm5xc=
 github.com/tidwall/match v1.0.1/go.mod h1:LujAq0jyVjBy028G1WhWfIzbpQfMO8bBZ6Tyb0+pL9E=
 github.com/tidwall/pretty v1.0.0 h1:HsD+QiTn7sK6flMKIvNmpqz1qrpP3Ps6jOKIKMooyg4=

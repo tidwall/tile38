@@ -1,4 +1,4 @@
-# `rbang`
+# `R!tree`
 
 [![GoDoc](https://godoc.org/github.com/tidwall/rbang?status.svg)](https://godoc.org/github.com/tidwall/rbang)
 
@@ -12,7 +12,7 @@ inserts and replacements.
 
 ### Installing
 
-To start using rbang, install Go and run `go get`:
+To start using R!Tree, install Go and run `go get`:
 
 ```sh
 $ go get -u github.com/tidwall/rbang

@@ -319,15 +319,14 @@ func (c * Collection) loadFields(fieldsFile string, snapshotId uint64) (err erro
 }
 
 func saveFieldValues(f *os.File, fv *fieldValues, nCols int) (err error) {
-	freeListBytes := freeListAsBytes(fv.freelist)
-	nFreelistBytes := len(freeListBytes)
-	if err = binary.Write(f, binary.BigEndian, uint64(nFreelistBytes)); err != nil {
-		log.Errorf("Failed to write nFreelistBytes into fields file")
+	nFreeRows := len(fv.freelist)
+	if err = binary.Write(f, binary.BigEndian, uint64(nFreeRows)); err != nil {
+		log.Errorf("Failed to write nFreeRows into fields file")
 		return
 	}
-	log.Infof("Wrote nFreelistBytes into fields file")
+	log.Infof("Wrote nFreeRows into fields file")
 
-	if _, err = f.Write(freeListBytes); err != nil {
+	if _, err = f.Write(freeListAsBytes(fv.freelist)); err != nil {
 		log.Errorf("Failed to write freeList into fields file")
 		return
 	}
@@ -369,13 +368,13 @@ func saveFieldValues(f *os.File, fv *fieldValues, nCols int) (err error) {
 }
 
 func loadFieldValues(f *os.File) (fv *fieldValues, err error) {
-	var nRows, nCols, nFreelistBytes uint64
-	if err = binary.Read(f, binary.BigEndian, &nFreelistBytes); err != nil {
-		log.Errorf("Failed to read nFreelistBytes from fields file")
+	var nRows, nCols, nFreeRows uint64
+	if err = binary.Read(f, binary.BigEndian, &nFreeRows); err != nil {
+		log.Errorf("Failed to nFreeRows from fields file")
 		return
 	}
-	log.Infof("Read nFreelistBytes from fields file: %v", nFreelistBytes)
-	byteFreeList := make([]byte, nFreelistBytes)
+	log.Infof("Read nFreeRows from fields file: %v", nFreeRows)
+	byteFreeList := make([]byte, 4*nFreeRows)
 	if _, err = f.Read(byteFreeList); err != nil {
 		log.Errorf("Failed to read freeList from fields file")
 		return
@@ -782,18 +781,16 @@ func loadString(r io.Reader, buf []byte) (s string, newBuf []byte, err error) {
 
 
 func freeListAsBytes(row []fieldValuesSlot) []byte {
-	fvsSize := int(unsafe.Sizeof(fieldValuesSlot(0)))
 	header := *(*reflect.SliceHeader)(unsafe.Pointer(&row))
-	header.Len *= fvsSize
-	header.Cap *= fvsSize
+	header.Len *= 4
+	header.Cap *= 4
 	return *(*[]byte)(unsafe.Pointer(&header))
 }
 
 func bytesAsFreeList(row []byte) []fieldValuesSlot {
-	fvsSize := int(unsafe.Sizeof(fieldValuesSlot(0)))
 	header := *(*reflect.SliceHeader)(unsafe.Pointer(&row))
-	header.Len /= fvsSize
-	header.Cap /= fvsSize
+	header.Len /= 4
+	header.Cap /= 4
 	return *(*[]fieldValuesSlot)(unsafe.Pointer(&header))
 }
 

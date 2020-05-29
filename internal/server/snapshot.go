@@ -42,6 +42,7 @@ func (s *Server) saveSnapshot() {
 			log.Errorf("Snapshot failed: %v", err)
 			return
 		}
+		log.Infof("Collection %s saved", key)
 	}
 	log.Infof("Saved snapshot %s", snapshotIdStr)
 }
@@ -82,7 +83,7 @@ func (s *Server) loadSnapshot(msg *Message) {
 		log.Infof("Loading collection %s ...", key)
 		colDir := filepath.Join(snapshotDir, key)
 		col := collection.New()
-		if err := col.Load(colDir, snapshotId); err != nil {
+		if err := col.Load(colDir, snapshotId, &s.geomParseOpts); err != nil {
 			log.Errorf("Failed to load collection: %v", err)
 			return
 		}

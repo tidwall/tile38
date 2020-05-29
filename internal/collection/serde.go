@@ -783,32 +783,32 @@ func loadString(r io.Reader, buf []byte) (s string, newBuf []byte, err error) {
 
 func freeListAsBytes(row []fieldValuesSlot) []byte {
 	fvsSize := int(unsafe.Sizeof(fieldValuesSlot(0)))
-	header := *(*reflect.SliceHeader)(unsafe.Pointer(&row))
+	header := (*reflect.SliceHeader)(unsafe.Pointer(&row))
 	header.Len *= fvsSize
 	header.Cap *= fvsSize
-	return *(*[]byte)(unsafe.Pointer(&header))
+	return *(*[]byte)(unsafe.Pointer(&row))
 }
 
 func bytesAsFreeList(row []byte) []fieldValuesSlot {
 	fvsSize := int(unsafe.Sizeof(fieldValuesSlot(0)))
-	header := *(*reflect.SliceHeader)(unsafe.Pointer(&row))
+	header := (*reflect.SliceHeader)(unsafe.Pointer(&row))
 	header.Len /= fvsSize
 	header.Cap /= fvsSize
-	return *(*[]fieldValuesSlot)(unsafe.Pointer(&header))
+	return *(*[]fieldValuesSlot)(unsafe.Pointer(&row))
 }
 
 func floatsAsBytes(row []float64) []byte {
-	header := *(*reflect.SliceHeader)(unsafe.Pointer(&row))
+	header := (*reflect.SliceHeader)(unsafe.Pointer(&row))
 	header.Len *= 8
 	header.Cap *= 8
-	return *(*[]byte)(unsafe.Pointer(&header))
+	return *(*[]byte)(unsafe.Pointer(&row))
 }
 
 func bytesAsFloats(row []byte) []float64 {
-	header := *(*reflect.SliceHeader)(unsafe.Pointer(&row))
+	header := (*reflect.SliceHeader)(unsafe.Pointer(&row))
 	header.Len /= 8
 	header.Cap /= 8
-	return *(*[]float64)(unsafe.Pointer(&header))
+	return *(*[]float64)(unsafe.Pointer(&row))
 }
 
 func verifySnapshotId(f *os.File, snapshotId uint64) (err error){

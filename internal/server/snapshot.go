@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 
 	"github.com/tidwall/tile38/internal/collection"
 	"github.com/tidwall/tile38/internal/log"
@@ -31,19 +32,25 @@ func (s *Server) saveSnapshot() {
 			return true
 		})
 
+	var wg sync.WaitGroup
 	for key, col := range colByKey {
 		colDir := filepath.Join(snapshotDir, key)
 		if err := os.Mkdir(colDir, 0700); err != nil {
 			log.Errorf("Failed to create collection dir: %v", err)
 			return
 		}
-		log.Infof("Saving collection %s ...", key)
-		if err := col.Save(colDir, snapshotId); err != nil {
-			log.Errorf("Snapshot failed: %v", err)
-			return
-		}
-		log.Infof("Collection %s saved", key)
+		wg.Add(1)
+		go func(c *collection.Collection, k string) {
+			log.Infof("Saving collection %s ...", k)
+			if err := c.Save(colDir, snapshotId); err != nil {
+				log.Errorf("Collection %s failed: %v", k, err)
+				return
+			}
+			log.Infof("Collection %s saved", k)
+			wg.Done()
+		}(col, key)
 	}
+	wg.Wait()
 	log.Infof("Saved snapshot %s", snapshotIdStr)
 }
 
@@ -79,15 +86,22 @@ func (s *Server) loadSnapshot(msg *Message) {
 		}
 	}
 
+	var wg sync.WaitGroup
 	for _, key := range keys {
 		log.Infof("Loading collection %s ...", key)
 		colDir := filepath.Join(snapshotDir, key)
 		col := collection.New()
-		if err := col.Load(colDir, snapshotId, &s.geomParseOpts); err != nil {
-			log.Errorf("Failed to load collection: %v", err)
-			return
-		}
-		s.setCol(key, col)
+		wg.Add(1)
+		go func(c *collection.Collection, k string) {
+			if err := c.Load(colDir, snapshotId, &s.geomParseOpts); err != nil {
+				log.Errorf("Collection %s failed: %v", k, err)
+				return
+			}
+			s.setCol(k, c)
+			log.Infof("Collection %s loaded", k)
+			wg.Done()
+		}(col, key)
 	}
+	wg.Wait()
 	log.Infof("Loaded snapshot %s", snapshotIdStr)
 }

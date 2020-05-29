@@ -289,7 +289,7 @@ func (c * Collection) loadFields(fieldsFile string, snapshotId uint64) (err erro
 		}
 		log.Infof("Read nBytes from fields file")
 		nameBytes := make([]byte, nBytes)
-		if _, err = f.Read(nameBytes); err != nil {
+		if _, err = io.ReadFull(f, nameBytes); err != nil {
 			log.Errorf("Failed to read nameBytes from fields file")
 			return
 		}
@@ -376,7 +376,7 @@ func loadFieldValues(f *os.File) (fv *fieldValues, err error) {
 	}
 	log.Infof("Read nFreelistBytes from fields file: %v", nFreelistBytes)
 	byteFreeList := make([]byte, nFreelistBytes)
-	if _, err = f.Read(byteFreeList); err != nil {
+	if _, err = io.ReadFull(f, byteFreeList); err != nil {
 		log.Errorf("Failed to read freeList from fields file")
 		return
 	}
@@ -393,7 +393,7 @@ func loadFieldValues(f *os.File) (fv *fieldValues, err error) {
 	}
 	log.Infof("Read nCols from fields file: %v", nCols)
 	byteData := make([]byte, 8*nRows*nCols)
-	if _, err = f.Read(byteData); err != nil {
+	if _, err = io.ReadFull(f, byteData); err != nil {
 		log.Errorf("Failed to read fields data from fields file")
 		return
 	}

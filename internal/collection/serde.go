@@ -521,6 +521,7 @@ func (c * Collection) loadItemsData(dataFile string, snapshotId uint64, parseOpt
 	}
 	for i := 0; i < nWorkers; i++ {
 		go func() {
+			defer wg.Done()
 			var obj geojson.Object
 			for ti := range todoChannel {
 				if ti.spatial {

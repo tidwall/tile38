@@ -93,13 +93,13 @@ func (s *Server) loadSnapshot(msg *Message) {
 		col := collection.New()
 		wg.Add(1)
 		go func(c *collection.Collection, k string) {
+			defer wg.Done()
 			if err := c.Load(colDir, snapshotId, &s.geomParseOpts); err != nil {
 				log.Errorf("Collection %s failed: %v", k, err)
 				return
 			}
 			s.setCol(k, c)
 			log.Infof("Collection %s loaded", k)
-			wg.Done()
 		}(col, key)
 	}
 	wg.Wait()

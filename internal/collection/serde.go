@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
+	"sync"
 	"unsafe"
 
 	"github.com/tidwall/btree"
@@ -497,36 +499,74 @@ func (c * Collection) loadItemsData(dataFile string, snapshotId uint64, parseOpt
 	itemList = make([]*itemT, nItems)
 	buf := make([]byte, 0)
 	var idStr, objStr string
-	var obj geojson.Object
 	var spatial bool
 	var fvs int32
-	for i := 0; i < nItems; i++ {
-		if idStr, buf, err = loadString(br, buf); err != nil {
-			log.Errorf("Failed to read ID from data file, item %d", i)
-			return
-		}
-		if err = binary.Read(br, binary.BigEndian, &fvs); err != nil {
-			log.Errorf("Failed to read fieldValuesSlot from data file, item %d", i)
-			return
-		}
-		if err = binary.Read(br, binary.BigEndian, &spatial); err != nil {
-			log.Errorf("Failed to read spatial bool from data file, item %d", i)
-			return
-		}
-		if objStr, buf, err = loadString(br, buf); err != nil {
-			log.Errorf("Failed to read object from data file, item %d", i)
-			return
-		}
-		if spatial {
-			if obj, err = geojson.Parse(objStr, parseOpts); err != nil {
-				log.Errorf("Failed to parse object from data file, item %d", i)
+
+	type todoItem struct {
+		index int
+		spatial bool
+		id string
+		json string
+		slot fieldValuesSlot
+	}
+
+	todoChannel := make(chan todoItem, 1024)
+
+	var wg sync.WaitGroup
+
+	go func() {
+		for i := 0; i < nItems; i++ {
+			if idStr, buf, err = loadString(br, buf); err != nil {
+				log.Errorf("Failed to read ID from data file, item %d", i)
 				return
 			}
-		} else {
-			obj = String(objStr)
+			if err = binary.Read(br, binary.BigEndian, &fvs); err != nil {
+				log.Errorf("Failed to read fieldValuesSlot from data file, item %d", i)
+				return
+			}
+			if err = binary.Read(br, binary.BigEndian, &spatial); err != nil {
+				log.Errorf("Failed to read spatial bool from data file, item %d", i)
+				return
+			}
+			if objStr, buf, err = loadString(br, buf); err != nil {
+				log.Errorf("Failed to read object from data file, item %d", i)
+				return
+			}
+			todoChannel <- todoItem{
+				index: i,
+				spatial: spatial,
+				id: idStr,
+				json: objStr,
+				slot: fieldValuesSlot(fvs),
+			}
 		}
-		itemList[i] = &itemT{id: idStr, fieldValuesSlot: fieldValuesSlot(fvs), obj: obj}
+	}()
+	wg.Add(1)
+
+	var nWorkers int
+	if runtime.NumCPU() > 10 {
+		nWorkers = 10
+	} else {
+		nWorkers = 2
 	}
+	for i := 0; i < nWorkers; i++ {
+		go func() {
+			var obj geojson.Object
+			for ti := range todoChannel {
+				if ti.spatial {
+					if obj, err = geojson.Parse(ti.json, parseOpts); err != nil {
+						log.Errorf("Failed to parse object from data file, json %s", ti.json)
+						return
+					}
+				} else {
+					obj = String(objStr)
+				}
+				itemList[ti.index] = &itemT{id: ti.id, obj: obj, fieldValuesSlot: ti.slot}
+			}
+		}()
+		wg.Add(1)
+	}
+	wg.Wait()
 
 	if err = verifySnapshotId(br, snapshotId); err != nil {
 		return

@@ -513,36 +513,6 @@ func (c * Collection) loadItemsData(dataFile string, snapshotId uint64, parseOpt
 	todoChannel := make(chan todoItem, 1024)
 
 	var wg sync.WaitGroup
-
-	go func() {
-		for i := 0; i < nItems; i++ {
-			if idStr, buf, err = loadString(br, buf); err != nil {
-				log.Errorf("Failed to read ID from data file, item %d", i)
-				return
-			}
-			if err = binary.Read(br, binary.BigEndian, &fvs); err != nil {
-				log.Errorf("Failed to read fieldValuesSlot from data file, item %d", i)
-				return
-			}
-			if err = binary.Read(br, binary.BigEndian, &spatial); err != nil {
-				log.Errorf("Failed to read spatial bool from data file, item %d", i)
-				return
-			}
-			if objStr, buf, err = loadString(br, buf); err != nil {
-				log.Errorf("Failed to read object from data file, item %d", i)
-				return
-			}
-			todoChannel <- todoItem{
-				index: i,
-				spatial: spatial,
-				id: idStr,
-				json: objStr,
-				slot: fieldValuesSlot(fvs),
-			}
-		}
-	}()
-	wg.Add(1)
-
 	var nWorkers int
 	if runtime.NumCPU() > 10 {
 		nWorkers = 10
@@ -566,6 +536,34 @@ func (c * Collection) loadItemsData(dataFile string, snapshotId uint64, parseOpt
 		}()
 		wg.Add(1)
 	}
+
+	for i := 0; i < nItems; i++ {
+		if idStr, buf, err = loadString(br, buf); err != nil {
+			log.Errorf("Failed to read ID from data file, item %d", i)
+			return
+		}
+		if err = binary.Read(br, binary.BigEndian, &fvs); err != nil {
+			log.Errorf("Failed to read fieldValuesSlot from data file, item %d", i)
+			return
+		}
+		if err = binary.Read(br, binary.BigEndian, &spatial); err != nil {
+			log.Errorf("Failed to read spatial bool from data file, item %d", i)
+			return
+		}
+		if objStr, buf, err = loadString(br, buf); err != nil {
+			log.Errorf("Failed to read object from data file, item %d", i)
+			return
+		}
+		todoChannel <- todoItem{
+			index: i,
+			spatial: spatial,
+			id: idStr,
+			json: objStr,
+			slot: fieldValuesSlot(fvs),
+		}
+	}
+	close(todoChannel)
+
 	wg.Wait()
 
 	if err = verifySnapshotId(br, snapshotId); err != nil {

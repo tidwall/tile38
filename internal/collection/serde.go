@@ -530,7 +530,7 @@ func (c * Collection) loadItemsData(dataFile string, snapshotId uint64, parseOpt
 						return
 					}
 				} else {
-					obj = String(objStr)
+					obj = String(ti.json)
 				}
 				itemList[ti.index] = &itemT{id: ti.id, obj: obj, fieldValuesSlot: ti.slot}
 			}

@@ -1,25 +1,88 @@
 package server
 
 import (
-	"fmt"
+	"encoding/json"
 	"io/ioutil"
 	"math/rand"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"sync"
 
+	"github.com/tidwall/gjson"
 	"github.com/tidwall/tile38/internal/collection"
 	"github.com/tidwall/tile38/internal/log"
 )
+
+const (
+	Id     = "id"
+	Offset = "offset"
+)
+
+// Record of the last snapshot for this dataset
+type SnapshotMeta struct {
+	path string
+
+	mu sync.RWMutex
+
+	_idstr	string
+	_offset	uint64
+}
+
+func loadSnapshotMeta(path string) (sm *SnapshotMeta, err error) {
+	sm = &SnapshotMeta{path: path}
+	var jsonStr string
+	var data []byte
+	data, err = ioutil.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return sm, nil
+		} else {
+			return nil, err
+		}
+	}
+
+	jsonStr = string(data)
+	sm._idstr = gjson.Get(jsonStr, Id).String()
+	sm._offset = gjson.Get(jsonStr, Offset).Uint()
+
+	return sm, nil
+}
+
+func (sm *SnapshotMeta) save() error {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	m := make(map[string]interface{})
+	if sm._idstr != "" {
+		m[Id] = sm._idstr
+	}
+	if sm._offset != 0 {
+		m[Offset] = sm._offset
+	}
+	data, err := json.MarshalIndent(m, "","\t")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	err = ioutil.WriteFile(sm.path, data, 0600)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Server) getSnapshotDir(snapshotIdStr string) string {
+	return filepath.Join(s.dir, "snapshots", snapshotIdStr)
+}
 
 func (s *Server) saveSnapshot() {
 	snapshotId := rand.Uint64()
 	snapshotIdStr := strconv.FormatUint(snapshotId, 16)
 	log.Infof("Saving snapshot %s (%v)", snapshotIdStr, snapshotId)
 
-	snapshotDir := filepath.Join(
-		s.dir, fmt.Sprintf("snapshot.%s", snapshotIdStr))
+	snapshotDir := s.getSnapshotDir(snapshotIdStr)
 	if err := os.Mkdir(snapshotDir, 0700); err != nil {
 		log.Errorf("Failed to create snapshot dir: %v", err)
 		return
@@ -52,7 +115,30 @@ func (s *Server) saveSnapshot() {
 	}
 	wg.Wait()
 	log.Infof("Saved snapshot %s", snapshotIdStr)
+
+	if err:= s.writeAOF([]string{"SAVESNAPSHOT", snapshotIdStr}, nil); err != nil {
+		log.Errorf("Failed to write AOF for snapshot: %v", err)
+		return
+	}
+
+	s.snapshotMeta._idstr = snapshotIdStr
+	s.snapshotMeta._offset = uint64(s.aofsz)
+	if err := s.snapshotMeta.save(); err != nil {
+		log.Errorf("Failed to save snapshot meta: %v", err)
+		return
+	}
+
+	// Deployment must make push_snapshot script available on the system.
+	// The script must take two argument: ID string and the source dir.
+	log.Infof("Pushing snapshot %s...", snapshotIdStr)
+	cmd := exec.Command("push_snapshot", snapshotIdStr, snapshotDir)
+	if err := cmd.Run(); err != nil {
+		log.Errorf("Failed to push snapshot: %v", err)
+		return
+	}
+	log.Infof("Pushed snapshot %s", snapshotIdStr)
 }
+
 
 func (s *Server) loadSnapshot(msg *Message) {
 	vs := msg.Args[1:]
@@ -70,8 +156,17 @@ func (s *Server) loadSnapshot(msg *Message) {
 	}
 	log.Infof("Loading snapshot %s (%v)", snapshotIdStr, snapshotId)
 
-	snapshotDir := filepath.Join(
-		s.dir, fmt.Sprintf("snapshot.%s", snapshotIdStr))
+	snapshotDir := s.getSnapshotDir(snapshotIdStr)
+	if _, err := os.Stat(snapshotDir); os.IsNotExist(err) {
+		log.Infof("Pulling snapshot %s...", snapshotIdStr)
+		// Deployment must make pull_snapshot script available on the system.
+		// The script must take two argument: ID string and the destination dir.
+		cmd := exec.Command("pull_snapshot", snapshotIdStr, snapshotDir)
+		if err := cmd.Run(); err != nil {
+			log.Errorf("Failed to pull snapshot: %v", err)
+			return
+		}
+	}
 
 	dirs, err := ioutil.ReadDir(snapshotDir)
 	if err != nil {

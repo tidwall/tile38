@@ -77,6 +77,7 @@ type Server struct {
 	started time.Time
 	config  *Config
 	epc     *endpoint.Manager
+	snapshotMeta *SnapshotMeta
 
 	// env opts
 	geomParseOpts geojson.ParseOptions
@@ -170,6 +171,11 @@ func Serve(host string, port int, dir string, http bool) error {
 	}
 	var err error
 	server.config, err = loadConfig(filepath.Join(dir, "config"))
+	if err != nil {
+		return err
+	}
+
+	server.snapshotMeta, err = loadSnapshotMeta(filepath.Join(dir, "snapshot_meta"))
 	if err != nil {
 		return err
 	}

@@ -255,13 +255,19 @@ func Serve(host string, port int, dir string, http bool) error {
 	if err := server.migrateAOF(); err != nil {
 		return err
 	}
+	// Load last snapshot if we have it
+	if server.snapshotMeta._idstr != "" {
+		if err := server.doLoadSnapshot(server.snapshotMeta._idstr); err != nil {
+			return err
+		}
+	}
 	if core.AppendOnly == true {
 		f, err := os.OpenFile(core.AppendFileName, os.O_CREATE|os.O_RDWR, 0600)
 		if err != nil {
 			return err
 		}
 		server.aof = f
-		if err := server.loadAOF(); err != nil {
+		if err := server.loadAOF(server.snapshotMeta._offset); err != nil {
 			return err
 		}
 		defer func() {
@@ -1096,10 +1102,10 @@ func (server *Server) command(msg *Message, client *Client) (
 	case "script flush":
 		res, err = server.cmdScriptFlush(msg)
 	case "snapshot save":
-		go server.saveSnapshot()
+		go server.cmdSaveSnapshot()
 		res = OKMessage(msg, time.Now())
 	case "snapshot load":
-		go server.loadSnapshot(msg)
+		go server.cmdLoadSnapshot(msg)
 		res = OKMessage(msg, time.Now())
 	case "subscribe":
 		res, err = server.cmdSubscribe(msg)

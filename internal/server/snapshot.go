@@ -27,7 +27,7 @@ type SnapshotMeta struct {
 	mu sync.RWMutex
 
 	_idstr	string
-	_offset	uint64
+	_offset	int64
 }
 
 func loadSnapshotMeta(path string) (sm *SnapshotMeta, err error) {
@@ -45,7 +45,7 @@ func loadSnapshotMeta(path string) (sm *SnapshotMeta, err error) {
 
 	jsonStr = string(data)
 	sm._idstr = gjson.Get(jsonStr, Id).String()
-	sm._offset = gjson.Get(jsonStr, Offset).Uint()
+	sm._offset = gjson.Get(jsonStr, Offset).Int()
 
 	return sm, nil
 }
@@ -77,7 +77,7 @@ func (s *Server) getSnapshotDir(snapshotIdStr string) string {
 	return filepath.Join(s.dir, "snapshots", snapshotIdStr)
 }
 
-func (s *Server) saveSnapshot() {
+func (s *Server) cmdSaveSnapshot() {
 	snapshotId := rand.Uint64()
 	snapshotIdStr := strconv.FormatUint(snapshotId, 16)
 	log.Infof("Saving snapshot %s (%v)", snapshotIdStr, snapshotId)
@@ -122,7 +122,7 @@ func (s *Server) saveSnapshot() {
 	}
 
 	s.snapshotMeta._idstr = snapshotIdStr
-	s.snapshotMeta._offset = uint64(s.aofsz)
+	s.snapshotMeta._offset = int64(s.aofsz)
 	if err := s.snapshotMeta.save(); err != nil {
 		log.Errorf("Failed to save snapshot meta: %v", err)
 		return
@@ -140,7 +140,7 @@ func (s *Server) saveSnapshot() {
 }
 
 
-func (s *Server) loadSnapshot(msg *Message) {
+func (s *Server) cmdLoadSnapshot(msg *Message) {
 	vs := msg.Args[1:]
 	var ok bool
 	var snapshotIdStr string
@@ -148,14 +148,19 @@ func (s *Server) loadSnapshot(msg *Message) {
 		log.Errorf("Failed to find snapshot ID string: %v", msg.Args)
 		return
 	}
+	if err := s.doLoadSnapshot(snapshotIdStr); err != nil {
+		log.Errorf("Failed to load snapshot: %v", err)
+		return
+	}
+}
 
+func (s *Server) doLoadSnapshot(snapshotIdStr string) error {
 	snapshotId, err := strconv.ParseUint(snapshotIdStr, 16, 64)
 	if err != nil {
 		log.Errorf("Failed to parse snapshot id: %v", err)
-		return
+		return err
 	}
 	log.Infof("Loading snapshot %s (%v)", snapshotIdStr, snapshotId)
-
 	snapshotDir := s.getSnapshotDir(snapshotIdStr)
 	if _, err := os.Stat(snapshotDir); os.IsNotExist(err) {
 		log.Infof("Pulling snapshot %s...", snapshotIdStr)
@@ -164,14 +169,14 @@ func (s *Server) loadSnapshot(msg *Message) {
 		cmd := exec.Command("pull_snapshot", snapshotIdStr, snapshotDir)
 		if err := cmd.Run(); err != nil {
 			log.Errorf("Failed to pull snapshot: %v", err)
-			return
+			return err
 		}
 	}
 
 	dirs, err := ioutil.ReadDir(snapshotDir)
 	if err != nil {
 		log.Errorf("Failed to read snapshots dir: %v", err)
-		return
+		return err
 	}
 
 	var keys []string
@@ -199,4 +204,5 @@ func (s *Server) loadSnapshot(msg *Message) {
 	}
 	wg.Wait()
 	log.Infof("Loaded snapshot %s", snapshotIdStr)
+	return nil
 }

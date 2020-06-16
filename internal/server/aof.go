@@ -31,7 +31,9 @@ func (err errAOFHook) Error() string {
 
 var errInvalidAOF = errors.New("invalid aof file")
 
-func (s *Server) loadAOF() error {
+const nilOffset int64 = -1
+
+func (s *Server) loadAOF(offset int64) error {
 	fi, err := s.aof.Stat()
 	if err != nil {
 		return err
@@ -57,6 +59,12 @@ func (s *Server) loadAOF() error {
 	var buf []byte
 	var args [][]byte
 	var packet [0xFFFF]byte
+	if offset > nilOffset {
+		if _, err := s.aof.Seek(offset, io.SeekStart); err != nil {
+			log.Errorf("Failed to seek to position %v into AOF", offset)
+			return err
+		}
+	}
 	for {
 		n, err := s.aof.Read(packet[:])
 		if err != nil {

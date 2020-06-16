@@ -224,7 +224,7 @@ func (s *Server) followCheckSome(addr string, followc int) (pos int64, err error
 	// reset the entire system.
 	log.Infof("reloading aof commands")
 	s.reset()
-	if err := s.loadAOF(); err != nil {
+	if err := s.loadAOF(nilOffset); err != nil {
 		log.Fatalf("could not reload aof, possible data loss. %s", err.Error())
 		return 0, err
 	}

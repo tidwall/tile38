@@ -64,6 +64,7 @@ func (s *Server) loadAOF(offset int64) error {
 			log.Errorf("Failed to seek to position %v into AOF", offset)
 			return err
 		}
+		s.aofsz += int(offset)
 	}
 	for {
 		n, err := s.aof.Read(packet[:])

@@ -80,10 +80,10 @@ func (s *Server) getSnapshotDir(snapshotIdStr string) string {
 func (s *Server) cmdSaveSnapshot() {
 	snapshotId := rand.Uint64()
 	snapshotIdStr := strconv.FormatUint(snapshotId, 16)
-	log.Infof("Saving snapshot %s (%v)", snapshotIdStr, snapshotId)
+	log.Infof("Saving snapshot %s...", snapshotIdStr)
 
 	snapshotDir := s.getSnapshotDir(snapshotIdStr)
-	if err := os.Mkdir(snapshotDir, 0700); err != nil {
+	if err := os.MkdirAll(snapshotDir, 0700); err != nil {
 		log.Errorf("Failed to create snapshot dir: %v", err)
 		return
 	}
@@ -160,14 +160,18 @@ func (s *Server) doLoadSnapshot(snapshotIdStr string) error {
 		log.Errorf("Failed to parse snapshot id: %v", err)
 		return err
 	}
-	log.Infof("Loading snapshot %s (%v)", snapshotIdStr, snapshotId)
+	log.Infof("Loading snapshot %s...", snapshotIdStr)
 	snapshotDir := s.getSnapshotDir(snapshotIdStr)
-	if _, err := os.Stat(snapshotDir); os.IsNotExist(err) {
-		log.Infof("Pulling snapshot %s...", snapshotIdStr)
+	if _, err = os.Stat(snapshotDir); os.IsNotExist(err) {
+		if err = os.MkdirAll(snapshotDir, 0700); err != nil {
+			log.Errorf("Failed to create snapshot dir: %v", err)
+			return err
+		}
+		log.Infof("Pulling snapshot %s... (not found locally)", snapshotIdStr)
 		// Deployment must make pull_snapshot script available on the system.
 		// The script must take two argument: ID string and the destination dir.
 		cmd := exec.Command("pull_snapshot", snapshotIdStr, snapshotDir)
-		if err := cmd.Run(); err != nil {
+		if err = cmd.Run(); err != nil {
 			log.Errorf("Failed to pull snapshot: %v", err)
 			return err
 		}

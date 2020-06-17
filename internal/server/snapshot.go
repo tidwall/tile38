@@ -116,6 +116,16 @@ func (s *Server) cmdSaveSnapshot() {
 	wg.Wait()
 	log.Infof("Saved snapshot %s", snapshotIdStr)
 
+	// Deployment must make push_snapshot script available on the system.
+	// The script must take two argument: ID string and the source dir.
+	log.Infof("Pushing snapshot %s...", snapshotIdStr)
+	cmd := exec.Command("push_snapshot", snapshotIdStr, snapshotDir)
+	if err := cmd.Run(); err != nil {
+		log.Errorf("Failed to push snapshot: %v", err)
+		return
+	}
+	log.Infof("Pushed snapshot %s", snapshotIdStr)
+
 	if err:= s.writeAOF([]string{"SAVESNAPSHOT", snapshotIdStr}, nil); err != nil {
 		log.Errorf("Failed to write AOF for snapshot: %v", err)
 		return
@@ -127,16 +137,6 @@ func (s *Server) cmdSaveSnapshot() {
 		log.Errorf("Failed to save snapshot meta: %v", err)
 		return
 	}
-
-	// Deployment must make push_snapshot script available on the system.
-	// The script must take two argument: ID string and the source dir.
-	log.Infof("Pushing snapshot %s...", snapshotIdStr)
-	cmd := exec.Command("push_snapshot", snapshotIdStr, snapshotDir)
-	if err := cmd.Run(); err != nil {
-		log.Errorf("Failed to push snapshot: %v", err)
-		return
-	}
-	log.Infof("Pushed snapshot %s", snapshotIdStr)
 }
 
 

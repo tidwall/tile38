@@ -517,7 +517,7 @@ func (c * Collection) loadItemsData(dataFile string, snapshotId uint64, parseOpt
 	if runtime.NumCPU() > 10 {
 		nWorkers = 10
 	} else {
-		runtime.NumCPU()
+		nWorkers = runtime.NumCPU()
 	}
 	for i := 0; i < nWorkers; i++ {
 		go func() {

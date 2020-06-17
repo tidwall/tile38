@@ -151,7 +151,7 @@ func doServer(conn *RESPConn) (map[string]string, error) {
 	return m, err
 }
 
-func (s *Server) followHandleCommand(args []string, followc int, w io.Writer) (int, error) {
+func (s *Server) followHandleCommand(args []string, followc int, w io.Writer) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.followc.get() != followc {
@@ -292,7 +292,7 @@ func (s *Server) followStep(host string, port int, followc int) error {
 			return err
 		}
 		if !caughtUp {
-			if aofsz >= int(aofSize) {
+			if aofsz >= aofSize {
 				caughtUp = true
 				s.mu.Lock()
 				s.flushAOF(false)

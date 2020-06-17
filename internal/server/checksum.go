@@ -15,7 +15,7 @@ import (
 
 // checksum performs a simple md5 checksum on the aof file
 func (s *Server) checksum(pos, size int64) (sum string, err error) {
-	if pos+size > int64(s.aofsz) {
+	if pos+size > s.aofsz {
 		return "", io.EOF
 	}
 	var f *os.File
@@ -27,7 +27,7 @@ func (s *Server) checksum(pos, size int64) (sum string, err error) {
 	sumr := md5.New()
 	err = func() error {
 		if size == 0 {
-			n, err := f.Seek(int64(s.aofsz), 0)
+			n, err := f.Seek(s.aofsz, 0)
 			if err != nil {
 				return err
 			}
@@ -158,8 +158,8 @@ func (s *Server) followCheckSome(addr string, followc int) (pos int64, err error
 	defer conn.Close()
 
 	min := int64(0)
-	max := int64(s.aofsz) - checksumsz
-	limit := int64(s.aofsz)
+	max := s.aofsz - checksumsz
+	limit := s.aofsz
 	match, err := s.matchChecksums(conn, min, checksumsz)
 	if err != nil {
 		return 0, err
@@ -228,7 +228,7 @@ func (s *Server) followCheckSome(addr string, followc int) (pos int64, err error
 		log.Fatalf("could not reload aof, possible data loss. %s", err.Error())
 		return 0, err
 	}
-	if int64(s.aofsz) != pos {
+	if s.aofsz != pos {
 		log.Fatalf("aof size mismatch during reload, possible data loss.")
 		return 0, errors.New("?")
 	}

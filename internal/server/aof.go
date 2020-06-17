@@ -31,7 +31,7 @@ func (err errAOFHook) Error() string {
 
 var errInvalidAOF = errors.New("invalid aof file")
 
-const nilOffset int64 = -1
+const nilOffset = -1
 
 func (s *Server) loadAOF(offset int64) error {
 	fi, err := s.aof.Stat()
@@ -64,7 +64,7 @@ func (s *Server) loadAOF(offset int64) error {
 			log.Errorf("Failed to seek to position %v into AOF", offset)
 			return err
 		}
-		s.aofsz += int(offset)
+		s.aofsz +=offset
 	}
 	for {
 		n, err := s.aof.Read(packet[:])
@@ -77,7 +77,7 @@ func (s *Server) loadAOF(offset int64) error {
 			}
 			return err
 		}
-		s.aofsz += n
+		s.aofsz += int64(n)
 		data := packet[:n]
 		if len(buf) > 0 {
 			data = append(buf, data...)
@@ -164,7 +164,7 @@ func (s *Server) writeAOF(args []string, d *commandDetails) error {
 		for _, arg := range args {
 			s.aofbuf = redcon.AppendBulkString(s.aofbuf, arg)
 		}
-		s.aofsz += len(s.aofbuf) - n
+		s.aofsz += int64(len(s.aofbuf)) - int64(n)
 	}
 
 	// notify aof live connections that we have new data

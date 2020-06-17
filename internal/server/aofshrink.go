@@ -288,7 +288,7 @@ func (server *Server) aofshrink() {
 			if err != nil {
 				log.Fatalf("shrink seek end fatal operation: %v", err)
 			}
-			server.aofsz = int(n)
+			server.aofsz = n
 
 			os.Remove(core.AppendFileName + "-bak") // ignore error
 

@@ -122,7 +122,7 @@ func (s *Server) cmdSaveSnapshot() {
 	}
 
 	s.snapshotMeta._idstr = snapshotIdStr
-	s.snapshotMeta._offset = int64(s.aofsz)
+	s.snapshotMeta._offset = s.aofsz
 	if err := s.snapshotMeta.save(); err != nil {
 		log.Errorf("Failed to save snapshot meta: %v", err)
 		return

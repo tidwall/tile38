@@ -100,7 +100,7 @@ type Server struct {
 	aof      *os.File        // active aof file
 	aofdirty int32           // mark the aofbuf as having data
 	aofbuf   []byte          // prewrite buffer
-	aofsz    int             // active size of the aof file
+	aofsz    int64             // active size of the aof file
 	qdb      *buntdb.DB      // hook queue log
 	qidx     uint64          // hook queue log last idx
 	cols     tinybtree.BTree // data collections

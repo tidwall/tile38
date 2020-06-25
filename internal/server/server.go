@@ -255,30 +255,34 @@ func Serve(host string, port int, dir string, http bool) error {
 	if err := server.migrateAOF(); err != nil {
 		return err
 	}
-	// Load last snapshot if we have it
-	if server.snapshotMeta._idstr != "" {
-		if err := server.doLoadSnapshot(server.snapshotMeta._idstr); err != nil {
-			return err
-		}
-	}
+
 	if core.AppendOnly == true {
 		f, err := os.OpenFile(core.AppendFileName, os.O_CREATE|os.O_RDWR, 0600)
 		if err != nil {
 			return err
 		}
 		server.aof = f
-		if err := server.loadAOF(server.snapshotMeta._offset); err != nil {
-			return err
-		}
-		defer func() {
-			server.flushAOF(false)
-			server.aof.Sync()
-		}()
 	}
-	// server.fillExpiresList()
-
-	// Start background routines
-	if server.config.followHost() != "" {
+	// Only load AOF if we're not following anybody.
+	// Following means scrapping what you have
+	// and starting from the leader's latest snapshot.
+	if server.config.followHost() == "" {
+		// Load last snapshot if we have it
+		if server.snapshotMeta._idstr != "" {
+			if err := server.doLoadSnapshot(server.snapshotMeta._idstr); err != nil {
+				return err
+			}
+		}
+		if core.AppendOnly == true {
+			if err := server.loadAOF(server.snapshotMeta._offset); err != nil {
+				return err
+			}
+			defer func() {
+				server.flushAOF(false)
+				server.aof.Sync()
+			}()
+		}
+	} else {
 		go server.follow(server.config.followHost(), server.config.followPort(),
 			server.followc.get())
 	}
@@ -1107,6 +1111,8 @@ func (server *Server) command(msg *Message, client *Client) (
 	case "snapshot load":
 		go server.cmdLoadSnapshot(msg)
 		res = OKMessage(msg, time.Now())
+	case "snapshot latest meta":
+		res, err = server.cmdSnapshotLastMeta(msg)
 	case "subscribe":
 		res, err = server.cmdSubscribe(msg)
 	case "psubscribe":

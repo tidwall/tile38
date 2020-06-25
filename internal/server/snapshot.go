@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"math/rand"
 	"os"
@@ -9,8 +10,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/resp"
 	"github.com/tidwall/tile38/internal/collection"
 	"github.com/tidwall/tile38/internal/log"
 )
@@ -73,6 +76,43 @@ func (sm *SnapshotMeta) save() error {
 	return nil
 }
 
+func connLastSnapshotMeta(conn *RESPConn) (snapshotMeta *SnapshotMeta, err error) {
+	v, e := conn.Do("snapshot latest meta")
+	if e != nil {
+		err = e
+		return
+	}
+	if v.Error() != nil {
+		err = v.Error()
+		return
+	}
+	vals := v.Array()
+	snapshotMeta = &SnapshotMeta{
+		_idstr: vals[0].String(),
+		_offset: int64(vals[1].Integer()),
+	}
+	return
+}
+
+func (s *Server) cmdSnapshotLastMeta(msg *Message) (res resp.Value, err error) {
+	start := time.Now()
+	switch msg.OutputType {
+	case JSON:
+		res = resp.StringValue(
+			fmt.Sprintf(
+				`{"ok":true,"id":"%s","offset":%d,elapsed":"%s"}`,
+				s.snapshotMeta._idstr,
+				s.snapshotMeta._offset,
+				time.Now().Sub(start)))
+	case RESP:
+		res = resp.ArrayValue([]resp.Value{
+			resp.SimpleStringValue(s.snapshotMeta._idstr),
+			resp.IntegerValue(int(s.snapshotMeta._offset)),
+		})
+	}
+	return res, nil
+}
+
 func (s *Server) getSnapshotDir(snapshotIdStr string) string {
 	return filepath.Join(s.dir, "snapshots", snapshotIdStr)
 }
@@ -126,7 +166,7 @@ func (s *Server) cmdSaveSnapshot() {
 	}
 	log.Infof("Pushed snapshot %s", snapshotIdStr)
 
-	if err:= s.writeAOF([]string{"SAVESNAPSHOT", snapshotIdStr}, nil); err != nil {
+	if err := s.writeAOF([]string{"SAVESNAPSHOT", snapshotIdStr}, nil); err != nil {
 		log.Errorf("Failed to write AOF for snapshot: %v", err)
 		return
 	}
@@ -154,18 +194,12 @@ func (s *Server) cmdLoadSnapshot(msg *Message) {
 	}
 }
 
-func (s *Server) doLoadSnapshot(snapshotIdStr string) error {
-	snapshotId, err := strconv.ParseUint(snapshotIdStr, 16, 64)
-	if err != nil {
-		log.Errorf("Failed to parse snapshot id: %v", err)
-		return err
-	}
-	log.Infof("Loading snapshot %s...", snapshotIdStr)
-	snapshotDir := s.getSnapshotDir(snapshotIdStr)
+func (s *Server) fetchSnapshot(snapshotIdStr string) (snapshotDir string, err error){
+	snapshotDir = s.getSnapshotDir(snapshotIdStr)
 	if _, err = os.Stat(snapshotDir); os.IsNotExist(err) {
 		if err = os.MkdirAll(snapshotDir, 0700); err != nil {
 			log.Errorf("Failed to create snapshot dir: %v", err)
-			return err
+			return
 		}
 		log.Infof("Pulling snapshot %s... (not found locally)", snapshotIdStr)
 		// Deployment must make pull_snapshot script available on the system.
@@ -173,8 +207,23 @@ func (s *Server) doLoadSnapshot(snapshotIdStr string) error {
 		cmd := exec.Command("pull_snapshot", snapshotIdStr, snapshotDir)
 		if err = cmd.Run(); err != nil {
 			log.Errorf("Failed to pull snapshot: %v", err)
-			return err
+			return
 		}
+	}
+	return
+}
+
+func (s *Server) doLoadSnapshot(snapshotIdStr string) error {
+	snapshotId, err := strconv.ParseUint(snapshotIdStr, 16, 64)
+	if err != nil {
+		log.Errorf("Failed to parse snapshot id: %v", err)
+		return err
+	}
+	log.Infof("Loading snapshot %s...", snapshotIdStr)
+	snapshotDir, err := s.fetchSnapshot(snapshotIdStr)
+	if err != nil {
+		log.Errorf("Failed to create snapshot dir: %v", err)
+		return err
 	}
 
 	dirs, err := ioutil.ReadDir(snapshotDir)

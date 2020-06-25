@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/tidwall/resp"
@@ -74,15 +75,15 @@ func connAOFMD5(conn *RESPConn, pos, size int64) (sum string, err error) {
 	return sum, nil
 }
 
-func (s *Server) matchChecksums(conn *RESPConn, pos, size int64) (match bool, err error) {
-	sum, err := s.checksum(pos, size)
+func (s *Server) matchChecksums(conn *RESPConn, lPos, fPos, size int64) (match bool, err error) {
+	sum, err := s.checksum(fPos, size)
 	if err != nil {
 		if err == io.EOF {
 			return false, nil
 		}
 		return false, err
 	}
-	csum, err := connAOFMD5(conn, pos, size)
+	csum, err := connAOFMD5(conn, lPos, size)
 	if err != nil {
 		if err == io.EOF {
 			return false, nil
@@ -138,7 +139,7 @@ func getEndOfLastValuePositionInFile(fname string, startPos int64) (int64, error
 
 // followCheckSome is not a full checksum. It just "checks some" data.
 // We will do some various checksums on the leader until we find the correct position to start at.
-func (s *Server) followCheckSome(addr string, followc int) (pos int64, err error) {
+func (s *Server) followCheckSome(addr string, followc int, lTop, fTop int64) (relPos int64, err error) {
 	if core.ShowDebugMessages {
 		log.Debug("follow:", addr, ":check some")
 	}
@@ -156,63 +157,73 @@ func (s *Server) followCheckSome(addr string, followc int) (pos int64, err error
 		return 0, err
 	}
 	defer conn.Close()
+	m, err := doServer(conn)
+	if err != nil {
+		return 0, err
+	}
+	lSize, err := strconv.ParseInt(m["aof_size"], 10, 64)
+	if err != nil {
+		return 0, err
+	}
 
-	min := int64(0)
-	max := s.aofsz - checksumsz
-	limit := s.aofsz
-	match, err := s.matchChecksums(conn, min, checksumsz)
+	lMin := lTop
+	lMax := lSize - checksumsz
+	lLimit := lSize
+	fMin := fTop
+	fMax := s.aofsz - checksumsz
+	fLimit := s.aofsz
+	match, err := s.matchChecksums(conn, lMin, fMin, checksumsz)
 	if err != nil {
 		return 0, err
 	}
 
 	if match {
-		min += checksumsz // bump up the min
+		// bump up the mins
+		lMin += checksumsz
+		fMin += checksumsz
+
 		for {
-			if max < min || max+checksumsz > limit {
-				pos = min
+			if fMax < fMin || fMax+checksumsz > fLimit {
 				break
 			} else {
-				match, err = s.matchChecksums(conn, max, checksumsz)
+				match, err = s.matchChecksums(conn, lMax, fMax, checksumsz)
 				if err != nil {
 					return 0, err
 				}
 				if match {
-					min = max + checksumsz
+					fMin = fMax + checksumsz
+					lMin = lMax + checksumsz
 				} else {
-					limit = max
+					fLimit = fMax
+					lLimit = lMax
 				}
-				max = (limit-min)/2 - checksumsz/2 + min // multiply
+				fMax = (fLimit-fMin)/2 - checksumsz/2 + fMin // multiply
+				lMax = (lLimit-lMin)/2 - checksumsz/2 + lMin
 			}
 		}
 	}
-	fullpos := pos
-	fname := s.aof.Name()
-	if pos == 0 {
-		s.aof.Close()
-		s.aof, err = os.Create(fname)
-		if err != nil {
-			log.Fatalf("could not recreate aof, possible data loss. %s", err.Error())
-			return 0, err
-		}
-		return 0, nil
+	fPos := fMin
+	if fPos == fTop {
+		return 0, err
 	}
 
 	// we want to truncate at a command location
 	// search for nearest command
-	pos, err = getEndOfLastValuePositionInFile(s.aof.Name(), fullpos)
+	fPos, err = getEndOfLastValuePositionInFile(s.aof.Name(), fPos)
 	if err != nil {
 		return 0, err
 	}
-	if pos == fullpos {
+	if fPos == fMin {
 		if core.ShowDebugMessages {
 			log.Debug("follow: aof fully intact")
 		}
-		return pos, nil
+		return fPos - fTop, nil
 	}
-	log.Warnf("truncating aof to %d", pos)
+	log.Warnf("truncating aof to %d", fPos)
 	// any errror below are fatal.
 	s.aof.Close()
-	if err := os.Truncate(fname, pos); err != nil {
+	fname := s.aof.Name()
+	if err := os.Truncate(fname, fPos); err != nil {
 		log.Fatalf("could not truncate aof, possible data loss. %s", err.Error())
 		return 0, err
 	}
@@ -228,9 +239,9 @@ func (s *Server) followCheckSome(addr string, followc int) (pos int64, err error
 		log.Fatalf("could not reload aof, possible data loss. %s", err.Error())
 		return 0, err
 	}
-	if s.aofsz != pos {
+	if s.aofsz != fPos {
 		log.Fatalf("aof size mismatch during reload, possible data loss.")
 		return 0, errors.New("?")
 	}
-	return pos, nil
+	return fPos - fTop, nil
 }

@@ -132,33 +132,36 @@ func (s *Server) followHandleCommand(args []string, followc int, w io.Writer) (i
 		return s.aofsz, errNoLongerFollowing
 	}
 	msg := &Message{Args: args}
+	var d commandDetails
+	var err error
 	switch msg.Command() {
-	case "savesnapshot":  // if leader saved it, we will download for the future
+	case "loadsnapshot": // if leader loaded it, we're screwed.
+		return s.aofsz, fmt.Errorf("leader loaded snapshot")
+	case "savesnapshot": // if leader saved it, we will download for the future
 		vs := msg.Args[1:]
 		var ok bool
 		var snapshotIdStr string
 		if vs, snapshotIdStr, ok = tokenval(vs); !ok || snapshotIdStr == "" {
-			return s.aofsz, fmt.Errorf("Failed to find snapshot ID string: %v", msg.Args)
+			return s.aofsz, fmt.Errorf("failed to find snapshot ID string: %v", msg.Args)
 		}
-		log.Infof("Leader saved snapshot %s, fetching...", snapshotIdStr)
-		if _, err := s.fetchSnapshot(snapshotIdStr); err != nil {
-			return s.aofsz, err
-		}
-	case "loadsnapshot":  // if leader loaded it, we're screwed.
-		return s.aofsz, fmt.Errorf("Leader loaded snapshot")
+		go func() {
+			log.Infof("Leader saved snapshot %s, fetching...", snapshotIdStr)
+			_, _ = s.fetchSnapshot(snapshotIdStr)
+			log.Infof("Fetched snapshot %s", snapshotIdStr)
+		}()
 	default:  // other commands are replayed verbatim
-		_, d, err := s.command(msg, nil)
+		_, d, err = s.command(msg, nil)
 		if err != nil {
 			if commandErrIsFatal(err) {
 				return s.aofsz, err
 			}
 		}
-		if err := s.writeAOF(args, &d); err != nil {
-			return s.aofsz, err
-		}
-		if len(s.aofbuf) > 10240 {
-			s.flushAOF(false)
-		}
+	}
+	if err = s.writeAOF(args, &d); err != nil {
+		return s.aofsz, err
+	}
+	if len(s.aofbuf) > 10240 {
+		s.flushAOF(false)
 	}
 	return s.aofsz, nil
 }

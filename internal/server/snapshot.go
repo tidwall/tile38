@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -196,6 +197,7 @@ func (s *Server) doSaveSnapshot(snapshotId uint64, snapshotIdStr string, offset 
 		log.Errorf("Failed to save snapshot meta: %v", err)
 		return
 	}
+	go s.cleanUpSnapshots()
 }
 
 func (s *Server) cmdLoadSnapshot(msg *Message) (res resp.Value, err error) {
@@ -234,7 +236,35 @@ func (s *Server) fetchSnapshot(snapshotIdStr string) (snapshotDir string, err er
 	} else {
 		log.Infof("Found %s locally, not pulling.", snapshotIdStr)
 	}
+	go s.cleanUpSnapshots()
 	return
+}
+
+func (s * Server) cleanUpSnapshots() {
+	snapshotsDir := filepath.Join(s.dir, "snapshots")
+	dirs, err := ioutil.ReadDir(snapshotsDir)
+	if err != nil {
+		log.Errorf("Failed to read snapshots dir: %v", err)
+		return
+	}
+	staleDirs := make([]os.FileInfo, 0)
+	for _, dir := range dirs {
+		if dir.IsDir() && dir.Name() != s.snapshotMeta._idstr {
+			staleDirs = append(staleDirs, dir)
+		}
+	}
+	sort.Slice(
+		staleDirs,
+		func(i, j int) bool {
+			return staleDirs[i].ModTime().Before(staleDirs[j].ModTime())
+		})
+	for _, dir := range staleDirs[:len(staleDirs)-1] {
+		log.Infof("Deleting stale snapshot %s last modified on %v", dir.Name(), dir.ModTime())
+		snapshotPath := filepath.Join(snapshotsDir, dir.Name())
+		if err := os.RemoveAll(snapshotPath); err != nil {
+			log.Infof("Failed to remove dir %s: %v", snapshotPath, err)
+		}
+	}
 }
 
 func (s *Server) doLoadSnapshot(snapshotIdStr string) error {
@@ -252,7 +282,7 @@ func (s *Server) doLoadSnapshot(snapshotIdStr string) error {
 
 	dirs, err := ioutil.ReadDir(snapshotDir)
 	if err != nil {
-		log.Errorf("Failed to read snapshots dir: %v", err)
+		log.Errorf("Failed to read snapshot dir: %v", err)
 		return err
 	}
 

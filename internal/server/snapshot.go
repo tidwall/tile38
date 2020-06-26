@@ -209,7 +209,9 @@ func (s *Server) fetchSnapshot(snapshotIdStr string) (snapshotDir string, err er
 			log.Errorf("Failed to pull snapshot: %v", err)
 			return
 		}
-		log.Infof("Pull snapshot %s", snapshotIdStr)
+		log.Infof("Pulled snapshot %s", snapshotIdStr)
+	} else {
+		log.Infof("Found %s locally, not pulling.", snapshotIdStr)
 	}
 	return
 }

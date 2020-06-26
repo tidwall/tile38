@@ -132,8 +132,7 @@ func (s *Server) followHandleCommand(args []string, followc int, w io.Writer) (i
 		return s.aofsz, errNoLongerFollowing
 	}
 	msg := &Message{Args: args}
-	var d commandDetails
-	var err error
+	var details *commandDetails
 	switch msg.Command() {
 	case "loadsnapshot": // if leader loaded it, we're screwed.
 		return s.aofsz, fmt.Errorf("leader loaded snapshot")
@@ -147,17 +146,17 @@ func (s *Server) followHandleCommand(args []string, followc int, w io.Writer) (i
 		go func() {
 			log.Infof("Leader saved snapshot %s, fetching...", snapshotIdStr)
 			_, _ = s.fetchSnapshot(snapshotIdStr)
-			log.Infof("Fetched snapshot %s", snapshotIdStr)
 		}()
 	default:  // other commands are replayed verbatim
-		_, d, err = s.command(msg, nil)
+		_, _d, err := s.command(msg, nil)
 		if err != nil {
 			if commandErrIsFatal(err) {
 				return s.aofsz, err
 			}
 		}
+		details = &_d
 	}
-	if err = s.writeAOF(args, &d); err != nil {
+	if err := s.writeAOF(args, details); err != nil {
 		return s.aofsz, err
 	}
 	if len(s.aofbuf) > 10240 {

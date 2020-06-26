@@ -877,10 +877,10 @@ func (server *Server) handleInputCommand(client *Client, msg *Message) error {
 		defer server.mu.RUnlock()
 	case "snapshot":
 		switch strings.ToLower(msg.Args[1]) {
-		case "load": // snapshot load is write
+		case "save", "load":
 			server.mu.Lock()
 			defer server.mu.Unlock()
-		default: // snapshot save is read
+		default:  // latest meta is read-only
 			server.mu.RLock()
 			defer server.mu.RUnlock()
 		}
@@ -1106,11 +1106,9 @@ func (server *Server) command(msg *Message, client *Client) (
 	case "script flush":
 		res, err = server.cmdScriptFlush(msg)
 	case "snapshot save":
-		go server.cmdSaveSnapshot()
-		res = OKMessage(msg, time.Now())
+		res, err = server.cmdSaveSnapshot(msg)
 	case "snapshot load":
-		go server.cmdLoadSnapshot(msg)
-		res = OKMessage(msg, time.Now())
+		res, err = server.cmdLoadSnapshot(msg)
 	case "snapshot latest meta":
 		res, err = server.cmdSnapshotLastMeta(msg)
 	case "subscribe":

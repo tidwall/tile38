@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
@@ -17,6 +18,8 @@ import (
 	"github.com/tidwall/tile38/internal/collection"
 	"github.com/tidwall/tile38/internal/log"
 )
+
+var errSnapshotLoadFailed = errors.New("snapshot load failed")
 
 const (
 	Id     = "id"
@@ -117,9 +120,29 @@ func (s *Server) getSnapshotDir(snapshotIdStr string) string {
 	return filepath.Join(s.dir, "snapshots", snapshotIdStr)
 }
 
-func (s *Server) cmdSaveSnapshot() {
+func (s *Server) cmdSaveSnapshot(msg *Message) (res resp.Value, err error) {
+	start := time.Now()
 	snapshotId := rand.Uint64()
 	snapshotIdStr := strconv.FormatUint(snapshotId, 16)
+	if err := s.writeAOF([]string{"SAVESNAPSHOT", snapshotIdStr}, nil); err != nil {
+		log.Errorf("Failed to write AOF for snapshot: %v", err)
+		return NOMessage, errInvalidAOF
+	}
+	go s.doSaveSnapshot(snapshotId, snapshotIdStr, s.aofsz)
+	switch msg.OutputType {
+	case JSON:
+		res = resp.StringValue(
+			fmt.Sprintf(
+				`{"ok":true,"id":"%s",elapsed":"%s"}`,
+				snapshotIdStr,
+				time.Now().Sub(start)))
+	case RESP:
+		res = resp.SimpleStringValue(snapshotIdStr)
+	}
+	return res, nil
+}
+
+func (s *Server) doSaveSnapshot(snapshotId uint64, snapshotIdStr string, offset int64) {
 	log.Infof("Saving snapshot %s...", snapshotIdStr)
 
 	snapshotDir := s.getSnapshotDir(snapshotIdStr)
@@ -158,6 +181,7 @@ func (s *Server) cmdSaveSnapshot() {
 
 	// Deployment must make push_snapshot script available on the system.
 	// The script must take two argument: ID string and the source dir.
+	// The script must be able to indicate when snapshot is fully ready in s3.
 	log.Infof("Pushing snapshot %s...", snapshotIdStr)
 	cmd := exec.Command("push_snapshot", snapshotIdStr, snapshotDir)
 	if err := cmd.Run(); err != nil {
@@ -166,32 +190,28 @@ func (s *Server) cmdSaveSnapshot() {
 	}
 	log.Infof("Pushed snapshot %s", snapshotIdStr)
 
-	if err := s.writeAOF([]string{"SAVESNAPSHOT", snapshotIdStr}, nil); err != nil {
-		log.Errorf("Failed to write AOF for snapshot: %v", err)
-		return
-	}
-
 	s.snapshotMeta._idstr = snapshotIdStr
-	s.snapshotMeta._offset = s.aofsz
+	s.snapshotMeta._offset = offset
 	if err := s.snapshotMeta.save(); err != nil {
 		log.Errorf("Failed to save snapshot meta: %v", err)
 		return
 	}
 }
 
-
-func (s *Server) cmdLoadSnapshot(msg *Message) {
+func (s *Server) cmdLoadSnapshot(msg *Message) (res resp.Value, err error) {
+	start := time.Now()
 	vs := msg.Args[1:]
 	var ok bool
 	var snapshotIdStr string
 	if vs, snapshotIdStr, ok = tokenval(vs); !ok || snapshotIdStr == "" {
 		log.Errorf("Failed to find snapshot ID string: %v", msg.Args)
-		return
+		return NOMessage, errInvalidNumberOfArguments
 	}
 	if err := s.doLoadSnapshot(snapshotIdStr); err != nil {
 		log.Errorf("Failed to load snapshot: %v", err)
-		return
+		return NOMessage, errSnapshotLoadFailed
 	}
+	return OKMessage(msg, start), nil
 }
 
 func (s *Server) fetchSnapshot(snapshotIdStr string) (snapshotDir string, err error){
@@ -204,6 +224,7 @@ func (s *Server) fetchSnapshot(snapshotIdStr string) (snapshotDir string, err er
 		log.Infof("Pulling snapshot %s... (not found locally)", snapshotIdStr)
 		// Deployment must make pull_snapshot script available on the system.
 		// The script must take two argument: ID string and the destination dir.
+		// The script must be able to wait for snapshot to become fully ready in s3.
 		cmd := exec.Command("pull_snapshot", snapshotIdStr, snapshotDir)
 		if err = cmd.Run(); err != nil {
 			log.Errorf("Failed to pull snapshot: %v", err)

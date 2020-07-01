@@ -307,7 +307,7 @@ func (s *Server) followStep(host string, port int, followc int, lTop, fTop int64
 }
 
 
-func (s * Server) syncToLatestSnapshot(host string, port int, followc int) (lTop int64, err error) {
+func (s * Server) syncToLatestSnapshot(host string, port int, followc int) (lTop, fTop int64, err error) {
 	if s.followc.get() != followc {
 		err = errNoLongerFollowing
 		return
@@ -325,7 +325,7 @@ func (s * Server) syncToLatestSnapshot(host string, port int, followc int) (lTop
 	}
 	// No snapshot on the server: return 0 offsets
 	if s.snapshotMeta._idstr == "" {
-		return 0,nil
+		return
 	}
 	lTop = s.snapshotMeta._offset
 	if err = s.doLoadSnapshot(s.snapshotMeta._idstr); err != nil {
@@ -341,6 +341,7 @@ func (s * Server) syncToLatestSnapshot(host string, port int, followc int) (lTop
 		log.Errorf("Failed to write AOF for synced snapshot: %v", err)
 		return
 	}
+	fTop = s.aofsz
 	s.snapshotMeta._offset = s.aofsz
 	s.snapshotMeta.path = filepath.Join(s.dir, "snapshot_meta")
 	if err = s.snapshotMeta.save(); err != nil {
@@ -353,11 +354,10 @@ func (s * Server) syncToLatestSnapshot(host string, port int, followc int) (lTop
 func (s *Server) follow(host string, port int, followc int) {
 	var lTop, fTop int64
 	var err error
-	if lTop, err = s.syncToLatestSnapshot(host, port, followc); err != nil {
+	if lTop, fTop, err = s.syncToLatestSnapshot(host, port, followc); err != nil {
 		log.Errorf("Failed to sync to the latest snapshot: %v", err)
 		return
 	}
-	fTop = s.aofsz
 	for {
 		if err = s.followStep(host, port, followc, lTop, fTop); err == errNoLongerFollowing {
 			return

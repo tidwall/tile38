@@ -253,6 +253,9 @@ func (s * Server) cleanUpSnapshots() {
 			staleDirs = append(staleDirs, dir)
 		}
 	}
+	if len(staleDirs) < 2 {
+		return
+	}
 	sort.Slice(
 		staleDirs,
 		func(i, j int) bool {

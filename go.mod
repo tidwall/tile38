@@ -52,10 +52,10 @@ require (
 	layeh.com/gopher-json v0.0.0-20161224164157-c128cc74278b
 )
 
-replace github.com/tidwall/geoindex => /Users/aroitman/go/src/github.com/tidwall/geoindex
+replace github.com/tidwall/geoindex => github.com/housecanary/geoindex fast-snapshot
 
-replace github.com/tidwall/tinybtree => /Users/aroitman/go/src/github.com/tidwall/tinybtree
+replace github.com/tidwall/tinybtree => github.com/housecanary/tinybtree fast-snapshot
 
-replace github.com/tidwall/btree => /Users/aroitman/go/src/github.com/tidwall/btree
+replace github.com/tidwall/btree => github.com/housecanary/btree fast-snapshot
 
-replace github.com/tidwall/rbang => /Users/aroitman/go/src/github.com/tidwall/rbang
+replace github.com/tidwall/rbang => github.com/housecanary/rbang fast-snapshot

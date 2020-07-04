@@ -400,14 +400,28 @@ func (sw *scanWriter) writeObject(opts ScanWriterParams) bool {
 
 			} else if len(sw.farr) > 0 {
 				jsfields = `,"fields":[`
-				for i := range sw.farr {
-					if i > 0 {
-						jsfields += `,`
+				if len(sw.fmap) > 0 {
+					for i := range sw.farr {
+						if i > 0 {
+							jsfields += `,`
+						}
+						idx, ok := sw.fmap[sw.farr[i]]
+						if ok && len(opts.fields) > idx {
+							jsfields += strconv.FormatFloat(opts.fields[idx], 'f', -1, 64)
+						} else {
+							jsfields += "0"
+						}
 					}
-					if len(opts.fields) > i {
-						jsfields += strconv.FormatFloat(opts.fields[i], 'f', -1, 64)
-					} else {
-						jsfields += "0"
+				} else {
+					for i := range sw.farr {
+						if i > 0 {
+							jsfields += `,`
+						}
+						if len(opts.fields) > i {
+							jsfields += strconv.FormatFloat(opts.fields[i], 'f', -1, 64)
+						} else {
+							jsfields += "0"
+						}
 					}
 				}
 				jsfields += `]`

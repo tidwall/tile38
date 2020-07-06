@@ -165,8 +165,8 @@ func (s *Server) cmdSaveSnapshot(msg *Message) (res resp.Value, err error) {
 }
 
 func (s *Server) doSaveSnapshot(snapshotId uint64, snapshotIdStr, snapshotDir string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	if err := s.writeAOF([]string{"SAVESNAPSHOT", snapshotIdStr}, nil); err != nil {
 		log.Errorf("Failed to write AOF for snapshot: %v", err)

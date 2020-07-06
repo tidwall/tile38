@@ -96,6 +96,8 @@ type Server struct {
 	connsmu sync.RWMutex
 	conns   map[int]*Client
 
+	snapmu   sync.RWMutex    // snapshot locking
+
 	mu       sync.RWMutex
 	aof      *os.File        // active aof file
 	aofdirty int32           // mark the aofbuf as having data
@@ -878,7 +880,8 @@ func (server *Server) handleInputCommand(client *Client, msg *Message) error {
 	case "snapshot":
 		switch strings.ToLower(msg.Args[1]) {
 		case "save":
-			// save command will lock/unlock on its own terms
+			server.snapmu.Lock()
+			defer server.snapmu.Unlock()
 		case "load":
 			server.mu.Lock()
 			defer server.mu.Unlock()

@@ -880,6 +880,8 @@ func (server *Server) handleInputCommand(client *Client, msg *Message) error {
 	case "snapshot":
 		switch strings.ToLower(msg.Args[1]) {
 		case "save":
+			// we only need to lock out other snapshots when we save
+			// the snapshot-saving will set reader lock to pause other writers
 			server.snapmu.Lock()
 			defer server.snapmu.Unlock()
 		case "load":

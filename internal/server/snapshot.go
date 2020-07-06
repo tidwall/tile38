@@ -165,6 +165,7 @@ func (s *Server) cmdSaveSnapshot(msg *Message) (res resp.Value, err error) {
 }
 
 func (s *Server) doSaveSnapshot(snapshotId uint64, snapshotIdStr, snapshotDir string) error {
+	// using read lock for the duration of saving, to exclude writers
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

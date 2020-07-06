@@ -877,7 +877,9 @@ func (server *Server) handleInputCommand(client *Client, msg *Message) error {
 		defer server.mu.RUnlock()
 	case "snapshot":
 		switch strings.ToLower(msg.Args[1]) {
-		case "save", "load":
+		case "save":
+			// save command will lock/unlock on its own terms
+		case "load":
 			server.mu.Lock()
 			defer server.mu.Unlock()
 		default:  // latest meta is read-only

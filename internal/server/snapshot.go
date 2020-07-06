@@ -21,6 +21,9 @@ import (
 )
 
 var errSnapshotLoadFailed = errors.New("snapshot load failed")
+var errSnapshotSaveFailed = errors.New("snapshot save failed")
+var errSnapshotPushFailed = errors.New("snapshot push failed")
+var errSnapshotMetaFailed = errors.New("snapshot meta failed")
 
 const (
 	Id     = "id"
@@ -125,11 +128,29 @@ func (s *Server) cmdSaveSnapshot(msg *Message) (res resp.Value, err error) {
 	start := time.Now()
 	snapshotId := rand.Uint64()
 	snapshotIdStr := strconv.FormatUint(snapshotId, 16)
-	if err := s.writeAOF([]string{"SAVESNAPSHOT", snapshotIdStr}, nil); err != nil {
-		log.Errorf("Failed to write AOF for snapshot: %v", err)
-		return NOMessage, errInvalidAOF
+	snapshotDir := s.getSnapshotDir(snapshotIdStr)
+	// the doSaveSnapshot will handle locking
+	if err := s.doSaveSnapshot(snapshotId, snapshotIdStr, snapshotDir); err != nil {
+		return NOMessage, errSnapshotSaveFailed
 	}
-	go s.doSaveSnapshot(snapshotId, snapshotIdStr, s.aofsz)
+	// Deployment must make push_snapshot script available on the system.
+	// The script must take two argument: ID string and the source dir.
+	// The script must be able to indicate when snapshot is fully ready in s3.
+	log.Infof("Pushing snapshot %s...", snapshotIdStr)
+	cmd := exec.Command("push_snapshot", snapshotIdStr, snapshotDir)
+	if err := cmd.Run(); err != nil {
+		log.Errorf("Failed to push snapshot: %v", err)
+		return NOMessage, errSnapshotPushFailed
+	}
+	log.Infof("Pushed snapshot %s", snapshotIdStr)
+
+	s.snapshotMeta._idstr = snapshotIdStr
+	s.snapshotMeta._offset = s.aofsz
+	if err := s.snapshotMeta.save(); err != nil {
+		log.Errorf("Failed to save snapshot meta: %v", err)
+		return NOMessage, errSnapshotMetaFailed
+	}
+	go s.cleanUpSnapshots()
 	switch msg.OutputType {
 	case JSON:
 		res = resp.StringValue(
@@ -143,13 +164,19 @@ func (s *Server) cmdSaveSnapshot(msg *Message) (res resp.Value, err error) {
 	return res, nil
 }
 
-func (s *Server) doSaveSnapshot(snapshotId uint64, snapshotIdStr string, offset int64) {
+func (s *Server) doSaveSnapshot(snapshotId uint64, snapshotIdStr, snapshotDir string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.writeAOF([]string{"SAVESNAPSHOT", snapshotIdStr}, nil); err != nil {
+		log.Errorf("Failed to write AOF for snapshot: %v", err)
+		return errInvalidAOF
+	}
 	log.Infof("Saving snapshot %s...", snapshotIdStr)
 
-	snapshotDir := s.getSnapshotDir(snapshotIdStr)
 	if err := os.MkdirAll(snapshotDir, 0700); err != nil {
 		log.Errorf("Failed to create snapshot dir: %v", err)
-		return
+		return err
 	}
 	colByKey := make(map[string]*collection.Collection)
 	s.scanGreaterOrEqual(
@@ -164,7 +191,7 @@ func (s *Server) doSaveSnapshot(snapshotId uint64, snapshotIdStr string, offset 
 		colDir := filepath.Join(snapshotDir, key)
 		if err := os.Mkdir(colDir, 0700); err != nil {
 			log.Errorf("Failed to create collection dir: %v", err)
-			return
+			return err
 		}
 		wg.Add(1)
 		go func(c *collection.Collection, k string) {
@@ -179,25 +206,7 @@ func (s *Server) doSaveSnapshot(snapshotId uint64, snapshotIdStr string, offset 
 	}
 	wg.Wait()
 	log.Infof("Saved snapshot %s", snapshotIdStr)
-
-	// Deployment must make push_snapshot script available on the system.
-	// The script must take two argument: ID string and the source dir.
-	// The script must be able to indicate when snapshot is fully ready in s3.
-	log.Infof("Pushing snapshot %s...", snapshotIdStr)
-	cmd := exec.Command("push_snapshot", snapshotIdStr, snapshotDir)
-	if err := cmd.Run(); err != nil {
-		log.Errorf("Failed to push snapshot: %v", err)
-		return
-	}
-	log.Infof("Pushed snapshot %s", snapshotIdStr)
-
-	s.snapshotMeta._idstr = snapshotIdStr
-	s.snapshotMeta._offset = offset
-	if err := s.snapshotMeta.save(); err != nil {
-		log.Errorf("Failed to save snapshot meta: %v", err)
-		return
-	}
-	go s.cleanUpSnapshots()
+	return nil
 }
 
 func (s *Server) cmdLoadSnapshot(msg *Message) (res resp.Value, err error) {

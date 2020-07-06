@@ -520,6 +520,7 @@ func (c * Collection) loadItemsData(dataFile string, snapshotId uint64, parseOpt
 		nWorkers = runtime.NumCPU()
 	}
 	for i := 0; i < nWorkers; i++ {
+		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			var obj geojson.Object
@@ -535,7 +536,6 @@ func (c * Collection) loadItemsData(dataFile string, snapshotId uint64, parseOpt
 				itemList[ti.index] = &itemT{id: ti.id, obj: obj, fieldValuesSlot: ti.slot}
 			}
 		}()
-		wg.Add(1)
 	}
 
 	for i := 0; i < nItems; i++ {

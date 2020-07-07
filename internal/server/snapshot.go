@@ -169,10 +169,6 @@ func (s *Server) doSaveSnapshot(snapshotId uint64, snapshotIdStr, snapshotDir st
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	if err := s.writeAOF([]string{"SAVESNAPSHOT", snapshotIdStr}, nil); err != nil {
-		log.Errorf("Failed to write AOF for snapshot: %v", err)
-		return errInvalidAOF
-	}
 	log.Infof("Saving snapshot %s...", snapshotIdStr)
 
 	if err := os.MkdirAll(snapshotDir, 0700); err != nil {
@@ -206,6 +202,11 @@ func (s *Server) doSaveSnapshot(snapshotId uint64, snapshotIdStr, snapshotDir st
 		}(col, key)
 	}
 	wg.Wait()
+
+	if err := s.writeAOF([]string{"SAVESNAPSHOT", snapshotIdStr}, nil); err != nil {
+		log.Errorf("Failed to write AOF for snapshot: %v", err)
+		return errInvalidAOF
+	}
 	log.Infof("Saved snapshot %s", snapshotIdStr)
 	return nil
 }

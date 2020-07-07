@@ -105,11 +105,11 @@ func (server *Server) goLive(
 	lb.glob = s.glob
 	lb.key = s.key
 	lb.fence = &s
-	server.mu.RLock()
+	ul := server.ReaderLock()
 	sc, err = server.newScanner(
 		coll, s.key, s.output, s.precision, s.glob, false,
 		s.cursor, s.limit, s.wheres, s.whereins, s.whereevals, s.nofields)
-	server.mu.RUnlock()
+	ul()
 
 	// everything below if for live SCAN, NEARBY, WITHIN, INTERSECTS
 	if err != nil {
@@ -188,8 +188,7 @@ func (server *Server) goLive(
 			var msgs []string
 			func() {
 				// safely lock the fence because we are outside the main loop
-				server.mu.RLock()
-				defer server.mu.RUnlock()
+				defer server.ReaderLock()()
 				msgs = FenceMatch("", sc, fence, nil, details)
 			}()
 			for _, msg := range msgs {

@@ -126,8 +126,7 @@ func doServer(conn *RESPConn) (map[string]string, error) {
 }
 
 func (s *Server) followHandleCommand(args []string, followc int, w io.Writer) (int64, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.WriterLock()()
 	if s.followc.get() != followc {
 		return s.aofsz, errNoLongerFollowing
 	}
@@ -212,9 +211,9 @@ func (s *Server) followStep(host string, port int, followc int, lTop, fTop int64
 	if s.followc.get() != followc {
 		return errNoLongerFollowing
 	}
-	s.mu.Lock()
+	ul := s.WriterLock()
 	s.fcup = false
-	s.mu.Unlock()
+	ul()
 	if err := s.validateLeader(host, port); err != nil {
 		return err
 	}
@@ -267,10 +266,10 @@ func (s *Server) followStep(host string, port int, followc int, lTop, fTop int64
 
 	caughtUp := relPos >= lSize-lTop
 	if caughtUp {
-		s.mu.Lock()
+		ul := s.WriterLock()
 		s.fcup = true
 		s.fcuponce = true
-		s.mu.Unlock()
+		ul()
 		log.Info("caught up")
 	}
 	nullw := ioutil.Discard
@@ -295,11 +294,11 @@ func (s *Server) followStep(host string, port int, followc int, lTop, fTop int64
 		if !caughtUp {
 			if fSize-fTop >= lSize-lTop {
 				caughtUp = true
-				s.mu.Lock()
+				ul := s.WriterLock()
 				s.flushAOF(false)
 				s.fcup = true
 				s.fcuponce = true
-				s.mu.Unlock()
+				ul()
 				log.Info("caught up")
 			}
 		}

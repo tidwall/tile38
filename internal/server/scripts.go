@@ -872,8 +872,7 @@ func (s *Server) luaTile38NonAtomic(msg *Message) (resp.Value, error) {
 		"rename", "renamenx":
 		// write operations
 		write = true
-		s.mu.Lock()
-		defer s.mu.Unlock()
+		defer s.WriterLock()()
 		if s.config.followHost() != "" {
 			return resp.NullValue(), errNotLeader
 		}
@@ -883,8 +882,7 @@ func (s *Server) luaTile38NonAtomic(msg *Message) (resp.Value, error) {
 	case "get", "keys", "scan", "nearby", "within", "intersects", "hooks", "search",
 		"ttl", "bounds", "server", "info", "type", "jget", "test":
 		// read operations
-		s.mu.RLock()
-		defer s.mu.RUnlock()
+		defer s.ReaderLock()()
 		if s.config.followHost() != "" && !s.fcuponce {
 			return resp.NullValue(), errCatchingUp
 		}
@@ -929,8 +927,7 @@ func (s *Server) luaTile38Iterate(coll *luaScanCollector, dl *deadline.Deadline,
 	// Acquire a lock if we don't already have one
 	switch evalcmd {
 	case "evalna", "evalnasha":
-		s.mu.RLock()
-		defer s.mu.RUnlock()
+		defer s.ReaderLock()()
 	}
 
 	// Ensure fully up to date
@@ -1142,8 +1139,7 @@ func (s *Server) luaTile38Get(ls *lua.LState, evalcmd, key, id string) (result l
 	// Acquire a lock if we don't already have one
 	switch evalcmd {
 	case "evalna", "evalnasha":
-		s.mu.RLock()
-		defer s.mu.RUnlock()
+		defer s.ReaderLock()()
 	}
 
 	// Ensure fully up to date

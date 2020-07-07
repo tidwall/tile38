@@ -143,8 +143,7 @@ func (s *Server) followCheckSome(addr string, followc int, lTop, fTop int64) (re
 	if core.ShowDebugMessages {
 		log.Debug("follow:", addr, ":check some")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.WriterLock()()
 	if s.followc.get() != followc {
 		return 0, errNoLongerFollowing
 	}

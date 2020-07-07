@@ -24,20 +24,20 @@ func (server *Server) aofshrink() {
 		return
 	}
 	start := time.Now()
-	server.mu.Lock()
+	ul := server.WriterLock()
 	if server.shrinking {
-		server.mu.Unlock()
+		ul()
 		return
 	}
 	server.shrinking = true
 	server.shrinklog = nil
-	server.mu.Unlock()
+	ul()
 
 	defer func() {
-		server.mu.Lock()
+		ul := server.WriterLock()
 		server.shrinking = false
 		server.shrinklog = nil
-		server.mu.Unlock()
+		ul()
 		log.Infof("aof shrink ended %v", time.Now().Sub(start))
 		return
 	}()
@@ -61,8 +61,7 @@ func (server *Server) aofshrink() {
 				}
 				keysdone = true
 				func() {
-					server.mu.Lock()
-					defer server.mu.Unlock()
+					defer server.WriterLock()()
 					server.scanGreaterOrEqual(nextkey, func(key string, col *collection.Collection) bool {
 						if len(keys) == maxkeys {
 							keysdone = false
@@ -87,8 +86,7 @@ func (server *Server) aofshrink() {
 				// load more objects
 				func() {
 					idsdone = true
-					server.mu.Lock()
-					defer server.mu.Unlock()
+					defer server.WriterLock()()
 					col := server.getCol(keys[0])
 					if col == nil {
 						return
@@ -170,8 +168,7 @@ func (server *Server) aofshrink() {
 		// first load the names of the hooks
 		var hnames []string
 		func() {
-			server.mu.Lock()
-			defer server.mu.Unlock()
+			defer server.WriterLock()()
 			for name := range server.hooks {
 				hnames = append(hnames, name)
 			}
@@ -180,8 +177,7 @@ func (server *Server) aofshrink() {
 		sort.Strings(hnames)
 		for _, name := range hnames {
 			func() {
-				server.mu.Lock()
-				defer server.mu.Unlock()
+				defer server.WriterLock()
 				hook := server.hooks[name]
 				if hook == nil {
 					return
@@ -235,8 +231,7 @@ func (server *Server) aofshrink() {
 		// finally grab any new data that may have been written since
 		// the aofshrink has started and swap out the files.
 		return func() error {
-			server.mu.Lock()
-			defer server.mu.Unlock()
+			defer server.WriterLock()()
 
 			// flush the aof buffer
 			server.flushAOF(false)

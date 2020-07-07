@@ -96,7 +96,7 @@ type Server struct {
 	connsmu sync.RWMutex
 	conns   map[int]*Client
 
-	snapmu   sync.RWMutex    // snapshot locking
+	snapmu   sync.Mutex    // snapshot locking
 
 	mu       sync.RWMutex
 	aof      *os.File        // active aof file
@@ -309,6 +309,28 @@ func Serve(host string, port int, dir string, http bool) error {
 	return server.netServe()
 }
 
+// Readers should call: defer ReaderLock()()
+func (server *Server) ReaderLock() func() {
+	server.mu.RLock()
+	return server.mu.RUnlock
+}
+
+// Writers should call: defer WriterLock()()
+func (server *Server) WriterLock() func() {
+	server.snapmu.Lock()
+	server.mu.Lock()
+	return func() {
+		server.mu.Unlock()
+		server.snapmu.Unlock()
+	}
+}
+
+// Snapshot save should call: defer SnapshotLock()()
+func (server *Server) SnapshotLock() func() {
+	server.snapmu.Lock()
+	return server.snapmu.Unlock
+}
+
 func (server *Server) isProtected() bool {
 	if core.ProtectedMode == "no" {
 		// --protected-mode no
@@ -492,8 +514,7 @@ func (server *Server) netServe() error {
 					if atomic.LoadInt32(&server.aofdirty) != 0 {
 						func() {
 							// prewrite
-							server.mu.Lock()
-							defer server.mu.Unlock()
+							defer server.WriterLock()()
 							server.flushAOF(false)
 						}()
 						atomic.StoreInt32(&server.aofdirty, 0)
@@ -636,10 +657,7 @@ func (server *Server) backgroundSyncAOF() {
 			return
 		}
 		func() {
-			server.snapmu.Lock()
-			defer server.snapmu.Unlock()
-			server.mu.Lock()
-			defer server.mu.Unlock()
+			defer server.WriterLock()()
 			server.flushAOF(true)
 		}()
 	}
@@ -822,16 +840,14 @@ func (server *Server) handleInputCommand(client *Client, msg *Message) error {
 	// choose the locking strategy
 	switch msg.Command() {
 	default:
-		server.mu.RLock()
-		defer server.mu.RUnlock()
+		defer server.ReaderLock()()
 	case "set", "del", "drop", "fset", "flushdb",
 		"setchan", "pdelchan", "delchan",
 		"sethook", "pdelhook", "delhook",
 		"expire", "persist", "jset", "pdel", "rename", "renamenx":
 		// write operations
 		write = true
-		server.mu.Lock()
-		defer server.mu.Unlock()
+		defer server.WriterLock()()
 		if server.config.followHost() != "" {
 			return writeErr("not the leader")
 		}
@@ -840,8 +856,7 @@ func (server *Server) handleInputCommand(client *Client, msg *Message) error {
 		}
 	case "eval", "evalsha":
 		// write operations (potentially) but no AOF for the script command itself
-		server.mu.Lock()
-		defer server.mu.Unlock()
+		defer server.WriterLock()()
 		if server.config.followHost() != "" {
 			return writeErr("not the leader")
 		}
@@ -853,16 +868,14 @@ func (server *Server) handleInputCommand(client *Client, msg *Message) error {
 		"evalro", "evalrosha":
 		// read operations
 
-		server.mu.RLock()
-		defer server.mu.RUnlock()
+		defer server.ReaderLock()()
 		if server.config.followHost() != "" && !server.fcuponce {
 			return writeErr("catching up to leader")
 		}
 	case "follow", "slaveof", "replconf", "readonly", "config":
 		// system operations
 		// does not write to aof, but requires a write lock.
-		server.mu.Lock()
-		defer server.mu.Unlock()
+		defer server.WriterLock()()
 	case "output":
 		// this is local connection operation. Locks not needed.
 	case "echo":
@@ -870,32 +883,25 @@ func (server *Server) handleInputCommand(client *Client, msg *Message) error {
 		// dev operation
 	case "sleep":
 		// dev operation
-		server.mu.RLock()
-		defer server.mu.RUnlock()
+		defer server.ReaderLock()()
 	case "shutdown":
 		// dev operation
-		server.mu.Lock()
-		defer server.mu.Unlock()
+		defer server.WriterLock()()
 	case "aofshrink":
-		server.mu.RLock()
-		defer server.mu.RUnlock()
+		defer server.ReaderLock()()
 	case "snapshot":
 		switch strings.ToLower(msg.Args[1]) {
 		case "save":
 			// we only need to lock out other snapshots when we save
 			// the snapshot-saving will set reader lock to pause other writers
-			server.snapmu.Lock()
-			defer server.snapmu.Unlock()
+			defer server.SnapshotLock()()
 		case "load":
-			server.mu.Lock()
-			defer server.mu.Unlock()
+			defer server.WriterLock()()
 		default:  // latest meta is read-only
-			server.mu.RLock()
-			defer server.mu.RUnlock()
+			defer server.ReaderLock()()
 		}
 	case "client":
-		server.mu.Lock()
-		defer server.mu.Unlock()
+		defer server.WriterLock()()
 	case "evalna", "evalnasha":
 		// No locking for scripts, otherwise writes cannot happen within scripts
 	case "subscribe", "psubscribe", "publish":

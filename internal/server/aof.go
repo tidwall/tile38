@@ -447,13 +447,13 @@ func (s *Server) cmdAOF(msg *Message) (res resp.Value, err error) {
 }
 
 func (s *Server) liveAOF(pos int64, conn net.Conn, rd *PipelineReader, msg *Message) error {
-	s.mu.Lock()
+	ul := s.WriterLock()
 	s.aofconnM[conn] = true
-	s.mu.Unlock()
+	ul()
 	defer func() {
-		s.mu.Lock()
+		ul := s.WriterLock()
 		delete(s.aofconnM, conn)
-		s.mu.Unlock()
+		ul()
 		conn.Close()
 	}()
 
@@ -461,9 +461,9 @@ func (s *Server) liveAOF(pos int64, conn net.Conn, rd *PipelineReader, msg *Mess
 		return err
 	}
 
-	s.mu.RLock()
+	ul = s.ReaderLock()
 	f, err := os.Open(s.aof.Name())
-	s.mu.RUnlock()
+	ul()
 	if err != nil {
 		return err
 	}

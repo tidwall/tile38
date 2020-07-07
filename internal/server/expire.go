@@ -72,6 +72,8 @@ const bgExpireSegmentSize = 20
 // segmented sweep of the expires list
 func (s *Server) expirePurgeSweep(rng *rand.Rand) (purged int) {
 	now := time.Now().UnixNano()
+	s.snapmu.Lock()
+	defer s.snapmu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.expires.Len() == 0 {

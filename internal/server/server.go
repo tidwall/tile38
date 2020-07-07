@@ -636,6 +636,8 @@ func (server *Server) backgroundSyncAOF() {
 			return
 		}
 		func() {
+			server.snapmu.Lock()
+			defer server.snapmu.Unlock()
 			server.mu.Lock()
 			defer server.mu.Unlock()
 			server.flushAOF(true)

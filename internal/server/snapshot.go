@@ -98,11 +98,13 @@ func connLastSnapshotMeta(conn *RESPConn) (snapshotMeta *SnapshotMeta, err error
 		_idstr: vals[0].String(),
 		_offset: int64(vals[1].Integer()),
 	}
+	log.Infof("Last snapshot known to the leader: %s", snapshotMeta._idstr)
 	return
 }
 
 func (s *Server) cmdSnapshotLastMeta(msg *Message) (res resp.Value, err error) {
 	start := time.Now()
+	log.Infof("Last snapshot meta requested")
 	switch msg.OutputType {
 	case JSON:
 		res = resp.StringValue(

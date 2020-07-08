@@ -357,6 +357,8 @@ func (s *Server) follow(host string, port int, followc int) {
 	for {
 		if lTop, fTop, err = s.syncToLatestSnapshot(host, port, followc); err != nil {
 			log.Errorf("follow: failed to sync to the latest snapshot: %v", err)
+			time.Sleep(time.Second)
+			continue
 		}
 		if err = s.catchUpAndKeepUp(host, port, followc, lTop, fTop); err == errNoLongerFollowing {
 			return

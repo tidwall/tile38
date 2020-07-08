@@ -207,7 +207,7 @@ func (s *Server) validateLeader(host string, port int) error {
 	return nil
 }
 
-func (s *Server) followStep(host string, port int, followc int, lTop, fTop int64) error {
+func (s *Server) catchUpAndKeepUp(host string, port int, followc int, lTop, fTop int64) error {
 	if s.followc.get() != followc {
 		return errNoLongerFollowing
 	}
@@ -219,8 +219,7 @@ func (s *Server) followStep(host string, port int, followc int, lTop, fTop int64
 	}
 	addr := fmt.Sprintf("%s:%d", host, port)
 
-	// verify checksum
-	relPos, err := s.followCheckSome(addr, followc, lTop, fTop)
+	relPos, err := s.findFollowPos(addr, followc, lTop, fTop)
 	if err != nil {
 		return err
 	}
@@ -353,12 +352,14 @@ func (s * Server) syncToLatestSnapshot(host string, port int, followc int) (lTop
 func (s *Server) follow(host string, port int, followc int) {
 	var lTop, fTop int64
 	var err error
-	if lTop, fTop, err = s.syncToLatestSnapshot(host, port, followc); err != nil {
-		log.Errorf("Failed to sync to the latest snapshot: %v", err)
-		return
-	}
+	// Each step of this loop is an attempt to start and maintain replication.
+	// If and when it breaks, it will start anew in this loop.
 	for {
-		if err = s.followStep(host, port, followc, lTop, fTop); err == errNoLongerFollowing {
+		if lTop, fTop, err = s.syncToLatestSnapshot(host, port, followc); err != nil {
+			log.Errorf("Failed to sync to the latest snapshot: %v", err)
+			return
+		}
+		if err = s.catchUpAndKeepUp(host, port, followc, lTop, fTop); err == errNoLongerFollowing {
 			return
 		} else if err != nil && err != io.EOF {
 			log.Error("follow: " + err.Error())

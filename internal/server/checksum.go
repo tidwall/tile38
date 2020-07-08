@@ -137,9 +137,11 @@ func getEndOfLastValuePositionInFile(fname string, startPos int64) (int64, error
 	}
 }
 
-// followCheckSome is not a full checksum. It just "checks some" data.
-// We will do some various checksums on the leader until we find the correct position to start at.
-func (s *Server) followCheckSome(addr string, followc int, lTop, fTop int64) (relPos int64, err error) {
+// Given leader offset lTop, and follower offset fTop, find a position within the leader AOF
+// that the follower should replicate from. The position is relative to the given offsets.
+// It corresponds to the size of the common AOF between the two sides, following the
+// respective offsets.
+func (s *Server) findFollowPos(addr string, followc int, lTop, fTop int64) (relPos int64, err error) {
 	if core.ShowDebugMessages {
 		log.Debug("follow:", addr, ":check some")
 	}
@@ -218,14 +220,15 @@ func (s *Server) followCheckSome(addr string, followc int, lTop, fTop int64) (re
 		}
 		return fPos - fTop, nil
 	}
+	// Note: any error below is fatal: replication will break and then start anew.
 	log.Warnf("truncating aof to %d", fPos)
-	// any errror below are fatal.
 	s.aof.Close()
 	fname := s.aof.Name()
 	if err := os.Truncate(fname, fPos); err != nil {
 		log.Fatalf("could not truncate aof, possible data loss. %s", err.Error())
 		return 0, err
 	}
+	// reload truncated file, make sure we're at the same offset.
 	s.aof, err = os.OpenFile(fname, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		log.Fatalf("could not create aof, possible data loss. %s", err.Error())
@@ -234,7 +237,7 @@ func (s *Server) followCheckSome(addr string, followc int, lTop, fTop int64) (re
 	// reset the entire system.
 	log.Infof("reloading aof commands")
 	s.reset()
-	if err := s.loadAOF(nilOffset); err != nil {
+	if err := s.loadAOF(fPos); err != nil {
 		log.Fatalf("could not reload aof, possible data loss. %s", err.Error())
 		return 0, err
 	}

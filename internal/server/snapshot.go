@@ -34,7 +34,7 @@ const (
 type SnapshotMeta struct {
 	path string
 
-	mu sync.RWMutex
+	mu sync.Mutex
 
 	_idstr	string
 	_offset	int64
@@ -129,6 +129,7 @@ func (s *Server) cmdSaveSnapshot(msg *Message) (res resp.Value, err error) {
 	snapshotId := rand.Uint64()
 	snapshotIdStr := strconv.FormatUint(snapshotId, 16)
 	snapshotDir := s.getSnapshotDir(snapshotIdStr)
+
 	// the doSaveSnapshot will handle locking
 	if err := s.doSaveSnapshot(snapshotId, snapshotIdStr, snapshotDir); err != nil {
 		return NOMessage, errSnapshotSaveFailed
@@ -144,6 +145,10 @@ func (s *Server) cmdSaveSnapshot(msg *Message) (res resp.Value, err error) {
 	}
 	log.Infof("Pushed snapshot %s", snapshotIdStr)
 
+	if err := s.writeAOF([]string{"SAVESNAPSHOT", snapshotIdStr}, nil); err != nil {
+		log.Errorf("Failed to write AOF for snapshot: %v", err)
+		return NOMessage, errInvalidAOF
+	}
 	s.snapshotMeta._idstr = snapshotIdStr
 	s.snapshotMeta._offset = s.aofsz
 	if err := s.snapshotMeta.save(); err != nil {
@@ -165,9 +170,6 @@ func (s *Server) cmdSaveSnapshot(msg *Message) (res resp.Value, err error) {
 }
 
 func (s *Server) doSaveSnapshot(snapshotId uint64, snapshotIdStr, snapshotDir string) error {
-	// using read lock for the duration of saving, to exclude writers
-	defer s.ReaderLock()()
-
 	log.Infof("Saving snapshot %s...", snapshotIdStr)
 
 	if err := os.MkdirAll(snapshotDir, 0700); err != nil {
@@ -201,11 +203,6 @@ func (s *Server) doSaveSnapshot(snapshotId uint64, snapshotIdStr, snapshotDir st
 		}(col, key)
 	}
 	wg.Wait()
-
-	if err := s.writeAOF([]string{"SAVESNAPSHOT", snapshotIdStr}, nil); err != nil {
-		log.Errorf("Failed to write AOF for snapshot: %v", err)
-		return errInvalidAOF
-	}
 	log.Infof("Saved snapshot %s", snapshotIdStr)
 	return nil
 }

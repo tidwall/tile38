@@ -356,8 +356,7 @@ func (s *Server) follow(host string, port int, followc int) {
 	// If and when it breaks, it will start anew in this loop.
 	for {
 		if lTop, fTop, err = s.syncToLatestSnapshot(host, port, followc); err != nil {
-			log.Errorf("Failed to sync to the latest snapshot: %v", err)
-			return
+			log.Errorf("follow: failed to sync to the latest snapshot: %v", err)
 		}
 		if err = s.catchUpAndKeepUp(host, port, followc, lTop, fTop); err == errNoLongerFollowing {
 			return

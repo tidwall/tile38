@@ -334,7 +334,7 @@ func (s * Server) syncToLatestSnapshot(host string, port int, followc int) (lTop
 		return
 	}
 	lTop = snapshotMeta._offset
-	if snapshotMeta._idstr == s.snapshotMeta._idstr {
+	if snapshotMeta._idstr == s.snapshotMeta._idstr && s.snapshotMeta._loaded {
 		fTop = s.snapshotMeta._offset
 		return}
 

@@ -38,6 +38,10 @@ type SnapshotMeta struct {
 
 	_idstr	string
 	_offset	int64
+
+	// this bit is not saved. It is for the current state to distinguish
+	// when it actually loaded the last-known snapshot vs just fetched it.
+	_loaded bool
 }
 
 func loadSnapshotMeta(path string) (sm *SnapshotMeta, err error) {
@@ -322,6 +326,7 @@ func (s *Server) doLoadSnapshot(snapshotIdStr string) error {
 		}(col, key)
 	}
 	wg.Wait()
+	s.snapshotMeta._loaded = true
 	log.Infof("Loaded snapshot %s", snapshotIdStr)
 	return nil
 }

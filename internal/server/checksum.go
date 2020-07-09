@@ -105,65 +105,71 @@ func (s *Server) findFollowPos(addr string, followc int, lTop, fTop int64) (relP
 	if s.followc.get() != followc {
 		return 0, errNoLongerFollowing
 	}
-	if s.aofsz < checksumsz {
-		return 0, nil
-	}
 
 	conn, err := DialTimeout(addr, time.Second*2)
 	if err != nil {
 		return 0, err
 	}
 	defer conn.Close()
-	m, err := doServer(conn)
-	if err != nil {
-		return 0, err
-	}
-	lSize, err := strconv.ParseInt(m["aof_size"], 10, 64)
-	if err != nil {
-		return 0, err
-	}
 
 	lMin := lTop
-	lMax := lSize - checksumsz
-	lLimit := lSize
 	fMin := fTop
-	fMax := s.aofsz - checksumsz
-	fLimit := s.aofsz
-	match, err := s.matchChecksums(conn, lMin, fMin, checksumsz)
-	if err != nil {
-		return 0, err
-	}
 
-	if match {
-		// bump up the mins
-		lMin += checksumsz
-		fMin += checksumsz
+	if s.aofsz >= checksumsz {
+		m, err := doServer(conn)
+		if err != nil {
+			return 0, err
+		}
+		lSize, err := strconv.ParseInt(m["aof_size"], 10, 64)
+		if err != nil {
+			return 0, err
+		}
 
-		for {
-			if fMax < fMin || fMax+checksumsz > fLimit {
-				break
-			} else {
-				match, err = s.matchChecksums(conn, lMax, fMax, checksumsz)
-				if err != nil {
-					return 0, err
-				}
-				if match {
-					fMin = fMax + checksumsz
-					lMin = lMax + checksumsz
+		lMax := lSize - checksumsz
+		lLimit := lSize
+		fMax := s.aofsz - checksumsz
+		fLimit := s.aofsz
+		match, err := s.matchChecksums(conn, lMin, fMin, checksumsz)
+		if err != nil {
+			return 0, err
+		}
+
+		if match {
+			// bump up the mins
+			lMin += checksumsz
+			fMin += checksumsz
+
+			for {
+				if fMax < fMin || fMax+checksumsz > fLimit {
+					break
 				} else {
-					fLimit = fMax
-					lLimit = lMax
+					match, err = s.matchChecksums(conn, lMax, fMax, checksumsz)
+					if err != nil {
+						return 0, err
+					}
+					if match {
+						fMin = fMax + checksumsz
+						lMin = lMax + checksumsz
+					} else {
+						fLimit = fMax
+						lLimit = lMax
+					}
+					fMax = (fLimit-fMin)/2 - checksumsz/2 + fMin // multiply
+					lMax = (lLimit-lMin)/2 - checksumsz/2 + lMin
 				}
-				fMax = (fLimit-fMin)/2 - checksumsz/2 + fMin // multiply
-				lMax = (lLimit-lMin)/2 - checksumsz/2 + lMin
 			}
 		}
 	}
-
-	// If we're not at the end of our AOF, we have diverged somehow.
-	if fMin < s.aofsz {
-		log.Warnf("extra AOF data. fMin %d, aof size %d", fMin, s.aofsz)
-		return 0, errInvalidAOF
+	bytesLeft := s.aofsz-fMin
+	if bytesLeft < checksumsz {
+		match, err := s.matchChecksums(conn, lMin, fMin, bytesLeft)
+		if err != nil {
+			return 0, err
+		}
+		if match {
+			return s.aofsz-fTop, nil
+		}
 	}
-	return fMin - fTop, nil
+	log.Warnf("extra AOF data. fMin %d, aof size %d", fMin, s.aofsz)
+	return 0, errInvalidAOF
 }

@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/tidwall/resp"
 	"github.com/tidwall/tile38/core"
 	"github.com/tidwall/tile38/internal/log"
 )
@@ -93,49 +92,6 @@ func (s *Server) matchChecksums(conn *RESPConn, lPos, fPos, size int64) (match b
 	return csum == sum, nil
 }
 
-// getEndOfLastValuePositionInFile is a very slow operation because it reads the file
-// backwards on byte at a time. Eek. It seek+read, seek+read, etc.
-func getEndOfLastValuePositionInFile(fname string, startPos int64) (int64, error) {
-	pos := startPos
-	f, err := os.Open(fname)
-	if err != nil {
-		return 0, err
-	}
-	defer f.Close()
-	readByte := func() (byte, error) {
-		if pos <= 0 {
-			return 0, io.EOF
-		}
-		pos--
-		if _, err := f.Seek(pos, 0); err != nil {
-			return 0, err
-		}
-		b := make([]byte, 1)
-		if n, err := f.Read(b); err != nil {
-			return 0, err
-		} else if n != 1 {
-			return 0, errors.New("invalid read")
-		}
-		return b[0], nil
-	}
-	for {
-		c, err := readByte()
-		if err != nil {
-			return 0, err
-		}
-		if c == '*' {
-			if _, err := f.Seek(pos, 0); err != nil {
-				return 0, err
-			}
-			rd := resp.NewReader(f)
-			_, telnet, n, err := rd.ReadMultiBulk()
-			if err != nil || telnet {
-				continue // keep reading backwards
-			}
-			return pos + int64(n), nil
-		}
-	}
-}
 
 // Given leader offset lTop, and follower offset fTop, find a position within the leader AOF
 // that the follower should replicate from. The position is relative to the given offsets.
@@ -203,26 +159,11 @@ func (s *Server) findFollowPos(addr string, followc int, lTop, fTop int64) (relP
 			}
 		}
 	}
-	fPos := fMin
-	if fPos == fTop {
-		return 0, err
-	}
 
-	// we want to truncate at a command location
-	// search for nearest command
-	fPos, err = getEndOfLastValuePositionInFile(s.aof.Name(), fPos)
-	if err != nil {
-		return 0, err
+	// If we're not at the end of our AOF, we have diverged somehow.
+	if fMin < s.aofsz {
+		log.Warnf("extra AOF data. fMin %d, aof size %d", fMin, s.aofsz)
+		return 0, errInvalidAOF
 	}
-	if fPos == fMin {
-		if core.ShowDebugMessages {
-			log.Debug("follow: aof fully intact")
-		}
-		return fPos - fTop, nil
-	}
-
-	// at this point, we found the end of the common AOF, but the follower has more
-	// after that common part. This means the follower diverged from the leader.
-	log.Warnf("extra AOF data")
-	return 0, errInvalidAOF
+	return fMin - fTop, nil
 }

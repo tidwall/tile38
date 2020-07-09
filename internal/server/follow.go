@@ -367,7 +367,7 @@ func (s *Server) follow(host string, port int, followc int) {
 	var lTop, fTop int64
 	var err error
 	// Each step of this loop is an attempt to start and maintain replication.
-	// If and when it breaks, it will start anew in this loop.
+	// If and when it breaks, it will start again in this loop.
 	for {
 		if lTop, fTop, err = s.syncToLatestSnapshot(host, port, followc); err != nil {
 			log.Errorf("follow: failed to sync to the latest snapshot: %v", err)

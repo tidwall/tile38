@@ -142,6 +142,7 @@ func (s *Server) followHandleCommand(args []string, followc int, w io.Writer) (i
 		if vs, snapshotIdStr, ok = tokenval(vs); !ok || snapshotIdStr == "" {
 			return s.aofsz, fmt.Errorf("failed to find snapshot ID string: %v", msg.Args)
 		}
+		s.snapshotMeta._idstr = snapshotIdStr
 		go func() {
 			log.Infof("Leader saved snapshot %s, fetching...", snapshotIdStr)
 			_, _ = s.fetchSnapshot(snapshotIdStr)
@@ -157,6 +158,12 @@ func (s *Server) followHandleCommand(args []string, followc int, w io.Writer) (i
 	}
 	if err := s.writeAOF(args, details); err != nil {
 		return s.aofsz, err
+	}
+	if msg.Command() == "savesnapshot" {
+		s.snapshotMeta._offset = s.aofsz
+		if err := s.snapshotMeta.save(); err != nil {
+			log.Errorf("Failed to save snapshot meta: %v", err)
+		}
 	}
 	if len(s.aofbuf) > 10240 {
 		s.flushAOF(false)
@@ -318,14 +325,20 @@ func (s * Server) syncToLatestSnapshot(host string, port int, followc int) (lTop
 		return
 	}
 	defer conn.Close()
-	if s.snapshotMeta, err = connLastSnapshotMeta(conn); err != nil {
+	var snapshotMeta *SnapshotMeta
+	if snapshotMeta, err = connLastSnapshotMeta(conn); err != nil {
 		return
 	}
 	// No snapshot on the server: return 0 offsets
-	if s.snapshotMeta._idstr == "" {
+	if snapshotMeta._idstr == "" {
 		return
 	}
-	lTop = s.snapshotMeta._offset
+	lTop = snapshotMeta._offset
+	if snapshotMeta._idstr == s.snapshotMeta._idstr {
+		fTop = s.snapshotMeta._offset
+		return}
+
+	// only load that snapshot if it's not our latest
 	if err = s.doLoadSnapshot(s.snapshotMeta._idstr); err != nil {
 		return
 	}
@@ -340,6 +353,7 @@ func (s * Server) syncToLatestSnapshot(host string, port int, followc int) (lTop
 		return
 	}
 	fTop = s.aofsz
+	s.snapshotMeta._idstr = snapshotMeta._idstr
 	s.snapshotMeta._offset = s.aofsz
 	s.snapshotMeta.path = filepath.Join(s.dir, "snapshot_meta")
 	if err = s.snapshotMeta.save(); err != nil {
@@ -361,8 +375,22 @@ func (s *Server) follow(host string, port int, followc int) {
 			continue
 		}
 		if err = s.catchUpAndKeepUp(host, port, followc, lTop, fTop); err == errNoLongerFollowing {
+			// we stopped following.
 			return
+		} else if err == errInvalidAOF {
+			// our own AOF (and hence our state) is incompatible with the leader.
+			// reset our data to nothing, and try again.
+			ul := s.WriterLock()
+			s.snapshotMeta._idstr = ""
+			s.doFlushDB()
+			s.aof.Close()
+			s.aofsz = 0
+			if s.aof, err = os.Create(s.aof.Name()); err != nil {
+				log.Fatalf("could not recreate aof, possible data loss. %s", err.Error())
+			}
+			ul()
 		} else if err != nil && err != io.EOF {
+			// unexpected error: log and try again
 			log.Error("follow: " + err.Error())
 		}
 		time.Sleep(time.Second)

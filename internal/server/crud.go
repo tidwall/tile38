@@ -509,11 +509,7 @@ func (server *Server) cmdFlushDB(msg *Message) (res resp.Value, d commandDetails
 		err = errInvalidNumberOfArguments
 		return
 	}
-	server.cols = tinybtree.BTree{}
-	server.expires = rhh.New(0)
-	server.hooks = make(map[string]*Hook)
-	server.hooksOut = make(map[string]*Hook)
-	server.hookTree = rbang.RTree{}
+	server.doFlushDB()
 	d.command = "flushdb"
 	d.updated = true
 	d.timestamp = time.Now()
@@ -524,6 +520,14 @@ func (server *Server) cmdFlushDB(msg *Message) (res resp.Value, d commandDetails
 		res = resp.SimpleStringValue("OK")
 	}
 	return
+}
+
+func (server *Server) doFlushDB() {
+	server.cols = tinybtree.BTree{}
+	server.expires = rhh.New(0)
+	server.hooks = make(map[string]*Hook)
+	server.hooksOut = make(map[string]*Hook)
+	server.hookTree = rbang.RTree{}
 }
 
 func (server *Server) parseSetArgs(vs []string) (

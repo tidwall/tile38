@@ -220,30 +220,9 @@ func (s *Server) findFollowPos(addr string, followc int, lTop, fTop int64) (relP
 		}
 		return fPos - fTop, nil
 	}
-	// Note: any error below is fatal: replication will break and then start anew.
-	log.Warnf("truncating aof to %d", fPos)
-	s.aof.Close()
-	fname := s.aof.Name()
-	if err := os.Truncate(fname, fPos); err != nil {
-		log.Fatalf("could not truncate aof, possible data loss. %s", err.Error())
-		return 0, err
-	}
-	// reload truncated file, make sure we're at the same offset.
-	s.aof, err = os.OpenFile(fname, os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
-		log.Fatalf("could not create aof, possible data loss. %s", err.Error())
-		return 0, err
-	}
-	// reset the entire system.
-	log.Infof("reloading aof commands")
-	s.reset()
-	if err := s.loadAOF(fPos); err != nil {
-		log.Fatalf("could not reload aof, possible data loss. %s", err.Error())
-		return 0, err
-	}
-	if s.aofsz != fPos {
-		log.Fatalf("aof size mismatch during reload, possible data loss.")
-		return 0, errors.New("?")
-	}
-	return fPos - fTop, nil
+
+	// at this point, we found the end of the common AOF, but the follower has more
+	// after that common part. This means the follower diverged from the leader.
+	log.Warnf("extra AOF data")
+	return 0, errInvalidAOF
 }

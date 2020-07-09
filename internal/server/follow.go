@@ -339,7 +339,7 @@ func (s * Server) syncToLatestSnapshot(host string, port int, followc int) (lTop
 		return}
 
 	// only load that snapshot if it's not our latest
-	if err = s.doLoadSnapshot(s.snapshotMeta._idstr); err != nil {
+	if err = s.doLoadSnapshot(snapshotMeta._idstr); err != nil {
 		return
 	}
 	s.aof.Close()

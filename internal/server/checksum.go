@@ -138,8 +138,9 @@ func (s *Server) findFollowPos(addr string, followc int, lTop, fTop int64) (relP
 		return
 	}
 	// whether the end matches
-	match, err = s.matchChecksums(
-		conn, s.aofsz-checksumsz, fTop+s.aofsz-checksumsz, checksumsz)
+	fPos := s.aofsz-checksumsz
+	lPos := fPos-fTop+lTop
+	match, err = s.matchChecksums(conn, lPos, fPos, checksumsz)
 	if err != nil {
 		return
 	}

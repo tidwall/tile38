@@ -325,21 +325,23 @@ func (s * Server) syncToLatestSnapshot(host string, port int, followc int) (lTop
 		return
 	}
 	defer conn.Close()
-	var snapshotMeta *SnapshotMeta
-	if snapshotMeta, err = connLastSnapshotMeta(conn); err != nil {
+	var lSnapMeta *SnapshotMeta
+	if lSnapMeta, err = connLastSnapshotMeta(conn); err != nil {
 		return
 	}
 	// No snapshot on the server: return 0 offsets
-	if snapshotMeta._idstr == "" {
+	if lSnapMeta._idstr == "" {
 		return
 	}
-	lTop = snapshotMeta._offset
-	if snapshotMeta._idstr == s.snapshotMeta._idstr && s.snapshotMeta._loaded {
+	lTop = lSnapMeta._offset
+	// if we have the master's snapshot already loaded, just use that offset
+	if lSnapMeta._idstr == s.snapshotMeta._idstr && s.snapshotMeta._loaded {
 		fTop = s.snapshotMeta._offset
-		return}
+		return
+	}
 
 	// only load that snapshot if it's not our latest
-	if err = s.doLoadSnapshot(snapshotMeta._idstr); err != nil {
+	if err = s.doLoadSnapshot(lSnapMeta._idstr); err != nil {
 		return
 	}
 	s.aof.Close()
@@ -353,7 +355,7 @@ func (s * Server) syncToLatestSnapshot(host string, port int, followc int) (lTop
 		return
 	}
 	fTop = s.aofsz
-	s.snapshotMeta._idstr = snapshotMeta._idstr
+	s.snapshotMeta._idstr = lSnapMeta._idstr
 	s.snapshotMeta._offset = s.aofsz
 	s.snapshotMeta.path = filepath.Join(s.dir, "snapshot_meta")
 	if err = s.snapshotMeta.save(); err != nil {
@@ -366,20 +368,21 @@ func (s * Server) syncToLatestSnapshot(host string, port int, followc int) (lTop
 func (s *Server) follow(host string, port int, followc int) {
 	var lTop, fTop int64
 	var err error
+
+	if lTop, fTop, err = s.syncToLatestSnapshot(host, port, followc); err != nil {
+		log.Errorf("follow: failed to sync to the latest snapshot: %v", err)
+		time.Sleep(time.Second)
+	}
+
 	// Each step of this loop is an attempt to start and maintain replication.
 	// If and when it breaks, it will start again in this loop.
 	for {
-		if lTop, fTop, err = s.syncToLatestSnapshot(host, port, followc); err != nil {
-			log.Errorf("follow: failed to sync to the latest snapshot: %v", err)
-			time.Sleep(time.Second)
-			continue
-		}
 		if err = s.catchUpAndKeepUp(host, port, followc, lTop, fTop); err == errNoLongerFollowing {
 			// we stopped following.
 			return
 		} else if err == errInvalidAOF {
 			// our own AOF (and hence our state) is incompatible with the leader.
-			// reset our data to nothing, and try again.
+			// sync to the latest snapshot again.
 			ul := s.WriterLock()
 			s.snapshotMeta._idstr = ""
 			s.doFlushDB()
@@ -389,6 +392,9 @@ func (s *Server) follow(host string, port int, followc int) {
 				log.Fatalf("could not recreate aof, possible data loss. %s", err.Error())
 			}
 			ul()
+			if lTop, fTop, err = s.syncToLatestSnapshot(host, port, followc); err != nil {
+				log.Errorf("follow: failed to sync to the latest snapshot: %v", err)
+			}
 		} else if err != nil && err != io.EOF {
 			// unexpected error: log and try again
 			log.Error("follow: " + err.Error())

@@ -6,10 +6,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strconv"
 	"time"
 
-	"github.com/tidwall/tile38/core"
 	"github.com/tidwall/tile38/internal/log"
 )
 
@@ -93,83 +91,61 @@ func (s *Server) matchChecksums(conn *RESPConn, lPos, fPos, size int64) (match b
 }
 
 
-// Given leader offset lTop, and follower offset fTop, find a position within the leader AOF
-// that the follower should replicate from. The position is relative to the given offsets.
-// It corresponds to the size of the common AOF between the two sides, following the
-// respective offsets.
+// Given leader offset lTop, and follower offset fTop, return the offset
+// for where the follower should replicate from. It can only be the whole
+// size of the follower's AOF, otherwise the two AOFs are incompatible.
 func (s *Server) findFollowPos(addr string, followc int, lTop, fTop int64) (relPos int64, err error) {
-	if core.ShowDebugMessages {
-		log.Debug("follow:", addr, ":check some")
-	}
 	defer s.WriterLock()()
 	if s.followc.get() != followc {
-		return 0, errNoLongerFollowing
+		err = errNoLongerFollowing
+		return
 	}
 
-	conn, err := DialTimeout(addr, time.Second*2)
-	if err != nil {
-		return 0, err
+	conn, e := DialTimeout(addr, time.Second*2)
+	if e != nil {
+		err = e
+		return
 	}
 	defer conn.Close()
 
-	lMin := lTop
-	fMin := fTop
-
-	if s.aofsz >= checksumsz {
-		m, err := doServer(conn)
-		if err != nil {
-			return 0, err
-		}
-		lSize, err := strconv.ParseInt(m["aof_size"], 10, 64)
-		if err != nil {
-			return 0, err
-		}
-
-		lMax := lSize - checksumsz
-		lLimit := lSize
-		fMax := s.aofsz - checksumsz
-		fLimit := s.aofsz
-		match, err := s.matchChecksums(conn, lMin, fMin, checksumsz)
-		if err != nil {
-			return 0, err
-		}
-
-		if match {
-			// bump up the mins
-			lMin += checksumsz
-			fMin += checksumsz
-
-			for {
-				if fMax < fMin || fMax+checksumsz > fLimit {
-					break
-				} else {
-					match, err = s.matchChecksums(conn, lMax, fMax, checksumsz)
-					if err != nil {
-						return 0, err
-					}
-					if match {
-						fMin = fMax + checksumsz
-						lMin = lMax + checksumsz
-					} else {
-						fLimit = fMax
-						lLimit = lMax
-					}
-					fMax = (fLimit-fMin)/2 - checksumsz/2 + fMin // multiply
-					lMax = (lLimit-lMin)/2 - checksumsz/2 + lMin
-				}
-			}
-		}
+	relPos = s.aofsz-fTop  // we'll be returning this, or setting an error
+	if relPos == 0 {
+		return
 	}
-	bytesLeft := s.aofsz-fMin
-	if bytesLeft < checksumsz {
-		match, err := s.matchChecksums(conn, lMin, fMin, bytesLeft)
+
+	var match bool
+	// if AOF is small, check all of it.
+	if relPos <= checksumsz {
+		match, err = s.matchChecksums(conn, lTop, fTop, relPos)
 		if err != nil {
-			return 0, err
+			return
 		}
-		if match {
-			return s.aofsz-fTop, nil
+		if !match {
+			log.Infof("AOF does not match")
+			err = errInvalidAOF
 		}
+		return
 	}
-	log.Warnf("extra AOF data. fMin %d, aof size %d", fMin, s.aofsz)
-	return 0, errInvalidAOF
+
+	// whether the beginning matches
+	match, err = s.matchChecksums(conn, lTop, fTop, checksumsz)
+	if err != nil {
+		return
+	}
+	if !match {
+		log.Infof("beginning of AOF does not match")
+		err = errInvalidAOF
+		return
+	}
+	// whether the end matches
+	match, err = s.matchChecksums(
+		conn, s.aofsz-checksumsz, fTop+s.aofsz-checksumsz, checksumsz)
+	if err != nil {
+		return
+	}
+	if !match {
+		log.Infof("end of AOF does not match")
+		err = errInvalidAOF
+	}
+	return
 }

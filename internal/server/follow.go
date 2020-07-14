@@ -350,7 +350,7 @@ func (s * Server) syncToLatestSnapshot(host string, port int, followc int) (lTop
 		log.Fatalf("could not recreate aof, possible data loss. %s", err.Error())
 		return
 	}
-	if err = s.writeAOF([]string{"LOADSNAPSHOT", s.snapshotMeta._idstr}, nil); err != nil {
+	if err = s.writeAOF([]string{"LOADSNAPSHOT", lSnapMeta._idstr}, nil); err != nil {
 		log.Errorf("Failed to write AOF for synced snapshot: %v", err)
 		return
 	}

@@ -888,7 +888,7 @@ func (server *Server) handleInputCommand(client *Client, msg *Message) error {
 		// dev operation
 		defer server.WriterLock()()
 	case "aofshrink":
-		defer server.ReaderLock()()
+		// aofshrink will do the locking
 	case "snapshot":
 		switch strings.ToLower(msg.Args[1]) {
 		case "save":
@@ -1093,8 +1093,13 @@ func (server *Server) command(msg *Message, client *Client) (
 		debug.FreeOSMemory()
 		res = OKMessage(msg, time.Now())
 	case "aofshrink":
-		go server.aofshrink()
-		res = OKMessage(msg, time.Now())
+		start := time.Now()
+		if err = server.cmdAOFShrink(); err != nil {
+			log.Errorf("Failed aofshrink: %v", err)
+			res = NOMessage
+		} else {
+			res = OKMessage(msg, start)
+		}
 	case "config get":
 		res, err = server.cmdConfigGet(msg)
 	case "config set":

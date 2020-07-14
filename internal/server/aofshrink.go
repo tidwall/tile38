@@ -18,6 +18,9 @@ var errAOFShrinkFailed = errors.New("aof shrink failed")
 func writeResp(dst io.Writer, messages [][]string) error {
 	var buf []byte
 	for _, words := range messages {
+		buf = append(buf, '*')
+		buf = append(buf, strconv.FormatInt(int64(len(words)), 10)...)
+		buf = append(buf, '\r', '\n')
 		for _, word := range words {
 			buf = append(buf, '$')
 			buf = append(buf, strconv.FormatInt(int64(len(word)), 10)...)

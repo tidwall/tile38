@@ -38,6 +38,11 @@ func (server *Server) cmdAOFShrink() error {
 		return errAOFDisabled
 	}
 
+	if server.snapshotMeta._idstr == "" {
+		log.Infof("no snapshot, not shrinking aof")
+		return nil
+	}
+
 	alreadyShrinking := func() bool {
 		defer server.WriterLock()()
 		if server.shrinking {
@@ -58,7 +63,6 @@ func (server *Server) cmdAOFShrink() error {
 		server.shrinklog = nil
 		log.Infof("aof shrink finished %v", time.Now().Sub(start))
 	}()
-
 	shrunkName := core.AppendFileName + "-shrink"
 	dst, err := os.Create(shrunkName)
 	if err != nil {

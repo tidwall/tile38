@@ -365,7 +365,7 @@ func (s *Server) parseSearchScanBaseTokens(
 						err = errInvalidArgument(valStr)
 						return
 					}
-					valArr = append(valArr, val)
+					valArr[i] = val
 				}
 				t.whereins = append(t.whereins, whereinT{field, -1, valArr})
 				continue

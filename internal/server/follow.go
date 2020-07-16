@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -47,38 +49,10 @@ func (s *Server) cmdFollow(msg *Message) (res resp.Value, err error) {
 		}
 		port := int(n)
 		update = s.config.followHost() != host || s.config.followPort() != port
-		auth := s.config.leaderAuth()
 		if update {
-			s.mu.Unlock()
-			conn, err := DialTimeout(fmt.Sprintf("%s:%d", host, port), time.Second*2)
-			if err != nil {
-				s.mu.Lock()
-				return NOMessage, fmt.Errorf("cannot follow: %v", err)
+			if err = s.validateLeader(host, port); err != nil {
+				return NOMessage, err
 			}
-			defer conn.Close()
-			if auth != "" {
-				if err := s.followDoLeaderAuth(conn, auth); err != nil {
-					return NOMessage, fmt.Errorf("cannot follow: %v", err)
-				}
-			}
-			m, err := doServer(conn)
-			if err != nil {
-				s.mu.Lock()
-				return NOMessage, fmt.Errorf("cannot follow: %v", err)
-			}
-			if m["id"] == "" {
-				s.mu.Lock()
-				return NOMessage, fmt.Errorf("cannot follow: invalid id")
-			}
-			if m["id"] == s.config.serverID() {
-				s.mu.Lock()
-				return NOMessage, fmt.Errorf("cannot follow self")
-			}
-			if m["following"] != "" {
-				s.mu.Lock()
-				return NOMessage, fmt.Errorf("cannot follow a follower")
-			}
-			s.mu.Lock()
 		}
 		s.config.setFollowHost(host)
 		s.config.setFollowPort(port)
@@ -151,22 +125,45 @@ func doServer(conn *RESPConn) (map[string]string, error) {
 	return m, err
 }
 
-func (s *Server) followHandleCommand(args []string, followc int, w io.Writer) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *Server) followHandleCommand(args []string, followc int, w io.Writer) (int64, error) {
+	defer s.WriterLock()()
 	if s.followc.get() != followc {
 		return s.aofsz, errNoLongerFollowing
 	}
 	msg := &Message{Args: args}
-
-	_, d, err := s.command(msg, nil)
-	if err != nil {
-		if commandErrIsFatal(err) {
-			return s.aofsz, err
+	var details *commandDetails
+	switch msg.Command() {
+	case "loadsnapshot": // if leader loaded it, we're screwed.
+		return s.aofsz, fmt.Errorf("leader loaded snapshot")
+	case "savesnapshot": // if leader saved it, we will download for the future
+		vs := msg.Args[1:]
+		var ok bool
+		var snapshotIdStr string
+		if vs, snapshotIdStr, ok = tokenval(vs); !ok || snapshotIdStr == "" {
+			return s.aofsz, fmt.Errorf("failed to find snapshot ID string: %v", msg.Args)
 		}
+		s.snapshotMeta._idstr = snapshotIdStr
+		go func() {
+			log.Infof("Leader saved snapshot %s, fetching...", snapshotIdStr)
+			_, _ = s.fetchSnapshot(snapshotIdStr)
+		}()
+	default:  // other commands are replayed verbatim
+		_, _d, err := s.command(msg, nil)
+		if err != nil {
+			if commandErrIsFatal(err) {
+				return s.aofsz, err
+			}
+		}
+		details = &_d
 	}
-	if err := s.writeAOF(args, &d); err != nil {
+	if err := s.writeAOF(args, details); err != nil {
 		return s.aofsz, err
+	}
+	if msg.Command() == "savesnapshot" {
+		s.snapshotMeta._offset = s.aofsz
+		if err := s.snapshotMeta.save(); err != nil {
+			log.Errorf("Failed to save snapshot meta: %v", err)
+		}
 	}
 	if len(s.aofbuf) > 10240 {
 		s.flushAOF(false)
@@ -188,18 +185,10 @@ func (s *Server) followDoLeaderAuth(conn *RESPConn, auth string) error {
 	return nil
 }
 
-func (s *Server) followStep(host string, port int, followc int) error {
-	if s.followc.get() != followc {
-		return errNoLongerFollowing
-	}
-	s.mu.Lock()
-	s.fcup = false
+// Check that we can follow a given host:port, return error if we cannot.
+func (s *Server) validateLeader(host string, port int) error {
 	auth := s.config.leaderAuth()
-	s.mu.Unlock()
-	addr := fmt.Sprintf("%s:%d", host, port)
-
-	// check if we are following self
-	conn, err := DialTimeout(addr, time.Second*2)
+	conn, err := DialTimeout(fmt.Sprintf("%s:%d", host, port), time.Second*2)
 	if err != nil {
 		return fmt.Errorf("cannot follow: %v", err)
 	}
@@ -213,7 +202,6 @@ func (s *Server) followStep(host string, port int, followc int) error {
 	if err != nil {
 		return fmt.Errorf("cannot follow: %v", err)
 	}
-
 	if m["id"] == "" {
 		return fmt.Errorf("cannot follow: invalid id")
 	}
@@ -223,9 +211,32 @@ func (s *Server) followStep(host string, port int, followc int) error {
 	if m["following"] != "" {
 		return fmt.Errorf("cannot follow a follower")
 	}
+	return nil
+}
 
-	// verify checksum
-	pos, err := s.followCheckSome(addr, followc)
+func (s *Server) catchUpAndKeepUp(host string, port int, followc int, lTop, fTop int64) error {
+	if s.followc.get() != followc {
+		return errNoLongerFollowing
+	}
+	ul := s.WriterLock()
+	s.fcup = false
+	ul()
+	if err := s.validateLeader(host, port); err != nil {
+		return err
+	}
+	addr := fmt.Sprintf("%s:%d", host, port)
+
+	relPos, err := s.findFollowPos(addr, followc, lTop, fTop)
+	if err != nil {
+		return err
+	}
+
+	conn, err := DialTimeout(fmt.Sprintf("%s:%d", host, port), time.Second*2)
+	m, err := doServer(conn)
+	if err != nil {
+		return err
+	}
+	lSize, err := strconv.ParseInt(m["aof_size"], 10, 64)
 	if err != nil {
 		return err
 	}
@@ -245,7 +256,7 @@ func (s *Server) followStep(host string, port int, followc int) error {
 		log.Debug("follow:", addr, ":replconf")
 	}
 
-	v, err = conn.Do("aof", pos)
+	v, err = conn.Do("aof", lTop+relPos)
 	if err != nil {
 		return err
 	}
@@ -259,17 +270,12 @@ func (s *Server) followStep(host string, port int, followc int) error {
 		log.Debug("follow:", addr, ":read aof")
 	}
 
-	aofSize, err := strconv.ParseInt(m["aof_size"], 10, 64)
-	if err != nil {
-		return err
-	}
-
-	caughtUp := pos >= aofSize
+	caughtUp := relPos >= lSize-lTop
 	if caughtUp {
-		s.mu.Lock()
+		ul := s.WriterLock()
 		s.fcup = true
 		s.fcuponce = true
-		s.mu.Unlock()
+		ul()
 		log.Info("caught up")
 	}
 	nullw := ioutil.Discard
@@ -287,32 +293,110 @@ func (s *Server) followStep(host string, port int, followc int) error {
 			svals[i] = vals[i].String()
 		}
 
-		aofsz, err := s.followHandleCommand(svals, followc, nullw)
+		fSize, err := s.followHandleCommand(svals, followc, nullw)
 		if err != nil {
 			return err
 		}
 		if !caughtUp {
-			if aofsz >= int(aofSize) {
+			if fSize-fTop >= lSize-lTop {
 				caughtUp = true
-				s.mu.Lock()
+				ul := s.WriterLock()
 				s.flushAOF(false)
 				s.fcup = true
 				s.fcuponce = true
-				s.mu.Unlock()
+				ul()
 				log.Info("caught up")
 			}
 		}
-
 	}
 }
 
+
+func (s * Server) syncToLatestSnapshot(host string, port int, followc int) (lTop, fTop int64, err error) {
+	if s.followc.get() != followc {
+		err = errNoLongerFollowing
+		return
+	}
+	if err = s.validateLeader(host, port); err != nil {
+		return
+	}
+	var conn *RESPConn
+	if conn, err = DialTimeout(fmt.Sprintf("%s:%d", host, port), time.Second*2); err != nil {
+		return
+	}
+	defer conn.Close()
+	var lSnapMeta *SnapshotMeta
+	if lSnapMeta, err = connLastSnapshotMeta(conn); err != nil {
+		return
+	}
+	// No snapshot on the server: return 0 offsets
+	if lSnapMeta._idstr == "" {
+		return
+	}
+	lTop = lSnapMeta._offset
+	// if we have the master's snapshot already loaded, just use that offset
+	if lSnapMeta._idstr == s.snapshotMeta._idstr && s.snapshotMeta._loaded {
+		fTop = s.snapshotMeta._offset
+		return
+	}
+
+	// only load that snapshot if it's not our latest
+	if err = s.doLoadSnapshot(lSnapMeta._idstr); err != nil {
+		return
+	}
+	s.aof.Close()
+	s.aofsz = 0
+	if s.aof, err = os.Create(s.aof.Name()); err != nil {
+		log.Fatalf("could not recreate aof, possible data loss. %s", err.Error())
+		return
+	}
+	if err = s.writeAOF([]string{"LOADSNAPSHOT", lSnapMeta._idstr}, nil); err != nil {
+		log.Errorf("Failed to write AOF for synced snapshot: %v", err)
+		return
+	}
+	fTop = s.aofsz
+	s.snapshotMeta._idstr = lSnapMeta._idstr
+	s.snapshotMeta._offset = s.aofsz
+	s.snapshotMeta.path = filepath.Join(s.dir, "snapshot_meta")
+	if err = s.snapshotMeta.save(); err != nil {
+		log.Errorf("Failed to save synced snapshot meta: %v", err)
+		return
+	}
+	return
+}
+
 func (s *Server) follow(host string, port int, followc int) {
+	var lTop, fTop int64
+	var err error
+
+	if lTop, fTop, err = s.syncToLatestSnapshot(host, port, followc); err != nil {
+		log.Errorf("follow: failed to sync to the latest snapshot: %v", err)
+		time.Sleep(time.Second)
+	}
+
+	// Each step of this loop is an attempt to start and maintain replication.
+	// If and when it breaks, it will start again in this loop.
 	for {
-		err := s.followStep(host, port, followc)
-		if err == errNoLongerFollowing {
+		if err = s.catchUpAndKeepUp(host, port, followc, lTop, fTop); err == errNoLongerFollowing {
+			// we stopped following.
 			return
-		}
-		if err != nil && err != io.EOF {
+		} else if err == errInvalidAOF {
+			// our own AOF (and hence our state) is incompatible with the leader.
+			// sync to the latest snapshot again.
+			ul := s.WriterLock()
+			s.snapshotMeta._idstr = ""
+			s.doFlushDB()
+			s.aof.Close()
+			s.aofsz = 0
+			if s.aof, err = os.Create(s.aof.Name()); err != nil {
+				log.Fatalf("could not recreate aof, possible data loss. %s", err.Error())
+			}
+			ul()
+			if lTop, fTop, err = s.syncToLatestSnapshot(host, port, followc); err != nil {
+				log.Errorf("follow: failed to sync to the latest snapshot: %v", err)
+			}
+		} else if err != nil && err != io.EOF {
+			// unexpected error: log and try again
 			log.Error("follow: " + err.Error())
 		}
 		time.Sleep(time.Second)

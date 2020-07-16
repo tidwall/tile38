@@ -77,6 +77,7 @@ type Server struct {
 	started time.Time
 	config  *Config
 	epc     *endpoint.Manager
+	snapshotMeta *SnapshotMeta
 
 	// env opts
 	geomParseOpts geojson.ParseOptions
@@ -95,11 +96,13 @@ type Server struct {
 	connsmu sync.RWMutex
 	conns   map[int]*Client
 
+	snapmu   sync.Mutex    // snapshot locking
+
 	mu       sync.RWMutex
 	aof      *os.File        // active aof file
 	aofdirty int32           // mark the aofbuf as having data
 	aofbuf   []byte          // prewrite buffer
-	aofsz    int             // active size of the aof file
+	aofsz    int64             // active size of the aof file
 	qdb      *buntdb.DB      // hook queue log
 	qidx     uint64          // hook queue log last idx
 	cols     tinybtree.BTree // data collections
@@ -170,6 +173,11 @@ func Serve(host string, port int, dir string, http bool) error {
 	}
 	var err error
 	server.config, err = loadConfig(filepath.Join(dir, "config"))
+	if err != nil {
+		return err
+	}
+
+	server.snapshotMeta, err = loadSnapshotMeta(filepath.Join(dir, "snapshot_meta"))
 	if err != nil {
 		return err
 	}
@@ -249,24 +257,34 @@ func Serve(host string, port int, dir string, http bool) error {
 	if err := server.migrateAOF(); err != nil {
 		return err
 	}
+
 	if core.AppendOnly == true {
 		f, err := os.OpenFile(core.AppendFileName, os.O_CREATE|os.O_RDWR, 0600)
 		if err != nil {
 			return err
 		}
 		server.aof = f
-		if err := server.loadAOF(); err != nil {
-			return err
-		}
-		defer func() {
-			server.flushAOF(false)
-			server.aof.Sync()
-		}()
 	}
-	// server.fillExpiresList()
-
-	// Start background routines
-	if server.config.followHost() != "" {
+	// Only load AOF if we're not following anybody.
+	// Following means scrapping what you have
+	// and starting from the leader's latest snapshot.
+	if server.config.followHost() == "" {
+		// Load last snapshot if we have it
+		if server.snapshotMeta._idstr != "" {
+			if err := server.doLoadSnapshot(server.snapshotMeta._idstr); err != nil {
+				return err
+			}
+		}
+		if core.AppendOnly == true {
+			if err := server.loadAOF(server.snapshotMeta._offset); err != nil {
+				return err
+			}
+			defer func() {
+				server.flushAOF(false)
+				server.aof.Sync()
+			}()
+		}
+	} else {
 		go server.follow(server.config.followHost(), server.config.followPort(),
 			server.followc.get())
 	}
@@ -289,6 +307,28 @@ func Serve(host string, port int, dir string, http bool) error {
 
 	// Start the network server
 	return server.netServe()
+}
+
+// Readers should call: defer ReaderLock()()
+func (server *Server) ReaderLock() func() {
+	server.mu.RLock()
+	return server.mu.RUnlock
+}
+
+// Writers should call: defer WriterLock()()
+func (server *Server) WriterLock() func() {
+	server.snapmu.Lock()
+	server.mu.Lock()
+	return func() {
+		server.mu.Unlock()
+		server.snapmu.Unlock()
+	}
+}
+
+// Snapshot save should call: defer SnapshotLock()()
+func (server *Server) SnapshotLock() func() {
+	server.snapmu.Lock()
+	return server.snapmu.Unlock
 }
 
 func (server *Server) isProtected() bool {
@@ -474,8 +514,7 @@ func (server *Server) netServe() error {
 					if atomic.LoadInt32(&server.aofdirty) != 0 {
 						func() {
 							// prewrite
-							server.mu.Lock()
-							defer server.mu.Unlock()
+							defer server.WriterLock()()
 							server.flushAOF(false)
 						}()
 						atomic.StoreInt32(&server.aofdirty, 0)
@@ -618,8 +657,7 @@ func (server *Server) backgroundSyncAOF() {
 			return
 		}
 		func() {
-			server.mu.Lock()
-			defer server.mu.Unlock()
+			defer server.WriterLock()()
 			server.flushAOF(true)
 		}()
 	}
@@ -802,16 +840,14 @@ func (server *Server) handleInputCommand(client *Client, msg *Message) error {
 	// choose the locking strategy
 	switch msg.Command() {
 	default:
-		server.mu.RLock()
-		defer server.mu.RUnlock()
+		defer server.ReaderLock()()
 	case "set", "del", "drop", "fset", "flushdb",
 		"setchan", "pdelchan", "delchan",
 		"sethook", "pdelhook", "delhook",
 		"expire", "persist", "jset", "pdel", "rename", "renamenx":
 		// write operations
 		write = true
-		server.mu.Lock()
-		defer server.mu.Unlock()
+		defer server.WriterLock()()
 		if server.config.followHost() != "" {
 			return writeErr("not the leader")
 		}
@@ -820,8 +856,7 @@ func (server *Server) handleInputCommand(client *Client, msg *Message) error {
 		}
 	case "eval", "evalsha":
 		// write operations (potentially) but no AOF for the script command itself
-		server.mu.Lock()
-		defer server.mu.Unlock()
+		defer server.WriterLock()()
 		if server.config.followHost() != "" {
 			return writeErr("not the leader")
 		}
@@ -833,16 +868,14 @@ func (server *Server) handleInputCommand(client *Client, msg *Message) error {
 		"evalro", "evalrosha":
 		// read operations
 
-		server.mu.RLock()
-		defer server.mu.RUnlock()
+		defer server.ReaderLock()()
 		if server.config.followHost() != "" && !server.fcuponce {
 			return writeErr("catching up to leader")
 		}
 	case "follow", "slaveof", "replconf", "readonly", "config":
 		// system operations
 		// does not write to aof, but requires a write lock.
-		server.mu.Lock()
-		defer server.mu.Unlock()
+		defer server.WriterLock()()
 	case "output":
 		// this is local connection operation. Locks not needed.
 	case "echo":
@@ -850,18 +883,27 @@ func (server *Server) handleInputCommand(client *Client, msg *Message) error {
 		// dev operation
 	case "sleep":
 		// dev operation
-		server.mu.RLock()
-		defer server.mu.RUnlock()
+		defer server.ReaderLock()()
 	case "shutdown":
 		// dev operation
-		server.mu.Lock()
-		defer server.mu.Unlock()
+		defer server.WriterLock()()
 	case "aofshrink":
-		server.mu.RLock()
-		defer server.mu.RUnlock()
+		// aofshrink will do the locking
+	case "snapshot":
+		switch strings.ToLower(msg.Args[1]) {
+		case "save":
+			// snapshot lock will lock writers in a way that they don't lock readers
+			defer server.SnapshotLock()()
+			if server.config.followHost() != "" {
+				return writeErr("not the leader")
+			}
+		case "load":
+			defer server.WriterLock()()
+		default:  // latest meta is read-only
+			defer server.ReaderLock()()
+		}
 	case "client":
-		server.mu.Lock()
-		defer server.mu.Unlock()
+		defer server.WriterLock()()
 	case "evalna", "evalnasha":
 		// No locking for scripts, otherwise writes cannot happen within scripts
 	case "subscribe", "psubscribe", "publish":
@@ -1051,15 +1093,20 @@ func (server *Server) command(msg *Message, client *Client) (
 		debug.FreeOSMemory()
 		res = OKMessage(msg, time.Now())
 	case "aofshrink":
-		go server.aofshrink()
-		res = OKMessage(msg, time.Now())
+		start := time.Now()
+		if err = server.cmdAOFShrink(); err != nil {
+			log.Errorf("Failed aofshrink: %v", err)
+			res = NOMessage
+		} else {
+			res = OKMessage(msg, start)
+		}
 	case "config get":
 		res, err = server.cmdConfigGet(msg)
 	case "config set":
 		res, err = server.cmdConfigSet(msg)
 	case "config rewrite":
 		res, err = server.cmdConfigRewrite(msg)
-	case "config", "script":
+	case "config", "script", "snapshot":
 		// These get rewritten into "config foo" and "script bar"
 		err = fmt.Errorf("unknown command '%s'", msg.Args[0])
 		if len(msg.Args) > 1 {
@@ -1080,6 +1127,12 @@ func (server *Server) command(msg *Message, client *Client) (
 		res, err = server.cmdScriptExists(msg)
 	case "script flush":
 		res, err = server.cmdScriptFlush(msg)
+	case "snapshot save":
+		res, err = server.cmdSaveSnapshot(msg)
+	case "snapshot load":
+		res, err = server.cmdLoadSnapshot(msg)
+	case "snapshot latest meta":
+		res, err = server.cmdSnapshotLastMeta(msg)
 	case "subscribe":
 		res, err = server.cmdSubscribe(msg)
 	case "psubscribe":

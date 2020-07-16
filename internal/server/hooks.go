@@ -320,7 +320,7 @@ func (s *Server) cmdPDelHook(msg *Message, channel bool) (
 // purge it from the database if needed. This operation is called from an
 // independent goroutine
 func (s *Server) possiblyExpireHook(name string) {
-	s.mu.Lock()
+	defer s.WriterLock()()
 	if h, ok := s.hooks[name]; ok {
 		if !h.expires.IsZero() && time.Now().After(h.expires) {
 			// purge from database
@@ -332,17 +332,14 @@ func (s *Server) possiblyExpireHook(name string) {
 			}
 			_, d, err := s.cmdDelHook(msg, h.channel)
 			if err != nil {
-				s.mu.Unlock()
 				panic(err)
 			}
 			if err := s.writeAOF(msg.Args, &d); err != nil {
-				s.mu.Unlock()
 				panic(err)
 			}
 			log.Debugf("purged hook %v", h.Name)
 		}
 	}
-	s.mu.Unlock()
 }
 
 func (s *Server) cmdHooks(msg *Message, channel bool) (

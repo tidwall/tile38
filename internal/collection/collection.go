@@ -69,7 +69,6 @@ func New() *Collection {
 	}
 	return col
 }
-
 // Count returns the number of objects in collection.
 func (c *Collection) Count() int {
 	return c.objects + c.nobjects

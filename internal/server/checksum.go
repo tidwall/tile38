@@ -8,14 +8,12 @@ import (
 	"os"
 	"time"
 
-	"github.com/tidwall/resp"
-	"github.com/tidwall/tile38/core"
 	"github.com/tidwall/tile38/internal/log"
 )
 
 // checksum performs a simple md5 checksum on the aof file
 func (s *Server) checksum(pos, size int64) (sum string, err error) {
-	if pos+size > int64(s.aofsz) {
+	if pos+size > s.aofsz {
 		return "", io.EOF
 	}
 	var f *os.File
@@ -27,7 +25,7 @@ func (s *Server) checksum(pos, size int64) (sum string, err error) {
 	sumr := md5.New()
 	err = func() error {
 		if size == 0 {
-			n, err := f.Seek(int64(s.aofsz), 0)
+			n, err := f.Seek(s.aofsz, 0)
 			if err != nil {
 				return err
 			}
@@ -74,15 +72,15 @@ func connAOFMD5(conn *RESPConn, pos, size int64) (sum string, err error) {
 	return sum, nil
 }
 
-func (s *Server) matchChecksums(conn *RESPConn, pos, size int64) (match bool, err error) {
-	sum, err := s.checksum(pos, size)
+func (s *Server) matchChecksums(conn *RESPConn, lPos, fPos, size int64) (match bool, err error) {
+	sum, err := s.checksum(fPos, size)
 	if err != nil {
 		if err == io.EOF {
 			return false, nil
 		}
 		return false, err
 	}
-	csum, err := connAOFMD5(conn, pos, size)
+	csum, err := connAOFMD5(conn, lPos, size)
 	if err != nil {
 		if err == io.EOF {
 			return false, nil
@@ -92,145 +90,63 @@ func (s *Server) matchChecksums(conn *RESPConn, pos, size int64) (match bool, er
 	return csum == sum, nil
 }
 
-// getEndOfLastValuePositionInFile is a very slow operation because it reads the file
-// backwards on byte at a time. Eek. It seek+read, seek+read, etc.
-func getEndOfLastValuePositionInFile(fname string, startPos int64) (int64, error) {
-	pos := startPos
-	f, err := os.Open(fname)
-	if err != nil {
-		return 0, err
-	}
-	defer f.Close()
-	readByte := func() (byte, error) {
-		if pos <= 0 {
-			return 0, io.EOF
-		}
-		pos--
-		if _, err := f.Seek(pos, 0); err != nil {
-			return 0, err
-		}
-		b := make([]byte, 1)
-		if n, err := f.Read(b); err != nil {
-			return 0, err
-		} else if n != 1 {
-			return 0, errors.New("invalid read")
-		}
-		return b[0], nil
-	}
-	for {
-		c, err := readByte()
-		if err != nil {
-			return 0, err
-		}
-		if c == '*' {
-			if _, err := f.Seek(pos, 0); err != nil {
-				return 0, err
-			}
-			rd := resp.NewReader(f)
-			_, telnet, n, err := rd.ReadMultiBulk()
-			if err != nil || telnet {
-				continue // keep reading backwards
-			}
-			return pos + int64(n), nil
-		}
-	}
-}
 
-// followCheckSome is not a full checksum. It just "checks some" data.
-// We will do some various checksums on the leader until we find the correct position to start at.
-func (s *Server) followCheckSome(addr string, followc int) (pos int64, err error) {
-	if core.ShowDebugMessages {
-		log.Debug("follow:", addr, ":check some")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+// Given leader offset lTop, and follower offset fTop, return the offset
+// for where the follower should replicate from. It can only be the whole
+// size of the follower's AOF, otherwise the two AOFs are incompatible.
+func (s *Server) findFollowPos(addr string, followc int, lTop, fTop int64) (relPos int64, err error) {
+	defer s.WriterLock()()
 	if s.followc.get() != followc {
-		return 0, errNoLongerFollowing
-	}
-	if s.aofsz < checksumsz {
-		return 0, nil
+		err = errNoLongerFollowing
+		return
 	}
 
-	conn, err := DialTimeout(addr, time.Second*2)
-	if err != nil {
-		return 0, err
+	conn, e := DialTimeout(addr, time.Second*2)
+	if e != nil {
+		err = e
+		return
 	}
 	defer conn.Close()
 
-	min := int64(0)
-	max := int64(s.aofsz) - checksumsz
-	limit := int64(s.aofsz)
-	match, err := s.matchChecksums(conn, min, checksumsz)
-	if err != nil {
-		return 0, err
+	relPos = s.aofsz-fTop  // we'll be returning this, or setting an error
+	if relPos == 0 {
+		return
 	}
 
-	if match {
-		min += checksumsz // bump up the min
-		for {
-			if max < min || max+checksumsz > limit {
-				pos = min
-				break
-			} else {
-				match, err = s.matchChecksums(conn, max, checksumsz)
-				if err != nil {
-					return 0, err
-				}
-				if match {
-					min = max + checksumsz
-				} else {
-					limit = max
-				}
-				max = (limit-min)/2 - checksumsz/2 + min // multiply
-			}
-		}
-	}
-	fullpos := pos
-	fname := s.aof.Name()
-	if pos == 0 {
-		s.aof.Close()
-		s.aof, err = os.Create(fname)
+	var match bool
+	// if AOF is small, check all of it.
+	if relPos <= checksumsz {
+		match, err = s.matchChecksums(conn, lTop, fTop, relPos)
 		if err != nil {
-			log.Fatalf("could not recreate aof, possible data loss. %s", err.Error())
-			return 0, err
+			return
 		}
-		return 0, nil
+		if !match {
+			log.Infof("AOF does not match")
+			err = errInvalidAOF
+		}
+		return
 	}
 
-	// we want to truncate at a command location
-	// search for nearest command
-	pos, err = getEndOfLastValuePositionInFile(s.aof.Name(), fullpos)
+	// whether the beginning matches
+	match, err = s.matchChecksums(conn, lTop, fTop, checksumsz)
 	if err != nil {
-		return 0, err
+		return
 	}
-	if pos == fullpos {
-		if core.ShowDebugMessages {
-			log.Debug("follow: aof fully intact")
-		}
-		return pos, nil
+	if !match {
+		log.Infof("beginning of AOF does not match")
+		err = errInvalidAOF
+		return
 	}
-	log.Warnf("truncating aof to %d", pos)
-	// any errror below are fatal.
-	s.aof.Close()
-	if err := os.Truncate(fname, pos); err != nil {
-		log.Fatalf("could not truncate aof, possible data loss. %s", err.Error())
-		return 0, err
-	}
-	s.aof, err = os.OpenFile(fname, os.O_CREATE|os.O_RDWR, 0600)
+	// whether the end matches
+	fPos := s.aofsz-checksumsz
+	lPos := fPos-fTop+lTop
+	match, err = s.matchChecksums(conn, lPos, fPos, checksumsz)
 	if err != nil {
-		log.Fatalf("could not create aof, possible data loss. %s", err.Error())
-		return 0, err
+		return
 	}
-	// reset the entire system.
-	log.Infof("reloading aof commands")
-	s.reset()
-	if err := s.loadAOF(); err != nil {
-		log.Fatalf("could not reload aof, possible data loss. %s", err.Error())
-		return 0, err
+	if !match {
+		log.Infof("end of AOF does not match")
+		err = errInvalidAOF
 	}
-	if int64(s.aofsz) != pos {
-		log.Fatalf("aof size mismatch during reload, possible data loss.")
-		return 0, errors.New("?")
-	}
-	return pos, nil
+	return
 }

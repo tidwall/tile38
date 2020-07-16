@@ -31,7 +31,9 @@ func (err errAOFHook) Error() string {
 
 var errInvalidAOF = errors.New("invalid aof file")
 
-func (s *Server) loadAOF() error {
+const nilOffset = -1
+
+func (s *Server) loadAOF(offset int64) error {
 	fi, err := s.aof.Stat()
 	if err != nil {
 		return err
@@ -57,6 +59,13 @@ func (s *Server) loadAOF() error {
 	var buf []byte
 	var args [][]byte
 	var packet [0xFFFF]byte
+	if offset > nilOffset {
+		if _, err := s.aof.Seek(offset, io.SeekStart); err != nil {
+			log.Errorf("Failed to seek to position %v into AOF", offset)
+			return err
+		}
+		s.aofsz += offset
+	}
 	for {
 		n, err := s.aof.Read(packet[:])
 		if err != nil {
@@ -68,7 +77,7 @@ func (s *Server) loadAOF() error {
 			}
 			return err
 		}
-		s.aofsz += n
+		s.aofsz += int64(n)
 		data := packet[:n]
 		if len(buf) > 0 {
 			data = append(buf, data...)
@@ -155,7 +164,7 @@ func (s *Server) writeAOF(args []string, d *commandDetails) error {
 		for _, arg := range args {
 			s.aofbuf = redcon.AppendBulkString(s.aofbuf, arg)
 		}
-		s.aofsz += len(s.aofbuf) - n
+		s.aofsz += int64(len(s.aofbuf)) - int64(n)
 	}
 
 	// notify aof live connections that we have new data
@@ -438,13 +447,13 @@ func (s *Server) cmdAOF(msg *Message) (res resp.Value, err error) {
 }
 
 func (s *Server) liveAOF(pos int64, conn net.Conn, rd *PipelineReader, msg *Message) error {
-	s.mu.Lock()
+	ul := s.WriterLock()
 	s.aofconnM[conn] = true
-	s.mu.Unlock()
+	ul()
 	defer func() {
-		s.mu.Lock()
+		ul := s.WriterLock()
 		delete(s.aofconnM, conn)
-		s.mu.Unlock()
+		ul()
 		conn.Close()
 	}()
 
@@ -452,9 +461,9 @@ func (s *Server) liveAOF(pos int64, conn net.Conn, rd *PipelineReader, msg *Mess
 		return err
 	}
 
-	s.mu.RLock()
+	ul = s.ReaderLock()
 	f, err := os.Open(s.aof.Name())
-	s.mu.RUnlock()
+	ul()
 	if err != nil {
 		return err
 	}

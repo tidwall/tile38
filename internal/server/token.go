@@ -188,7 +188,7 @@ func (whereeval whereevalT) Close() {
 	whereeval.c.luapool.Put(whereeval.luaState)
 }
 
-func (whereeval whereevalT) match(fieldsWithNames map[string]float64) bool {
+func (whereeval whereevalT) match(id string, fieldsWithNames map[string]float64) bool {
 	fieldsTbl := whereeval.luaState.CreateTable(0, len(fieldsWithNames))
 	for field, val := range fieldsWithNames {
 		fieldsTbl.RawSetString(field, lua.LNumber(val))
@@ -197,10 +197,12 @@ func (whereeval whereevalT) match(fieldsWithNames map[string]float64) bool {
 	luaSetRawGlobals(
 		whereeval.luaState, map[string]lua.LValue{
 			"FIELDS": fieldsTbl,
+			"ID": lua.LString(id),
 		})
 	defer luaSetRawGlobals(
 		whereeval.luaState, map[string]lua.LValue{
 			"FIELDS": lua.LNil,
+			"ID": lua.LNil,
 		})
 
 	whereeval.luaState.Push(whereeval.fn)
@@ -415,6 +417,7 @@ func (s *Server) parseSearchScanBaseTokens(
 				luaSetRawGlobals(
 					luaState, map[string]lua.LValue{
 						"ARGV": argsTbl,
+						"EVAL_CMD": lua.LString("evalro"),
 					})
 
 				compiled, ok := s.luascripts.Get(shaSum)

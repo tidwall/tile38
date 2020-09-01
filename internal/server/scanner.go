@@ -169,7 +169,7 @@ func (sc *scanner) writeFoot() {
 	sc.collector.Complete(sc, cursor)
 }
 
-func (sc *scanner) fieldMatch(fields []float64, o geojson.Object) (fvals []float64, match bool) {
+func (sc *scanner) fieldMatch(id string, fields []float64, o geojson.Object) (fvals []float64, match bool) {
 	var z float64
 	var gotz bool
 	fvals = sc.fvals
@@ -212,7 +212,7 @@ func (sc *scanner) fieldMatch(fields []float64, o geojson.Object) (fvals []float
 					fieldsWithNames[field] = 0
 				}
 			}
-			if !whereval.match(fieldsWithNames) {
+			if !whereval.match(id, fieldsWithNames) {
 				return
 			}
 		}
@@ -260,7 +260,7 @@ func (sc *scanner) fieldMatch(fields []float64, o geojson.Object) (fvals []float
 					fieldsWithNames[field] = 0
 				}
 			}
-			if !whereval.match(fieldsWithNames) {
+			if !whereval.match(id, fieldsWithNames) {
 				return
 			}
 		}
@@ -308,7 +308,7 @@ func (sc *scanner) testObject(id string, o geojson.Object, fields []float64) (
 	if !match {
 		return false, kg, fieldVals
 	}
-	nf, ok := sc.fieldMatch(fields, o)
+	nf, ok := sc.fieldMatch(id, fields, o)
 	return ok, true, nf
 }
 

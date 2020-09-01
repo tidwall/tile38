@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
 	"testing"
@@ -45,7 +46,7 @@ func BenchmarkFieldMatch(t *testing.B) {
 	for i := 0; i < t.N; i++ {
 		// one call is super fast, measurements are not reliable, let's do 100
 		for ix := 0; ix < 100; ix++ {
-			sw.fieldMatch(items[i].fields, items[i].object)
+			sw.fieldMatch(fmt.Sprint(i), items[i].fields, items[i].object)
 		}
 	}
 }

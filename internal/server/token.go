@@ -186,7 +186,7 @@ type whereevalT struct {
 func newWhereEvalT(s *Server, ls *lua.LState, fn *lua.LFunction) (wT whereevalT) {
 	wT = whereevalT{s, ls, fn, ls.NewUserData()}
 	wT.ud.Metatable = ls.GetTypeMetatable(luaItemTypeName)
-	wT.ud.Value = luaCollectionItem{}
+	wT.ud.Value = &luaCollectionItem{}
 	luaSetRawGlobals(
 		ls, map[string]lua.LValue{
 			"OBJ": wT.ud,
@@ -203,7 +203,7 @@ func (whereeval whereevalT) Close() {
 }
 
 func (whereeval whereevalT) match(col *collection.Collection, id string, fields []float64, o geojson.Object) bool {
-	whereeval.ud.Value = luaCollectionItem{id, o, fields,col}
+	*(whereeval.ud.Value.(*luaCollectionItem)) = luaCollectionItem{id, o, fields, col}
 	whereeval.luaState.Push(whereeval.fn)
 	if err := whereeval.luaState.PCall(0, 1, nil); err != nil {
 		panic(err.Error())

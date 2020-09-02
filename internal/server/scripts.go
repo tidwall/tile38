@@ -1160,7 +1160,7 @@ func (s *Server) luaTile38Get(ls *lua.LState, evalcmd, key, id string) (result l
 
 	itemmt := ls.GetTypeMetatable(luaItemTypeName)
 	ud := ls.NewUserData()
-	ud.Value = luaCollectionItem{
+	ud.Value = &luaCollectionItem{
 		id:     id,
 		col:    col,
 		fields: fields,
@@ -1357,13 +1357,13 @@ func registerLuaResultTypes(ls *lua.LState) {
 		},
 	})
 
-	assertCollectionItem := func(ls *lua.LState, idx int) luaCollectionItem {
+	assertCollectionItem := func(ls *lua.LState, idx int) *luaCollectionItem {
 		ud := ls.CheckUserData(idx)
-		if v, ok := ud.Value.(luaCollectionItem); ok {
+		if v, ok := ud.Value.(*luaCollectionItem); ok {
 			return v
 		}
 		ls.ArgError(idx, "collection item expected")
-		return luaCollectionItem{}
+		return &luaCollectionItem{}
 	}
 
 	readItemFields := ls.NewFunction(func(ls *lua.LState) int {

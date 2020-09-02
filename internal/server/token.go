@@ -180,6 +180,18 @@ type whereevalT struct {
 	s        *Server
 	luaState *lua.LState
 	fn       *lua.LFunction
+	ud       *lua.LUserData
+}
+
+func newWhereEvalT(s *Server, ls *lua.LState, fn *lua.LFunction) (wT whereevalT) {
+	wT = whereevalT{s, ls, fn, ls.NewUserData()}
+	wT.ud.Metatable = ls.GetTypeMetatable(luaItemTypeName)
+	wT.ud.Value = luaCollectionItem{}
+	luaSetRawGlobals(
+		ls, map[string]lua.LValue{
+			"OBJ": wT.ud,
+		})
+	return
 }
 
 func (whereeval whereevalT) Close() {
@@ -191,24 +203,7 @@ func (whereeval whereevalT) Close() {
 }
 
 func (whereeval whereevalT) match(col *collection.Collection, id string, fields []float64, o geojson.Object) bool {
-	ud := whereeval.luaState.NewUserData()
-	ud.Value = luaCollectionItem{
-		id:     id,
-		fields: fields,
-		o:		o,
-		col:	col,
-	}
-	ud.Metatable = whereeval.luaState.GetTypeMetatable(luaItemTypeName)
-
-	luaSetRawGlobals(
-		whereeval.luaState, map[string]lua.LValue{
-			"OBJ": ud,
-		})
-	defer luaSetRawGlobals(
-		whereeval.luaState, map[string]lua.LValue{
-			"OBJ": lua.LNil,
-		})
-
+	whereeval.ud.Value = luaCollectionItem{id, o, fields,col}
 	whereeval.luaState.Push(whereeval.fn)
 	if err := whereeval.luaState.PCall(0, 1, nil); err != nil {
 		panic(err.Error())
@@ -446,7 +441,7 @@ func (s *Server) parseSearchScanBaseTokens(
 					}
 					s.luascripts.Put(shaSum, fn.Proto)
 				}
-				t.whereevals = append(t.whereevals, whereevalT{s, luaState, fn})
+				t.whereevals = append(t.whereevals, newWhereEvalT(s, luaState, fn))
 				continue
 			case "nofields":
 				vs = nvs

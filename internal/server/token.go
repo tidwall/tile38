@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/tidwall/geojson"
+	"github.com/tidwall/tile38/internal/collection"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -175,7 +177,7 @@ func (wherein whereinT) match(value float64) bool {
 }
 
 type whereevalT struct {
-	c        *Server
+	s        *Server
 	luaState *lua.LState
 	fn       *lua.LFunction
 }
@@ -185,24 +187,26 @@ func (whereeval whereevalT) Close() {
 		whereeval.luaState, map[string]lua.LValue{
 			"ARGV": lua.LNil,
 		})
-	whereeval.c.luapool.Put(whereeval.luaState)
+	whereeval.s.luapool.Put(whereeval.luaState)
 }
 
-func (whereeval whereevalT) match(id string, fieldsWithNames map[string]float64) bool {
-	fieldsTbl := whereeval.luaState.CreateTable(0, len(fieldsWithNames))
-	for field, val := range fieldsWithNames {
-		fieldsTbl.RawSetString(field, lua.LNumber(val))
+func (whereeval whereevalT) match(col *collection.Collection, id string, fields []float64, o geojson.Object) bool {
+	ud := whereeval.luaState.NewUserData()
+	ud.Value = luaCollectionItem{
+		id:     id,
+		fields: fields,
+		o:		o,
+		col:	col,
 	}
+	ud.Metatable = whereeval.luaState.GetTypeMetatable(luaItemTypeName)
 
 	luaSetRawGlobals(
 		whereeval.luaState, map[string]lua.LValue{
-			"FIELDS": fieldsTbl,
-			"ID": lua.LString(id),
+			"OBJ": ud,
 		})
 	defer luaSetRawGlobals(
 		whereeval.luaState, map[string]lua.LValue{
-			"FIELDS": lua.LNil,
-			"ID": lua.LNil,
+			"OBJ": lua.LNil,
 		})
 
 	whereeval.luaState.Push(whereeval.fn)

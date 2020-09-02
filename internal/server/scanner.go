@@ -204,15 +204,7 @@ func (sc *scanner) fieldMatch(id string, fields []float64, o geojson.Object) (fv
 			}
 		}
 		for _, whereval := range sc.whereevals {
-			fieldsWithNames := make(map[string]float64)
-			for field, idx := range sc.fmap {
-				if idx < len(fields) {
-					fieldsWithNames[field] = fields[idx]
-				} else {
-					fieldsWithNames[field] = 0
-				}
-			}
-			if !whereval.match(id, fieldsWithNames) {
+			if !whereval.match(sc.col, id, fields, o) {
 				return
 			}
 		}
@@ -252,15 +244,7 @@ func (sc *scanner) fieldMatch(id string, fields []float64, o geojson.Object) (fv
 			}
 		}
 		for _, whereval := range sc.whereevals {
-			fieldsWithNames := make(map[string]float64)
-			for field, idx := range sc.fmap {
-				if idx < len(fields) {
-					fieldsWithNames[field] = fields[idx]
-				} else {
-					fieldsWithNames[field] = 0
-				}
-			}
-			if !whereval.match(id, fieldsWithNames) {
+			if !whereval.match(sc.col, id, fields, o) {
 				return
 			}
 		}

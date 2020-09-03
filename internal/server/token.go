@@ -183,21 +183,12 @@ type whereevalT struct {
 	ud       *lua.LUserData
 }
 
-func newWhereEvalT(s *Server, ls *lua.LState, fn *lua.LFunction) (wT whereevalT) {
-	wT = whereevalT{s, ls, fn, ls.NewUserData()}
-	wT.ud.Metatable = ls.GetTypeMetatable(luaItemTypeName)
-	wT.ud.Value = &luaCollectionItem{}
-	luaSetRawGlobals(
-		ls, map[string]lua.LValue{
-			"OBJ": wT.ud,
-		})
-	return
-}
-
 func (whereeval whereevalT) Close() {
 	luaSetRawGlobals(
 		whereeval.luaState, map[string]lua.LValue{
-			"ARGV": lua.LNil,
+			"EVAL_CMD": lua.LNil,
+			"ARGV": 	lua.LNil,
+			"OBJ": 		lua.LNil,
 		})
 	whereeval.s.luapool.Put(whereeval.luaState)
 }
@@ -413,12 +404,6 @@ func (s *Server) parseSearchScanBaseTokens(
 					shaSum = Sha1Sum(script)
 				}
 
-				luaSetRawGlobals(
-					luaState, map[string]lua.LValue{
-						"ARGV": argsTbl,
-						"EVAL_CMD": lua.LString("evalro"),
-					})
-
 				compiled, ok := s.luascripts.Get(shaSum)
 				var fn *lua.LFunction
 				if ok {
@@ -441,7 +426,17 @@ func (s *Server) parseSearchScanBaseTokens(
 					}
 					s.luascripts.Put(shaSum, fn.Proto)
 				}
-				t.whereevals = append(t.whereevals, newWhereEvalT(s, luaState, fn))
+				ud := luaState.NewUserData()
+				ud.Metatable = luaState.GetTypeMetatable(luaItemTypeName)
+				ud.Value = &luaCollectionItem{}
+				luaSetRawGlobals(
+					luaState, map[string]lua.LValue{
+						"EVAL_CMD": lua.LString("evalro"),
+						"ARGV":     argsTbl,
+						"OBJ":      ud,
+					})
+
+				t.whereevals = append(t.whereevals, whereevalT{s, luaState, fn, ud})
 				continue
 			case "nofields":
 				vs = nvs

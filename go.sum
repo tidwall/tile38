@@ -38,6 +38,8 @@ github.com/housecanary/geojson v1.1.14-0.20200921174640-98a716b6ad2a h1:/qIR9Yah
 github.com/housecanary/geojson v1.1.14-0.20200921174640-98a716b6ad2a/go.mod h1:p/4K8EUf0/xhkU24VaWxGqZutpfY/ApKHZ/Cnlva3Eg=
 github.com/housecanary/geojson v1.1.14-0.20200923204236-0c5a03e44766 h1:NPKiwHG1cmv+STIrr3/nXxcfNC5rNIU5c4MQYVL+v/I=
 github.com/housecanary/geojson v1.1.14-0.20200923204236-0c5a03e44766/go.mod h1:p/4K8EUf0/xhkU24VaWxGqZutpfY/ApKHZ/Cnlva3Eg=
+github.com/housecanary/geojson v1.1.14-0.20200924195856-2632af9baba8 h1:M0TgQ6s+CsRrRQ6uYB1SLYdRVg3BXJmMqd/XJ1gdYZ0=
+github.com/housecanary/geojson v1.1.14-0.20200924195856-2632af9baba8/go.mod h1:p/4K8EUf0/xhkU24VaWxGqZutpfY/ApKHZ/Cnlva3Eg=
 github.com/housecanary/rbang v1.1.1-snapshot h1:rhfqJlxqSBmiOMziR81s6wXMlgy//M3oPi339elFTY8=
 github.com/housecanary/rbang v1.1.1-snapshot/go.mod h1:LDxY2z3ukBtnlSHU/OH9qkAAoPmmt+Oycqp18r48u50=
 github.com/housecanary/tinybtree v1.0.0-snapshot h1:xvlNbrskMcA1Ac7ng8m8t1dglpcnjPnCBM/3z2XlfRQ=

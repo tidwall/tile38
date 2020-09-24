@@ -84,7 +84,7 @@ github.com/tidwall/cities
 github.com/tidwall/geoindex
 github.com/tidwall/geoindex/algo
 github.com/tidwall/geoindex/child
-# github.com/tidwall/geojson v1.1.13 => github.com/housecanary/geojson v1.1.14-0.20200923204236-0c5a03e44766
+# github.com/tidwall/geojson v1.1.13 => github.com/housecanary/geojson v1.1.14-0.20200924195856-2632af9baba8
 github.com/tidwall/geojson
 github.com/tidwall/geojson/geo
 github.com/tidwall/geojson/geometry

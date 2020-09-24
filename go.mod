@@ -62,4 +62,4 @@ replace github.com/tidwall/btree => github.com/housecanary/btree v0.0.0-snapshot
 
 replace github.com/tidwall/rbang => github.com/housecanary/rbang v1.1.1-snapshot
 
-replace github.com/tidwall/geojson => github.com/housecanary/geojson v1.1.14-0.20200923204236-0c5a03e44766
+replace github.com/tidwall/geojson => github.com/housecanary/geojson v1.1.14-0.20200924195856-2632af9baba8

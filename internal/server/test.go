@@ -14,7 +14,6 @@ import (
 	"github.com/tidwall/geojson/geometry"
 	"github.com/tidwall/resp"
 	"github.com/tidwall/tile38/internal/bing"
-	"github.com/tidwall/tile38/internal/clip"
 )
 
 func (s *Server) parseArea(ovs []string, doClip bool) (vs []string, o geojson.Object, err error) {
@@ -280,7 +279,7 @@ func (s *Server) cmdTest(msg *Message) (res resp.Value, err error) {
 		if area1.IntersectsExpr(area2) {
 			result = 1
 			if doClip {
-				clipped = clip.Clip(area1.obj, area2.obj, nil)
+				clipped = geojson.Clip(area1.obj, area2.obj, nil)
 			}
 		}
 	}

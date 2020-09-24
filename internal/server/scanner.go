@@ -10,7 +10,6 @@ import (
 	"github.com/mmcloughlin/geohash"
 	"github.com/tidwall/geojson"
 	"github.com/tidwall/resp"
-	"github.com/tidwall/tile38/internal/clip"
 	"github.com/tidwall/tile38/internal/collection"
 	"github.com/tidwall/tile38/internal/glob"
 )
@@ -331,7 +330,7 @@ func (sc *scanner) writeObject(opts ScanObjectParams) bool {
 		return sc.count < sc.limit.matched && !atScanLimit
 	}
 	if opts.clip != nil {
-		opts.o = clip.Clip(opts.o, opts.clip, &sc.s.geomIndexOpts)
+		opts.o = geojson.Clip(opts.o, opts.clip, &sc.s.geomIndexOpts)
 	}
 	keepProcessing := sc.collector.ProcessItem(sc, opts)
 	sc.numberItems++

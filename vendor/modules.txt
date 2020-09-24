@@ -84,11 +84,11 @@ github.com/tidwall/cities
 github.com/tidwall/geoindex
 github.com/tidwall/geoindex/algo
 github.com/tidwall/geoindex/child
-# github.com/tidwall/geojson v1.1.13
+# github.com/tidwall/geojson v1.1.13 => github.com/housecanary/geojson v1.1.14-0.20200923204236-0c5a03e44766
 github.com/tidwall/geojson
 github.com/tidwall/geojson/geo
 github.com/tidwall/geojson/geometry
-# github.com/tidwall/gjson v1.3.2
+# github.com/tidwall/gjson v1.6.1
 github.com/tidwall/gjson
 # github.com/tidwall/grect v0.0.0-20161006141115-ba9a043346eb
 github.com/tidwall/grect
@@ -96,9 +96,9 @@ github.com/tidwall/grect
 github.com/tidwall/lotsa
 # github.com/tidwall/match v1.0.1
 github.com/tidwall/match
-# github.com/tidwall/pretty v1.0.0
+# github.com/tidwall/pretty v1.0.2
 github.com/tidwall/pretty
-# github.com/tidwall/rbang v1.2.1 => github.com/housecanary/rbang v1.1.1-snapshot
+# github.com/tidwall/rbang v1.2.2 => github.com/housecanary/rbang v1.1.1-snapshot
 github.com/tidwall/rbang
 # github.com/tidwall/redbench v0.0.0-20181110173744-17c5b5b864a4
 github.com/tidwall/redbench
@@ -111,7 +111,7 @@ github.com/tidwall/rhh
 # github.com/tidwall/rtree v0.0.0-20180113144539-6cd427091e0e
 github.com/tidwall/rtree
 github.com/tidwall/rtree/base
-# github.com/tidwall/sjson v1.0.2
+# github.com/tidwall/sjson v1.1.1
 github.com/tidwall/sjson
 # github.com/tidwall/tinybtree v0.0.0-20181217131827-de5932d649b5 => github.com/housecanary/tinybtree v1.0.0-snapshot
 github.com/tidwall/tinybtree

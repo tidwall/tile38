@@ -15,9 +15,11 @@ func subTestSearch(t *testing.T, mc *mockServer) {
 	runStep(t, mc, "WITHIN", keys_WITHIN_test)
 	runStep(t, mc, "WITHIN_CURSOR", keys_WITHIN_CURSOR_test)
 	runStep(t, mc, "WITHIN_CLIPBY", keys_WITHIN_CLIPBY_test)
+	runStep(t, mc, "WITHIN_CIRCLE_CLIPBY", keys_WITHIN_CIRCLE_CLIPBY_test)
 	runStep(t, mc, "INTERSECTS", keys_INTERSECTS_test)
 	runStep(t, mc, "INTERSECTS_CURSOR", keys_INTERSECTS_CURSOR_test)
 	runStep(t, mc, "INTERSECTS_CLIPBY", keys_INTERSECTS_CLIPBY_test)
+	runStep(t, mc, "INTERSECTS_CIRCLE_CLIPBY", keys_INTERSECTS_CIRCLE_CLIPBY_test)
 	runStep(t, mc, "SCAN_CURSOR", keys_SCAN_CURSOR_test)
 	runStep(t, mc, "SCANLIMIT", keys_SCANLIMIT_test)
 	runStep(t, mc, "SEARCH_CURSOR", keys_SEARCH_CURSOR_test)
@@ -190,6 +192,38 @@ func keys_WITHIN_CLIPBY_test(mc *mockServer) error {
 	})
 }
 
+func keys_WITHIN_CIRCLE_CLIPBY_test(mc *mockServer) error {
+	return mc.DoBatch([][]interface{}{
+		{"SET", "mykey", "1", "POINT", 37.7335, -122.4412}, {"OK"},
+		{"SET", "mykey", "2", "POINT", 37.7335, -122.44121}, {"OK"},
+		{"SET", "mykey", "3", "OBJECT", `{"type":"LineString","coordinates":[[-122.4408378,37.7341129],[-122.4408378,37.733]]}`}, {"OK"},
+		{"SET", "mykey", "4", "OBJECT", `{"type":"Polygon","coordinates":[[[-122.4408378,37.7341129],[-122.4408378,37.733],[-122.44,37.733],[-122.44,37.7341129],[-122.4408378,37.7341129]]]}`}, {"OK"},
+		{"SET", "mykey", "5", "OBJECT", `{"type":"MultiPolygon","coordinates":[[[[-122.4408378,37.7341129],[-122.4408378,37.733],[-122.44,37.733],[-122.44,37.7341129],[-122.4408378,37.7341129]]]]}`}, {"OK"},
+		{"SET", "mykey", "6", "POINT", -5, 5}, {"OK"},
+		{"SET", "mykey", "7", "POINT", 33, 21}, {"OK"},
+		{"WITHIN", "mykey", "IDS", "BOUNDS",
+			37.73338130331429, -122.44184374809265,
+			37.73379707124429, -122.43968725204469,
+		}, {"[0 [1 2]]"},
+
+		{"WITHIN", "mykey", "IDS", "CIRCLE", 37.7335, -122.4412, 1000}, {
+			"[0 [1 2 3 4 5]]"},
+		{"WITHIN", "mykey", "IDS", "CIRCLE", 37.7335, -122.4412, 1000,
+			"CLIPBY", "BOUNDS",
+			37.73338130331429, -122.44184374809265,
+			37.73379707124429, -122.43968725204469,
+		}, {"[0 [1 2]]"},
+
+		{"WITHIN", "mykey", "IDS", "CIRCLE", 37.7335, -122.4412, 10}, {
+			"[0 [1 2]]"},
+		{"WITHIN", "mykey", "IDS", "CIRCLE", 37.7335, -122.4412, 10,
+			"CLIPBY", "BOUNDS",
+			37.73338130331429, -122.44184374809265,
+			37.73379707124429, -122.43968725204469,
+		}, {"[0 [1 2]]"},
+	})
+}
+
 func keys_INTERSECTS_test(mc *mockServer) error {
 	return mc.DoBatch([][]interface{}{
 		{"SET", "mykey", "point1", "POINT", 37.7335, -122.4412}, {"OK"},
@@ -281,6 +315,39 @@ func keys_INTERSECTS_CLIPBY_test(mc *mockServer) error {
 			"CLIPBY", "BOUNDS",
 			37.737734023260884, -122.47816085815431, 37.74886496155229, -122.45464324951172,
 		}, {"[0 [point4]]"},
+	})
+}
+
+func keys_INTERSECTS_CIRCLE_CLIPBY_test(mc *mockServer) error {
+	return mc.DoBatch([][]interface{}{
+		{"SET", "mykey", "1", "POINT", 37.7335, -122.4412}, {"OK"},
+		{"SET", "mykey", "2", "POINT", 37.7335, -122.44121}, {"OK"},
+		{"SET", "mykey", "3", "OBJECT", `{"type":"LineString","coordinates":[[-122.4408378,37.7341129],[-122.4408378,37.733]]}`}, {"OK"},
+		{"SET", "mykey", "4", "OBJECT", `{"type":"Polygon","coordinates":[[[-122.4408378,37.7341129],[-122.4408378,37.733],[-122.44,37.733],[-122.44,37.7341129],[-122.4408378,37.7341129]]]}`}, {"OK"},
+		{"SET", "mykey", "5", "OBJECT", `{"type":"MultiPolygon","coordinates":[[[[-122.4408378,37.7341129],[-122.4408378,37.733],[-122.44,37.733],[-122.44,37.7341129],[-122.4408378,37.7341129]]]]}`}, {"OK"},
+		{"SET", "mykey", "6", "POINT", -5, 5}, {"OK"},
+		{"SET", "mykey", "7", "POINT", 33, 21}, {"OK"},
+		{"INTERSECTS", "mykey", "IDS", "BOUNDS",
+			37.7339158616526, -122.4403417110443,
+			37.7343613239864, -122.4397087097168,
+		}, {"[0 [4 5]]"},
+
+		{"INTERSECTS", "mykey", "IDS", "CIRCLE", 37.7335, -122.4412, 70}, {
+			"[0 [1 2 3 4 5]]"},
+		{"INTERSECTS", "mykey", "IDS", "CIRCLE", 37.7335, -122.4412, 70,
+			"CLIPBY", "BOUNDS",
+			37.7339158616526, -122.4403417110443,
+			37.7343613239864, -122.4397087097168,
+		}, {
+			"[0 [4 5]]"},
+
+		{"INTERSECTS", "mykey", "IDS", "CIRCLE", 37.7335, -122.4412, 10}, {
+			"[0 [1 2]]"},
+		{"INTERSECTS", "mykey", "IDS", "CIRCLE", 37.7335, -122.4412, 10,
+			"CLIPBY", "BOUNDS",
+			37.7339158616526, -122.4403417110443,
+			37.7343613239864, -122.4397087097168,
+		}, {"[0 []]"},
 	})
 }
 

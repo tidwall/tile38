@@ -189,13 +189,14 @@ func (series *baseSeries) Search(
 		}
 	case *byte:
 		// convert the byte pointer back to a valid slice
-		data := *(*[]byte)(unsafe.Pointer(&reflect.SliceHeader{
-			Data: uintptr(unsafe.Pointer(v)),
-			Len:  int((^uint(0)) >> 1),
-			Cap:  int((^uint(0)) >> 1),
-		}))
+		var data []byte
+		dataHdr := (*reflect.SliceHeader)(unsafe.Pointer(&data))
+		dataHdr.Data = uintptr(unsafe.Pointer(v))
+		dataHdr.Len = 5
+		dataHdr.Cap = 5
 		n := binary.LittleEndian.Uint32(data[1:])
-		data = data[:n:n]
+		dataHdr.Len = int(n)
+		dataHdr.Cap = int(n)
 		switch data[0] {
 		case 1:
 			rCompressSearch(data, 5, series, rect, iter)

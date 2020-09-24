@@ -29,18 +29,18 @@ require (
 	github.com/tidwall/cities v0.0.0-20190730194520-dbe1ae0b862c // indirect
 	github.com/tidwall/geoindex v1.4.0
 	github.com/tidwall/geojson v1.1.13
-	github.com/tidwall/gjson v1.3.2
+	github.com/tidwall/gjson v1.6.1
 	github.com/tidwall/grect v0.0.0-20161006141115-ba9a043346eb // indirect
 	github.com/tidwall/lotsa v1.0.1 // indirect
 	github.com/tidwall/match v1.0.1
-	github.com/tidwall/pretty v1.0.0
-	github.com/tidwall/rbang v1.2.1
+	github.com/tidwall/pretty v1.0.2
+	github.com/tidwall/rbang v1.2.2
 	github.com/tidwall/redbench v0.0.0-20181110173744-17c5b5b864a4
 	github.com/tidwall/redcon v0.0.0-20171003141744-3df12143a4fe
 	github.com/tidwall/resp v0.0.0-20160908231031-b2b1a7ca20e3
 	github.com/tidwall/rhh v1.1.0
 	github.com/tidwall/rtree v0.0.0-20180113144539-6cd427091e0e // indirect
-	github.com/tidwall/sjson v1.0.2
+	github.com/tidwall/sjson v1.1.1
 	github.com/tidwall/tinybtree v0.0.0-20181217131827-de5932d649b5
 	github.com/tidwall/tinyqueue v0.0.0-20180302190814-1e39f5511563 // indirect
 	github.com/yuin/gopher-lua v0.0.0-20170915035107-eb1c7299435c
@@ -61,3 +61,5 @@ replace github.com/tidwall/tinybtree => github.com/housecanary/tinybtree v1.0.0-
 replace github.com/tidwall/btree => github.com/housecanary/btree v0.0.0-snapshot
 
 replace github.com/tidwall/rbang => github.com/housecanary/rbang v1.1.1-snapshot
+
+replace github.com/tidwall/geojson => github.com/housecanary/geojson v1.1.14-0.20200924195856-2632af9baba8

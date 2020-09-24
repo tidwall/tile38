@@ -12,7 +12,6 @@ import (
 	"github.com/tidwall/geojson/geometry"
 	"github.com/tidwall/resp"
 	"github.com/tidwall/tile38/internal/bing"
-	"github.com/tidwall/tile38/internal/clip"
 	"github.com/tidwall/tile38/internal/glob"
 )
 
@@ -369,7 +368,7 @@ func (server *Server) cmdSearchArgs(
 			if err != nil {
 				return
 			}
-			s.obj = clip.Clip(s.obj, clip_rect, &server.geomIndexOpts)
+			s.obj = geojson.Clip(s.obj, clip_rect, &server.geomIndexOpts)
 		default:
 			err = errInvalidArgument("cannot clipby " + ltok)
 			return

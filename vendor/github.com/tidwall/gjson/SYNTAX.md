@@ -12,6 +12,7 @@ This document is designed to explain the structure of a GJSON Path through examp
 - [Queries](#queries)
 - [Dot vs Pipe](#dot-vs-pipe)
 - [Modifiers](#modifiers)
+- [Multipaths](#multipaths)
 
 The definitive implemenation is [github.com/tidwall/gjson](https://github.com/tidwall/gjson).  
 Use the [GJSON Playground](https://gjson.dev) to experiment with the syntax online.
@@ -74,6 +75,14 @@ Special purpose characters, such as `.`, `*`, and `?` can be escaped with `\`.
 
 ```go
 fav\.movie             "Deer Hunter"
+```
+
+You'll also need to make sure that the `\` character is correctly escaped when hardcoding a path in source code.
+
+```go
+res := gjson.Get(json, "fav\\.movie")  // must escape the slash
+res := gjson.Get(json, `fav\.movie`)   // no need to escape the slash 
+
 ```
 
 ### Arrays
@@ -180,11 +189,15 @@ children.@reverse                   ["Jack","Alex","Sara"]
 children.@reverse.0                 "Jack"
 ```
 
-There are currently three built-in modifiers:
+There are currently the following built-in modifiers:
 
 - `@reverse`: Reverse an array or the members of an object.
 - `@ugly`: Remove all whitespace from JSON.
 - `@pretty`: Make the JSON more human readable.
+- `@this`: Returns the current element. It can be used to retrieve the root element.
+- `@valid`: Ensure the json document is valid.
+- `@flatten`: Flattens an array.
+- `@join`: Joins multiple objects into a single object.
 
 #### Modifier arguments
 
@@ -235,7 +248,7 @@ gjson.AddModifier("case", func(json, arg string) string {
 "children.@case:lower.@reverse"    ["jack","alex","sara"]
 ```
 
-#### Multipaths
+### Multipaths
 
 Starting with v1.3.0, GJSON added the ability to join multiple paths together
 to form new documents. Wrapping comma-separated paths between `{...}` or 

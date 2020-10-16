@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/tidwall/geojson"
+	"github.com/tidwall/tile38/internal/collection"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -175,34 +177,24 @@ func (wherein whereinT) match(value float64) bool {
 }
 
 type whereevalT struct {
-	c        *Server
+	s        *Server
 	luaState *lua.LState
 	fn       *lua.LFunction
+	ud       *lua.LUserData
 }
 
 func (whereeval whereevalT) Close() {
 	luaSetRawGlobals(
 		whereeval.luaState, map[string]lua.LValue{
-			"ARGV": lua.LNil,
+			"EVAL_CMD": lua.LNil,
+			"ARGV": 	lua.LNil,
+			"OBJ": 		lua.LNil,
 		})
-	whereeval.c.luapool.Put(whereeval.luaState)
+	whereeval.s.luapool.Put(whereeval.luaState)
 }
 
-func (whereeval whereevalT) match(fieldsWithNames map[string]float64) bool {
-	fieldsTbl := whereeval.luaState.CreateTable(0, len(fieldsWithNames))
-	for field, val := range fieldsWithNames {
-		fieldsTbl.RawSetString(field, lua.LNumber(val))
-	}
-
-	luaSetRawGlobals(
-		whereeval.luaState, map[string]lua.LValue{
-			"FIELDS": fieldsTbl,
-		})
-	defer luaSetRawGlobals(
-		whereeval.luaState, map[string]lua.LValue{
-			"FIELDS": lua.LNil,
-		})
-
+func (whereeval whereevalT) match(col *collection.Collection, id string, fields []float64, o geojson.Object) bool {
+	*(whereeval.ud.Value.(*luaCollectionItem)) = luaCollectionItem{id, o, fields, col}
 	whereeval.luaState.Push(whereeval.fn)
 	if err := whereeval.luaState.PCall(0, 1, nil); err != nil {
 		panic(err.Error())
@@ -412,11 +404,6 @@ func (s *Server) parseSearchScanBaseTokens(
 					shaSum = Sha1Sum(script)
 				}
 
-				luaSetRawGlobals(
-					luaState, map[string]lua.LValue{
-						"ARGV": argsTbl,
-					})
-
 				compiled, ok := s.luascripts.Get(shaSum)
 				var fn *lua.LFunction
 				if ok {
@@ -439,7 +426,17 @@ func (s *Server) parseSearchScanBaseTokens(
 					}
 					s.luascripts.Put(shaSum, fn.Proto)
 				}
-				t.whereevals = append(t.whereevals, whereevalT{s, luaState, fn})
+				ud := luaState.NewUserData()
+				ud.Metatable = luaState.GetTypeMetatable(luaItemTypeName)
+				ud.Value = &luaCollectionItem{}
+				luaSetRawGlobals(
+					luaState, map[string]lua.LValue{
+						"EVAL_CMD": lua.LString("evalro"),
+						"ARGV":     argsTbl,
+						"OBJ":      ud,
+					})
+
+				t.whereevals = append(t.whereevals, whereevalT{s, luaState, fn, ud})
 				continue
 			case "nofields":
 				vs = nvs

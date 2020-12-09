@@ -58,7 +58,7 @@ replace github.com/tidwall/geoindex => github.com/housecanary/geoindex v1.4.0-sn
 
 replace github.com/tidwall/tinybtree => github.com/housecanary/tinybtree v1.0.0-snapshot
 
-replace github.com/tidwall/btree => github.com/housecanary/btree v0.0.0-snapshot
+replace github.com/tidwall/btree => github.com/housecanary/btree v0.0.1-snapshot
 
 replace github.com/tidwall/rbang => github.com/housecanary/rbang v1.1.1-snapshot
 

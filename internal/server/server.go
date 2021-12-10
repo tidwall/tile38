@@ -861,7 +861,8 @@ func (server *Server) handleInputCommand(client *Client, msg *Message) error {
 	case "set", "del", "drop", "fset", "flushdb",
 		"setchan", "pdelchan", "delchan",
 		"sethook", "pdelhook", "delhook",
-		"expire", "persist", "jset", "pdel", "rename", "renamenx":
+		"expire", "persist", "jset", "jdel",
+		"pdel", "rename", "renamenx":
 		// write operations
 		write = true
 		defer server.WriterLock()()
@@ -929,6 +930,13 @@ func (server *Server) handleInputCommand(client *Client, msg *Message) error {
 		// No locking for scripts, otherwise writes cannot happen within scripts
 	case "subscribe", "psubscribe", "publish":
 		// No locking for pubsub
+	case "gc":
+		// No locking for GC
+	case "test":
+		// No locking for test
+	case "aof", "aofmd5":
+		// Read lock on AOF
+		defer server.ReaderLock()()
 	}
 	res, d, err := func() (res resp.Value, d commandDetails, err error) {
 		if !msg.Deadline.IsZero() {

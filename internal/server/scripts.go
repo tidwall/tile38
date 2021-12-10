@@ -776,8 +776,8 @@ func (s *Server) luaTile38AtomicRW(msg *Message, ts *txn.Status) (resp.Value, er
 	switch msg.Command() {
 	default:
 		return resp.NullValue(), errCmdNotSupported
-	case "set", "del", "drop", "fset", "flushdb", "expire", "persist", "jset", "pdel",
-		"rename", "renamenx":
+	case "set", "del", "drop", "fset", "flushdb", "expire", "persist", "jset", "jdel",
+		"pdel", "rename", "renamenx":
 		// write operations
 		write = true
 		if s.config.followHost() != "" {
@@ -823,8 +823,8 @@ func (s *Server) luaTile38AtomicRO(msg *Message, ts *txn.Status) (resp.Value, er
 	default:
 		return resp.NullValue(), errCmdNotSupported
 
-	case "set", "del", "drop", "fset", "flushdb", "expire", "persist", "jset", "pdel",
-		"rename", "renamenx":
+	case "set", "del", "drop", "fset", "flushdb", "expire", "persist", "jset", "jdel",
+		"pdel", "rename", "renamenx":
 		// write operations
 		return resp.NullValue(), errReadOnly
 
@@ -857,8 +857,8 @@ func (s *Server) luaTile38NonAtomic(msg *Message, deadline time.Time) (resp.Valu
 	switch msg.Command() {
 	default:
 		return resp.NullValue(), errCmdNotSupported
-	case "set", "del", "drop", "fset", "flushdb", "expire", "persist", "jset", "pdel",
-		"rename", "renamenx":
+	case "set", "del", "drop", "fset", "flushdb", "expire", "persist", "jset", "jdel",
+		"pdel", "rename", "renamenx":
 		// write operations
 		write = true
 		defer s.WriterLock()()

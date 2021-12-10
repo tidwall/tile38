@@ -18,9 +18,9 @@ import (
 	"github.com/tidwall/geojson/geo"
 	"github.com/tidwall/resp"
 	"github.com/tidwall/tile38/internal/collection"
-	"github.com/tidwall/tile38/internal/deadline"
 	"github.com/tidwall/tile38/internal/glob"
 	"github.com/tidwall/tile38/internal/log"
+	"github.com/tidwall/tile38/internal/txn"
 	lua "github.com/yuin/gopher-lua"
 	luajson "layeh.com/gopher-json"
 )
@@ -54,7 +54,7 @@ func (s *Server) newPool() *lStatePool {
 	}
 	// Fill the pool with some ready handlers
 	for i := 0; i < iniLuaPoolSize; i++ {
-		pl.saved[i] = pl.New()
+		pl.saved[i] = pl.new()
 		pl.total++
 	}
 	return pl
@@ -69,7 +69,7 @@ func (pl *lStatePool) Get() (*lua.LState, error) {
 			return nil, errNoLuasAvailable
 		}
 		pl.total++
-		return pl.New(), nil
+		return pl.new(), nil
 	}
 	x := pl.saved[n-1]
 	pl.saved = pl.saved[0 : n-1]
@@ -94,7 +94,7 @@ func (pl *lStatePool) Prune() {
 	pl.m.Unlock()
 }
 
-func (pl *lStatePool) New() *lua.LState {
+func (pl *lStatePool) new() *lua.LState {
 	L := lua.NewState()
 
 	getArgs := func(ls *lua.LState) (evalCmd string, args []string) {
@@ -113,8 +113,9 @@ func (pl *lStatePool) New() *lua.LState {
 	}
 	call := func(ls *lua.LState) int {
 		evalCmd, args := getArgs(ls)
+		ts := ls.GetGlobal("TXN_STATUS").(*lua.LUserData).Value.(*txn.Status)
 		var numRet int
-		if res, err := pl.s.luaTile38Call(evalCmd, args[0], args[1:]...); err != nil {
+		if res, err := pl.s.luaTile38Call(evalCmd, ts, args[0], args[1:]...); err != nil {
 			ls.RaiseError("ERR %s", err.Error())
 			numRet = 0
 		} else {
@@ -125,7 +126,8 @@ func (pl *lStatePool) New() *lua.LState {
 	}
 	pcall := func(ls *lua.LState) int {
 		evalCmd, args := getArgs(ls)
-		if res, err := pl.s.luaTile38Call(evalCmd, args[0], args[1:]...); err != nil {
+		ts := ls.GetGlobal("TXN_STATUS").(*lua.LUserData).Value.(*txn.Status)
+		if res, err := pl.s.luaTile38Call(evalCmd, ts, args[0], args[1:]...); err != nil {
 			ls.Push(ConvertToLua(ls, resp.ErrorValue(err)))
 		} else {
 			ls.Push(ConvertToLua(ls, res))
@@ -161,6 +163,7 @@ func (pl *lStatePool) New() *lua.LState {
 	}
 	iterate := func(ls *lua.LState) int {
 		evalCmd := ls.GetGlobal("EVAL_CMD").String()
+		ts := ls.GetGlobal("TXN_STATUS").(*lua.LUserData).Value.(*txn.Status)
 		callback := ls.ToFunction(1)
 		cmd := ls.ToString(2)
 		nargs := ls.GetTop()
@@ -171,11 +174,11 @@ func (pl *lStatePool) New() *lua.LState {
 		}
 
 		ctx := ls.Context()
-		var dl *deadline.Deadline
+		var dl time.Time
 		if ctx != nil {
 			dlt, ok := ls.Context().Deadline()
 			if ok {
-				dl = deadline.New(dlt)
+				dl = dlt
 			}
 		}
 
@@ -191,7 +194,7 @@ func (pl *lStatePool) New() *lua.LState {
 			itr: itr,
 		}
 
-		err := pl.s.luaTile38Iterate(coll, dl, evalCmd, strings.ToLower(cmd), vs)
+		err := pl.s.luaTile38Iterate(coll, ts, dl, evalCmd, strings.ToLower(cmd), vs)
 		if err != nil {
 			ls.RaiseError("%v", err)
 		}
@@ -261,9 +264,9 @@ func (pl *lStatePool) New() *lua.LState {
 	return L
 }
 
-func (pl *lStatePool) Put(L *lua.LState) {
+func (pl *lStatePool) Put(ls *lua.LState) {
 	pl.m.Lock()
-	pl.saved = append(pl.saved, L)
+	pl.saved = append(pl.saved, ls)
 	pl.m.Unlock()
 }
 
@@ -451,7 +454,7 @@ func makeSafeErr(err error) error {
 }
 
 // Run eval/evalro/evalna command or it's -sha variant
-func (s *Server) cmdEvalUnified(scriptIsSha bool, msg *Message) (res resp.Value, err error) {
+func (s *Server) cmdEvalUnified(scriptIsSha bool, msg *Message, ts *txn.Status) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Args[1:]
 
@@ -476,8 +479,7 @@ func (s *Server) cmdEvalUnified(scriptIsSha bool, msg *Message) (res resp.Value,
 		return
 	}
 	luaDeadline := lua.LNil
-	if msg.Deadline != nil {
-		dlTime := msg.Deadline.GetDeadlineTime()
+	if dlTime := ts.GetDeadlineTime(); !dlTime.IsZero() {
 		ctx, cancel := context.WithDeadline(context.Background(), dlTime)
 		defer cancel()
 		luaState.SetContext(ctx)
@@ -504,6 +506,9 @@ func (s *Server) cmdEvalUnified(scriptIsSha bool, msg *Message) (res resp.Value,
 		argsTbl.Append(lua.LString(arg))
 	}
 
+	tsUserData := luaState.NewUserData()
+	tsUserData.Value = ts
+
 	var shaSum string
 	if scriptIsSha {
 		shaSum = script
@@ -513,10 +518,11 @@ func (s *Server) cmdEvalUnified(scriptIsSha bool, msg *Message) (res resp.Value,
 
 	luaSetRawGlobals(
 		luaState, map[string]lua.LValue{
-			"KEYS":     keysTbl,
-			"ARGV":     argsTbl,
-			"DEADLINE": luaDeadline,
-			"EVAL_CMD": lua.LString(msg.Command()),
+			"KEYS":       keysTbl,
+			"ARGV":       argsTbl,
+			"DEADLINE":   luaDeadline,
+			"EVAL_CMD":   lua.LString(msg.Command()),
+			"TXN_STATUS": tsUserData,
 		})
 
 	compiled, ok := s.luascripts.Get(shaSum)
@@ -543,14 +549,18 @@ func (s *Server) cmdEvalUnified(scriptIsSha bool, msg *Message) (res resp.Value,
 	luaState.Push(fn)
 	defer luaSetRawGlobals(
 		luaState, map[string]lua.LValue{
-			"KEYS":     lua.LNil,
-			"ARGV":     lua.LNil,
-			"DEADLINE": lua.LNil,
-			"EVAL_CMD": lua.LNil,
+			"KEYS":       lua.LNil,
+			"ARGV":       lua.LNil,
+			"DEADLINE":   lua.LNil,
+			"EVAL_CMD":   lua.LNil,
+			"TXN_STATUS": lua.LNil,
 		})
 	if err := luaState.PCall(0, 1, nil); err != nil {
 		if strings.Contains(err.Error(), "context deadline exceeded") {
-			msg.Deadline.Check()
+			err := ts.Error()
+			if err != nil {
+				panic(err)
+			}
 		}
 		log.Debugf("%v", err.Error())
 		return NOMessage, makeSafeErr(err)
@@ -573,11 +583,10 @@ func (s *Server) cmdEvalUnified(scriptIsSha bool, msg *Message) (res resp.Value,
 
 func (s *Server) cmdScriptLoad(msg *Message) (resp.Value, error) {
 	start := time.Now()
-	vs := msg.Args[1:]
 
 	var ok bool
 	var script string
-	if vs, script, ok = tokenval(vs); !ok || script == "" {
+	if _, script, ok = tokenval(msg.Args[1:]); !ok || script == "" {
 		return NOMessage, errInvalidNumberOfArguments
 	}
 
@@ -666,7 +675,7 @@ func (s *Server) cmdScriptFlush(msg *Message) (resp.Value, error) {
 	return resp.SimpleStringValue(""), nil
 }
 
-func (s *Server) commandInScript(msg *Message) (
+func (s *Server) commandInScript(msg *Message, ts *txn.Status) (
 	res resp.Value, d commandDetails, err error,
 ) {
 	switch msg.Command() {
@@ -695,15 +704,15 @@ func (s *Server) commandInScript(msg *Message) (
 	case "stats":
 		res, err = s.cmdStats(msg)
 	case "scan":
-		res, err = s.cmdScan(msg)
+		res, err = doWithRetry(s.cmdScan, msg, ts)
 	case "nearby":
-		res, err = s.cmdNearby(msg)
+		res, err = doWithRetry(s.cmdNearby, msg, ts)
 	case "within":
-		res, err = s.cmdWithin(msg)
+		res, err = doWithRetry(s.cmdWithin, msg, ts)
 	case "intersects":
-		res, err = s.cmdIntersects(msg)
+		res, err = doWithRetry(s.cmdIntersects, msg, ts)
 	case "search":
-		res, err = s.cmdSearch(msg)
+		res, err = doWithRetry(s.cmdSearch, msg, ts)
 	case "bounds":
 		res, err = s.cmdBounds(msg)
 	case "get":
@@ -726,7 +735,7 @@ func (s *Server) commandInScript(msg *Message) (
 	return
 }
 
-func (s *Server) luaTile38Call(evalcmd string, cmd string, args ...string) (resp.Value, error) {
+func (s *Server) luaTile38Call(evalcmd string, ts *txn.Status, cmd string, args ...string) (resp.Value, error) {
 	msg := &Message{}
 	msg.OutputType = RESP
 	msg.Args = append([]string{cmd}, args...)
@@ -735,6 +744,7 @@ func (s *Server) luaTile38Call(evalcmd string, cmd string, args ...string) (resp
 		if err := rewriteTimeoutMsg(msg); err != nil {
 			return resp.NullValue(), err
 		}
+		ts = ts.WithDeadline(msg.Deadline)
 	}
 
 	switch msg.Command() {
@@ -749,18 +759,18 @@ func (s *Server) luaTile38Call(evalcmd string, cmd string, args ...string) (resp
 
 	switch evalcmd {
 	case "eval", "evalsha":
-		return s.luaTile38AtomicRW(msg)
+		return s.luaTile38AtomicRW(msg, ts)
 	case "evalro", "evalrosha":
-		return s.luaTile38AtomicRO(msg)
+		return s.luaTile38AtomicRO(msg, ts)
 	case "evalna", "evalnasha":
-		return s.luaTile38NonAtomic(msg)
+		return s.luaTile38NonAtomic(msg, ts.GetDeadlineTime())
 	}
 
 	return resp.NullValue(), errCmdNotSupported
 }
 
 // The eval command has already got the lock. No locking on the call from within the script.
-func (s *Server) luaTile38AtomicRW(msg *Message) (resp.Value, error) {
+func (s *Server) luaTile38AtomicRW(msg *Message, ts *txn.Status) (resp.Value, error) {
 	var write bool
 
 	switch msg.Command() {
@@ -785,26 +795,15 @@ func (s *Server) luaTile38AtomicRW(msg *Message) (resp.Value, error) {
 	}
 
 	res, d, err := func() (res resp.Value, d commandDetails, err error) {
-		if msg.Deadline != nil {
+		if !msg.Deadline.IsZero() {
 			if write {
 				res = NOMessage
 				err = errTimeoutOnCmd(msg.Command())
 				return
 			}
-			defer func() {
-				if msg.Deadline.Hit() {
-					v := recover()
-					if v != nil {
-						if s, ok := v.(string); !ok || s != "deadline" {
-							panic(v)
-						}
-					}
-					res = NOMessage
-					err = errTimeout
-				}
-			}()
+			defer handleTimeoutError(ts, &res, &err)
 		}
-		return s.commandInScript(msg)
+		return s.commandInScript(msg, ts)
 	}()
 	if err != nil {
 		return resp.NullValue(), err
@@ -819,7 +818,7 @@ func (s *Server) luaTile38AtomicRW(msg *Message) (resp.Value, error) {
 	return res, nil
 }
 
-func (s *Server) luaTile38AtomicRO(msg *Message) (resp.Value, error) {
+func (s *Server) luaTile38AtomicRO(msg *Message, ts *txn.Status) (resp.Value, error) {
 	switch msg.Command() {
 	default:
 		return resp.NullValue(), errCmdNotSupported
@@ -838,21 +837,10 @@ func (s *Server) luaTile38AtomicRO(msg *Message) (resp.Value, error) {
 	}
 
 	res, _, err := func() (res resp.Value, d commandDetails, err error) {
-		if msg.Deadline != nil {
-			defer func() {
-				if msg.Deadline.Hit() {
-					v := recover()
-					if v != nil {
-						if s, ok := v.(string); !ok || s != "deadline" {
-							panic(v)
-						}
-					}
-					res = NOMessage
-					err = errTimeout
-				}
-			}()
+		if !msg.Deadline.IsZero() {
+			defer handleTimeoutError(ts, &res, &err)
 		}
-		return s.commandInScript(msg)
+		return s.commandInScript(msg, ts)
 	}()
 	if err != nil {
 		return resp.NullValue(), err
@@ -861,10 +849,11 @@ func (s *Server) luaTile38AtomicRO(msg *Message) (resp.Value, error) {
 	return res, nil
 }
 
-func (s *Server) luaTile38NonAtomic(msg *Message) (resp.Value, error) {
+func (s *Server) luaTile38NonAtomic(msg *Message, deadline time.Time) (resp.Value, error) {
 	var write bool
 
 	// choose the locking strategy
+	var ts *txn.Status
 	switch msg.Command() {
 	default:
 		return resp.NullValue(), errCmdNotSupported
@@ -879,8 +868,11 @@ func (s *Server) luaTile38NonAtomic(msg *Message) (resp.Value, error) {
 		if s.config.readOnly() {
 			return resp.NullValue(), errReadOnly
 		}
-	case "get", "keys", "scan", "nearby", "within", "intersects", "hooks", "search",
-		"ttl", "bounds", "server", "info", "type", "jget", "test":
+	case "scan", "nearby", "within", "intersects", "search":
+		var done func()
+		done, ts = s.ScannerLock()
+		defer done()
+	case "get", "keys", "hooks", "ttl", "bounds", "server", "info", "type", "jget", "test":
 		// read operations
 		defer s.ReaderLock()()
 		if s.config.followHost() != "" && !s.fcuponce {
@@ -889,26 +881,16 @@ func (s *Server) luaTile38NonAtomic(msg *Message) (resp.Value, error) {
 	}
 
 	res, d, err := func() (res resp.Value, d commandDetails, err error) {
-		if msg.Deadline != nil {
+		if !deadline.IsZero() {
 			if write {
 				res = NOMessage
 				err = errTimeoutOnCmd(msg.Command())
 				return
 			}
-			defer func() {
-				if msg.Deadline.Hit() {
-					v := recover()
-					if v != nil {
-						if s, ok := v.(string); !ok || s != "deadline" {
-							panic(v)
-						}
-					}
-					res = NOMessage
-					err = errTimeout
-				}
-			}()
+			ts = ts.WithDeadline(deadline)
+			defer handleTimeoutError(ts, &res, &err)
 		}
-		return s.commandInScript(msg)
+		return s.commandInScript(msg, ts)
 	}()
 	if err != nil {
 		return resp.NullValue(), err
@@ -923,11 +905,14 @@ func (s *Server) luaTile38NonAtomic(msg *Message) (resp.Value, error) {
 	return res, nil
 }
 
-func (s *Server) luaTile38Iterate(coll *luaScanCollector, dl *deadline.Deadline, evalcmd, cmd string, vs []string) (err error) {
+func (s *Server) luaTile38Iterate(coll *luaScanCollector, ts *txn.Status, deadline time.Time, evalcmd, cmd string, vs []string) (err error) {
 	// Acquire a lock if we don't already have one
 	switch evalcmd {
 	case "evalna", "evalnasha":
-		defer s.ReaderLock()()
+		var done func()
+		done, ts = s.ScannerLock()
+		ts = ts.WithDeadline(deadline)
+		defer done()
 	}
 
 	// Ensure fully up to date
@@ -984,18 +969,8 @@ func (s *Server) luaTile38Iterate(coll *luaScanCollector, dl *deadline.Deadline,
 	}
 
 	// Handle deadline exceeded errors
-	if dl != nil {
-		defer func() {
-			if dl.Hit() {
-				v := recover()
-				if v != nil {
-					if s, ok := v.(string); !ok || s != "deadline" {
-						panic(v)
-					}
-				}
-				err = errTimeout
-			}
-		}()
+	if !ts.GetDeadlineTime().IsZero() {
+		defer handleTimeoutError(ts, nil, &err)
 	}
 
 	// For the duration of this call, we need to pretend we are operating as
@@ -1031,9 +1006,9 @@ func (s *Server) luaTile38Iterate(coll *luaScanCollector, dl *deadline.Deadline,
 				noLock:   true,
 			})
 		}
-		sc.col.Nearby(lfs.obj, sc, dl, iter)
+		sc.col.Nearby(lfs.obj, sc, ts, iter)
 	case "within":
-		sc.col.Within(lfs.obj, lfs.sparse, sc, dl, func(
+		sc.col.Within(lfs.obj, lfs.sparse, sc, ts, func(
 			id string, o geojson.Object, fields []float64,
 		) bool {
 			if s.hasExpired(lfs.key, id) {
@@ -1047,7 +1022,7 @@ func (s *Server) luaTile38Iterate(coll *luaScanCollector, dl *deadline.Deadline,
 			})
 		})
 	case "intersects":
-		sc.col.Intersects(lfs.obj, lfs.sparse, sc, dl, func(
+		sc.col.Intersects(lfs.obj, lfs.sparse, sc, ts, func(
 			id string,
 			o geojson.Object,
 			fields []float64,
@@ -1070,7 +1045,7 @@ func (s *Server) luaTile38Iterate(coll *luaScanCollector, dl *deadline.Deadline,
 		g := glob.Parse(sc.globPattern, lfs.desc)
 		if g.Limits[0] == "" && g.Limits[1] == "" {
 			sc.col.Scan(lfs.desc, sc,
-				dl,
+				ts,
 				func(id string, o geojson.Object, fields []float64) bool {
 					return sc.writeObject(ScanObjectParams{
 						id:     id,
@@ -1081,7 +1056,7 @@ func (s *Server) luaTile38Iterate(coll *luaScanCollector, dl *deadline.Deadline,
 			)
 		} else {
 			sc.col.ScanRange(g.Limits[0], g.Limits[1], lfs.desc, sc,
-				dl,
+				ts,
 				func(id string, o geojson.Object, fields []float64) bool {
 					return sc.writeObject(ScanObjectParams{
 						id:     id,
@@ -1101,7 +1076,7 @@ func (s *Server) luaTile38Iterate(coll *luaScanCollector, dl *deadline.Deadline,
 		} else {
 			g := glob.Parse(sc.globPattern, lfs.desc)
 			if g.Limits[0] == "" && g.Limits[1] == "" {
-				sc.col.SearchValues(lfs.desc, sc, dl,
+				sc.col.SearchValues(lfs.desc, sc, ts,
 					func(id string, o geojson.Object, fields []float64) bool {
 						return sc.writeObject(ScanObjectParams{
 							id:     id,
@@ -1116,7 +1091,7 @@ func (s *Server) luaTile38Iterate(coll *luaScanCollector, dl *deadline.Deadline,
 				// globSingle is only for ID matches, not values.
 				sc.globSingle = false
 				sc.col.SearchValuesRange(g.Limits[0], g.Limits[1], lfs.desc, sc,
-					dl,
+					ts,
 					func(id string, o geojson.Object, fields []float64) bool {
 						return sc.writeObject(ScanObjectParams{
 							id:     id,

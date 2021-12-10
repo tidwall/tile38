@@ -97,7 +97,7 @@ func (s *Server) loadAOF(offset int64) error {
 				for _, arg := range args {
 					msg.Args = append(msg.Args, string(arg))
 				}
-				if _, _, err := s.command(&msg, nil); err != nil {
+				if _, _, err := s.command(&msg, nil, nil); err != nil {
 					if commandErrIsFatal(err) {
 						return err
 					}

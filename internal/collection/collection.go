@@ -10,7 +10,7 @@ import (
 	"github.com/tidwall/geojson/geo"
 	"github.com/tidwall/geojson/geometry"
 	"github.com/tidwall/rbang"
-	"github.com/tidwall/tile38/internal/deadline"
+	"github.com/tidwall/tile38/internal/txn"
 	"github.com/tidwall/tinybtree"
 )
 
@@ -69,6 +69,7 @@ func New() *Collection {
 	}
 	return col
 }
+
 // Count returns the number of objects in collection.
 func (c *Collection) Count() int {
 	return c.objects + c.nobjects
@@ -336,7 +337,7 @@ func (c *Collection) addToFieldArr(field string) {
 func (c *Collection) Scan(
 	desc bool,
 	cursor Cursor,
-	deadline *deadline.Deadline,
+	ts *txn.Status,
 	iterator func(id string, obj geojson.Object, fields []float64) bool,
 ) bool {
 	var keepon = true
@@ -351,7 +352,7 @@ func (c *Collection) Scan(
 		if count <= offset {
 			return true
 		}
-		nextStep(count, cursor, deadline)
+		nextStep(count, cursor, ts)
 		iitm := value.(*itemT)
 		keepon = iterator(iitm.id, iitm.obj, c.fieldValues.get(iitm.fieldValuesSlot))
 		return keepon
@@ -369,7 +370,7 @@ func (c *Collection) ScanRange(
 	start, end string,
 	desc bool,
 	cursor Cursor,
-	deadline *deadline.Deadline,
+	ts *txn.Status,
 	iterator func(id string, obj geojson.Object, fields []float64) bool,
 ) bool {
 	var keepon = true
@@ -384,7 +385,7 @@ func (c *Collection) ScanRange(
 		if count <= offset {
 			return true
 		}
-		nextStep(count, cursor, deadline)
+		nextStep(count, cursor, ts)
 		if !desc {
 			if key >= end {
 				return false
@@ -411,7 +412,7 @@ func (c *Collection) ScanRange(
 func (c *Collection) SearchValues(
 	desc bool,
 	cursor Cursor,
-	deadline *deadline.Deadline,
+	ts *txn.Status,
 	iterator func(id string, obj geojson.Object, fields []float64) bool,
 ) bool {
 	var keepon = true
@@ -426,7 +427,7 @@ func (c *Collection) SearchValues(
 		if count <= offset {
 			return true
 		}
-		nextStep(count, cursor, deadline)
+		nextStep(count, cursor, ts)
 		iitm := item.(*itemT)
 		keepon = iterator(iitm.id, iitm.obj, c.fieldValues.get(iitm.fieldValuesSlot))
 		return keepon
@@ -442,7 +443,7 @@ func (c *Collection) SearchValues(
 // SearchValuesRange iterates though the collection values.
 func (c *Collection) SearchValuesRange(start, end string, desc bool,
 	cursor Cursor,
-	deadline *deadline.Deadline,
+	ts *txn.Status,
 	iterator func(id string, obj geojson.Object, fields []float64) bool,
 ) bool {
 	var keepon = true
@@ -457,7 +458,7 @@ func (c *Collection) SearchValuesRange(start, end string, desc bool,
 		if count <= offset {
 			return true
 		}
-		nextStep(count, cursor, deadline)
+		nextStep(count, cursor, ts)
 		iitm := item.(*itemT)
 		keepon = iterator(iitm.id, iitm.obj, c.fieldValues.get(iitm.fieldValuesSlot))
 		return keepon
@@ -475,7 +476,7 @@ func (c *Collection) SearchValuesRange(start, end string, desc bool,
 // ScanGreaterOrEqual iterates though the collection starting with specified id.
 func (c *Collection) ScanGreaterOrEqual(id string, desc bool,
 	cursor Cursor,
-	deadline *deadline.Deadline,
+	ts *txn.Status,
 	iterator func(id string, obj geojson.Object, fields []float64) bool,
 ) bool {
 	var keepon = true
@@ -490,7 +491,7 @@ func (c *Collection) ScanGreaterOrEqual(id string, desc bool,
 		if count <= offset {
 			return true
 		}
-		nextStep(count, cursor, deadline)
+		nextStep(count, cursor, ts)
 		iitm := value.(*itemT)
 		keepon = iterator(iitm.id, iitm.obj, c.fieldValues.get(iitm.fieldValuesSlot))
 		return keepon
@@ -550,19 +551,19 @@ func (c *Collection) geoSparseInner(
 		w := rect.Max.X - rect.Min.X
 		h := rect.Max.Y - rect.Min.Y
 		quads := [4]geometry.Rect{
-			geometry.Rect{
+			{
 				Min: geometry.Point{X: rect.Min.X, Y: rect.Min.Y + h/2},
 				Max: geometry.Point{X: rect.Min.X + w/2, Y: rect.Max.Y},
 			},
-			geometry.Rect{
+			{
 				Min: geometry.Point{X: rect.Min.X + w/2, Y: rect.Min.Y + h/2},
 				Max: geometry.Point{X: rect.Max.X, Y: rect.Max.Y},
 			},
-			geometry.Rect{
+			{
 				Min: geometry.Point{X: rect.Min.X, Y: rect.Min.Y},
 				Max: geometry.Point{X: rect.Min.X + w/2, Y: rect.Min.Y + h/2},
 			},
-			geometry.Rect{
+			{
 				Min: geometry.Point{X: rect.Min.X + w/2, Y: rect.Min.Y},
 				Max: geometry.Point{X: rect.Max.X, Y: rect.Min.Y + h/2},
 			},
@@ -594,7 +595,7 @@ func (c *Collection) Within(
 	obj geojson.Object,
 	sparse uint8,
 	cursor Cursor,
-	deadline *deadline.Deadline,
+	ts *txn.Status,
 	iter func(id string, obj geojson.Object, fields []float64) bool,
 ) bool {
 	var count uint64
@@ -612,7 +613,7 @@ func (c *Collection) Within(
 				if count <= offset {
 					return false, true
 				}
-				nextStep(count, cursor, deadline)
+				nextStep(count, cursor, ts)
 				if match = o.Within(obj); match {
 					ok = iter(id, o, fields)
 				}
@@ -626,7 +627,7 @@ func (c *Collection) Within(
 			if count <= offset {
 				return true
 			}
-			nextStep(count, cursor, deadline)
+			nextStep(count, cursor, ts)
 			if o.Within(obj) {
 				return iter(id, o, fields)
 			}
@@ -641,7 +642,7 @@ func (c *Collection) Intersects(
 	obj geojson.Object,
 	sparse uint8,
 	cursor Cursor,
-	deadline *deadline.Deadline,
+	ts *txn.Status,
 	iter func(id string, obj geojson.Object, fields []float64) bool,
 ) bool {
 	var count uint64
@@ -659,7 +660,7 @@ func (c *Collection) Intersects(
 				if count <= offset {
 					return false, true
 				}
-				nextStep(count, cursor, deadline)
+				nextStep(count, cursor, ts)
 				if match = o.Intersects(obj); match {
 					ok = iter(id, o, fields)
 				}
@@ -673,7 +674,7 @@ func (c *Collection) Intersects(
 			if count <= offset {
 				return true
 			}
-			nextStep(count, cursor, deadline)
+			nextStep(count, cursor, ts)
 			if o.Intersects(obj) {
 				return iter(id, o, fields)
 			}
@@ -686,7 +687,7 @@ func (c *Collection) Intersects(
 func (c *Collection) Nearby(
 	target geojson.Object,
 	cursor Cursor,
-	deadline *deadline.Deadline,
+	ts *txn.Status,
 	iter func(id string, obj geojson.Object, fields []float64, dist float64) bool,
 ) bool {
 	// First look to see if there's at least one candidate in the circle's
@@ -728,7 +729,7 @@ func (c *Collection) Nearby(
 			if count <= offset {
 				return true
 			}
-			nextStep(count, cursor, deadline)
+			nextStep(count, cursor, ts)
 			item := itemv.(*itemT)
 			alive = iter(item.id, item.obj, c.fieldValues.get(item.fieldValuesSlot), dist)
 			return alive
@@ -737,10 +738,13 @@ func (c *Collection) Nearby(
 	return alive
 }
 
-func nextStep(step uint64, cursor Cursor, deadline *deadline.Deadline) {
+func nextStep(step uint64, cursor Cursor, ts *txn.Status) {
 	if step&yieldStep == yieldStep {
 		runtime.Gosched()
-		deadline.Check()
+		err := ts.Error()
+		if err != nil {
+			panic(err)
+		}
 	}
 	if cursor != nil {
 		cursor.Step(1)

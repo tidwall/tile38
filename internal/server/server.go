@@ -31,10 +31,10 @@ import (
 	"github.com/tidwall/rhh"
 	"github.com/tidwall/tile38/core"
 	"github.com/tidwall/tile38/internal/collection"
-	"github.com/tidwall/tile38/internal/deadline"
 	"github.com/tidwall/tile38/internal/endpoint"
 	"github.com/tidwall/tile38/internal/expire"
 	"github.com/tidwall/tile38/internal/log"
+	"github.com/tidwall/tile38/internal/txn"
 	"github.com/tidwall/tinybtree"
 )
 
@@ -70,14 +70,15 @@ type commandDetails struct {
 // Server is a tile38 controller
 type Server struct {
 	// static values
-	host    string
-	port    int
-	http    bool
-	dir     string
-	started time.Time
-	config  *Config
-	epc     *endpoint.Manager
+	host         string
+	port         int
+	http         bool
+	dir          string
+	started      time.Time
+	config       *Config
+	epc          *endpoint.Manager
 	snapshotMeta *SnapshotMeta
+	scheduler    *txn.Scheduler
 
 	// env opts
 	geomParseOpts geojson.ParseOptions
@@ -96,13 +97,18 @@ type Server struct {
 	connsmu sync.RWMutex
 	conns   map[int]*Client
 
-	snapmu   sync.Mutex    // snapshot locking
+	snapmu sync.Mutex // snapshot locking
 
-	mu       sync.RWMutex
+	// In addition to the normal scheduling mechanism which guards access to the main data,
+	// writes to auxilliary data structures are protected by this mutex. This allows background
+	// threads to perform activities such as expirations, aof flushes, etc that do not modify
+	// the data stored in the trees.
+	writemu sync.Mutex
+
 	aof      *os.File        // active aof file
 	aofdirty int32           // mark the aofbuf as having data
 	aofbuf   []byte          // prewrite buffer
-	aofsz    int64             // active size of the aof file
+	aofsz    int64           // active size of the aof file
 	qdb      *buntdb.DB      // hook queue log
 	qidx     uint64          // hook queue log last idx
 	cols     tinybtree.BTree // data collections
@@ -140,21 +146,22 @@ func Serve(host string, port int, dir string, http bool) error {
 
 	// Initialize the server
 	server := &Server{
-		host:     host,
-		port:     port,
-		dir:      dir,
-		follows:  make(map[*bytes.Buffer]bool),
-		fcond:    sync.NewCond(&sync.Mutex{}),
-		lives:    make(map[*liveBuffer]bool),
-		lcond:    sync.NewCond(&sync.Mutex{}),
-		hooks:    make(map[string]*Hook),
-		hooksOut: make(map[string]*Hook),
-		aofconnM: make(map[net.Conn]bool),
-		expires:  rhh.New(0),
-		started:  time.Now(),
-		conns:    make(map[int]*Client),
-		http:     http,
-		pubsub:   newPubsub(),
+		host:      host,
+		port:      port,
+		dir:       dir,
+		scheduler: txn.NewScheduler(200*time.Millisecond, 50*time.Millisecond), // TODO: make configurable?
+		follows:   make(map[*bytes.Buffer]bool),
+		fcond:     sync.NewCond(&sync.Mutex{}),
+		lives:     make(map[*liveBuffer]bool),
+		lcond:     sync.NewCond(&sync.Mutex{}),
+		hooks:     make(map[string]*Hook),
+		hooksOut:  make(map[string]*Hook),
+		aofconnM:  make(map[net.Conn]bool),
+		expires:   rhh.New(0),
+		started:   time.Now(),
+		conns:     make(map[int]*Client),
+		http:      http,
+		pubsub:    newPubsub(),
 	}
 
 	server.hookex.Expired = func(item expire.Item) {
@@ -280,6 +287,8 @@ func Serve(host string, port int, dir string, http bool) error {
 				return err
 			}
 			defer func() {
+				server.writemu.Lock()
+				defer server.writemu.Unlock()
 				server.flushAOF(false)
 				server.aof.Sync()
 			}()
@@ -311,17 +320,22 @@ func Serve(host string, port int, dir string, http bool) error {
 
 // Readers should call: defer ReaderLock()()
 func (server *Server) ReaderLock() func() {
-	server.mu.RLock()
-	return server.mu.RUnlock
+	return server.scheduler.Read()
+}
+
+func (server *Server) ScannerLock() (func(), *txn.Status) {
+	return server.scheduler.Scan()
 }
 
 // Writers should call: defer WriterLock()()
 func (server *Server) WriterLock() func() {
+	done := server.scheduler.Write()
 	server.snapmu.Lock()
-	server.mu.Lock()
+	server.writemu.Lock()
 	return func() {
-		server.mu.Unlock()
+		server.writemu.Unlock()
 		server.snapmu.Unlock()
+		done()
 	}
 }
 
@@ -514,7 +528,8 @@ func (server *Server) netServe() error {
 					if atomic.LoadInt32(&server.aofdirty) != 0 {
 						func() {
 							// prewrite
-							defer server.WriterLock()()
+							server.writemu.Lock()
+							defer server.writemu.Unlock()
 							server.flushAOF(false)
 						}()
 						atomic.StoreInt32(&server.aofdirty, 0)
@@ -657,7 +672,8 @@ func (server *Server) backgroundSyncAOF() {
 			return
 		}
 		func() {
-			defer server.WriterLock()()
+			server.writemu.Lock()
+			defer server.writemu.Unlock()
 			server.flushAOF(true)
 		}()
 	}
@@ -712,8 +728,7 @@ func rewriteTimeoutMsg(msg *Message) (err error) {
 	}
 	msg.Args = vs[:]
 	msg._command = ""
-	msg.Deadline = deadline.New(
-		time.Now().Add(time.Duration(timeoutSec * float64(time.Second))))
+	msg.Deadline = time.Now().Add(time.Duration(timeoutSec * float64(time.Second)))
 	return
 }
 
@@ -838,6 +853,8 @@ func (server *Server) handleInputCommand(client *Client, msg *Message) error {
 	}
 
 	// choose the locking strategy
+	var ts *txn.Status
+
 	switch msg.Command() {
 	default:
 		defer server.ReaderLock()()
@@ -863,11 +880,15 @@ func (server *Server) handleInputCommand(client *Client, msg *Message) error {
 		if server.config.readOnly() {
 			return writeErr("read only")
 		}
-	case "get", "keys", "scan", "nearby", "within", "intersects", "hooks",
-		"chans", "search", "ttl", "bounds", "server", "info", "type", "jget",
-		"evalro", "evalrosha":
+	case "scan", "nearby", "within", "intersects", "search",
+		"evalro", "evalrosha": // evalro* is not necessarily a scan, but may run scans, so lock as if a scan
+		// scan operations
+		var done func()
+		done, ts = server.ScannerLock()
+		defer done()
+	case "get", "keys", "hooks", "chans", "ttl", "bounds", "server",
+		"info", "type", "jget":
 		// read operations
-
 		defer server.ReaderLock()()
 		if server.config.followHost() != "" && !server.fcuponce {
 			return writeErr("catching up to leader")
@@ -899,7 +920,7 @@ func (server *Server) handleInputCommand(client *Client, msg *Message) error {
 			}
 		case "load":
 			defer server.WriterLock()()
-		default:  // latest meta is read-only
+		default: // latest meta is read-only
 			defer server.ReaderLock()()
 		}
 	case "client":
@@ -910,26 +931,16 @@ func (server *Server) handleInputCommand(client *Client, msg *Message) error {
 		// No locking for pubsub
 	}
 	res, d, err := func() (res resp.Value, d commandDetails, err error) {
-		if msg.Deadline != nil {
+		if !msg.Deadline.IsZero() {
 			if write {
 				res = NOMessage
 				err = errTimeoutOnCmd(msg.Command())
 				return
 			}
-			defer func() {
-				if msg.Deadline.Hit() {
-					v := recover()
-					if v != nil {
-						if s, ok := v.(string); !ok || s != "deadline" {
-							panic(v)
-						}
-					}
-					res = NOMessage
-					err = writeErr("timeout")
-				}
-			}()
+			ts = ts.WithDeadline(msg.Deadline)
+			defer handleTimeoutError(ts, &res, &err)
 		}
-		return server.command(msg, client)
+		return server.command(msg, client, ts)
 	}()
 	if res.Type() == resp.Error {
 		return writeErr(res.String())
@@ -984,7 +995,7 @@ func (server *Server) reset() {
 	server.expires = rhh.New(0)
 }
 
-func (server *Server) command(msg *Message, client *Client) (
+func (server *Server) command(msg *Message, client *Client, ts *txn.Status) (
 	res resp.Value, d commandDetails, err error,
 ) {
 	switch msg.Command() {
@@ -1059,15 +1070,15 @@ func (server *Server) command(msg *Message, client *Client) (
 	case "info":
 		res, err = server.cmdInfo(msg)
 	case "scan":
-		res, err = server.cmdScan(msg)
+		res, err = doWithRetry(server.cmdScan, msg, ts)
 	case "nearby":
-		res, err = server.cmdNearby(msg)
+		res, err = doWithRetry(server.cmdNearby, msg, ts)
 	case "within":
-		res, err = server.cmdWithin(msg)
+		res, err = doWithRetry(server.cmdWithin, msg, ts)
 	case "intersects":
-		res, err = server.cmdIntersects(msg)
+		res, err = doWithRetry(server.cmdIntersects, msg, ts)
 	case "search":
-		res, err = server.cmdSearch(msg)
+		res, err = doWithRetry(server.cmdSearch, msg, ts)
 	case "bounds":
 		res, err = server.cmdBounds(msg)
 	case "get":
@@ -1113,14 +1124,14 @@ func (server *Server) command(msg *Message, client *Client) (
 			msg.Args[1] = msg.Args[0] + " " + msg.Args[1]
 			msg.Args = msg.Args[1:]
 			msg._command = ""
-			return server.command(msg, client)
+			return server.command(msg, client, ts)
 		}
 	case "client":
 		res, err = server.cmdClient(msg, client)
 	case "eval", "evalro", "evalna":
-		res, err = server.cmdEvalUnified(false, msg)
+		res, err = server.cmdEvalUnified(false, msg, ts)
 	case "evalsha", "evalrosha", "evalnasha":
-		res, err = server.cmdEvalUnified(true, msg)
+		res, err = server.cmdEvalUnified(true, msg, ts)
 	case "script load":
 		res, err = server.cmdScriptLoad(msg)
 	case "script exists":
@@ -1238,7 +1249,7 @@ type Message struct {
 	ConnType   Type
 	OutputType Type
 	Auth       string
-	Deadline   *deadline.Deadline
+	Deadline   time.Time
 }
 
 // Command returns the first argument as a lowercase string
@@ -1528,4 +1539,46 @@ func (is *InputStream) End(data []byte) {
 	} else if len(is.b) > 0 {
 		is.b = is.b[:0]
 	}
+}
+
+func handleTimeoutError(ts *txn.Status, res *resp.Value, err *error) {
+	if tsErr := ts.Error(); tsErr != nil && errors.Is(tsErr, txn.DeadlineError{}) {
+		v := recover()
+		if v != nil {
+			if tsErr != v {
+				panic(v)
+			}
+		}
+		if res != nil {
+			*res = NOMessage
+		}
+		*err = errTimeout
+	}
+}
+
+func doWithRetry(f func(*Message, *txn.Status) (res resp.Value, err error), msg *Message, ts *txn.Status) (res resp.Value, err error) {
+	for i := 0; i < 10; i++ {
+		needRetry := false
+		func() {
+			defer func() {
+				r := recover()
+				if r != nil {
+					if err, ok := r.(error); ok && errors.Is(err, txn.InterruptedError{}) {
+						needRetry = true
+						ts.ResetError()
+					} else {
+						panic(r)
+					}
+				}
+			}()
+			res, err = f(msg, ts)
+			return
+		}()
+		if !needRetry {
+			return
+		}
+	}
+	res = NOMessage
+	err = errTimeout
+	return
 }

@@ -127,6 +127,7 @@ func doServer(conn *RESPConn) (map[string]string, error) {
 
 func (s *Server) followHandleCommand(args []string, followc int, w io.Writer) (int64, error) {
 	defer s.WriterLock()()
+
 	if s.followc.get() != followc {
 		return s.aofsz, errNoLongerFollowing
 	}
@@ -136,10 +137,9 @@ func (s *Server) followHandleCommand(args []string, followc int, w io.Writer) (i
 	case "loadsnapshot": // if leader loaded it, we're screwed.
 		return s.aofsz, fmt.Errorf("leader loaded snapshot")
 	case "savesnapshot": // if leader saved it, we will download for the future
-		vs := msg.Args[1:]
 		var ok bool
 		var snapshotIdStr string
-		if vs, snapshotIdStr, ok = tokenval(vs); !ok || snapshotIdStr == "" {
+		if _, snapshotIdStr, ok = tokenval(msg.Args[1:]); !ok || snapshotIdStr == "" {
 			return s.aofsz, fmt.Errorf("failed to find snapshot ID string: %v", msg.Args)
 		}
 		s.snapshotMeta._idstr = snapshotIdStr
@@ -147,8 +147,8 @@ func (s *Server) followHandleCommand(args []string, followc int, w io.Writer) (i
 			log.Infof("Leader saved snapshot %s, fetching...", snapshotIdStr)
 			_, _ = s.fetchSnapshot(snapshotIdStr)
 		}()
-	default:  // other commands are replayed verbatim
-		_, _d, err := s.command(msg, nil)
+	default: // other commands are replayed verbatim
+		_, _d, err := s.command(msg, nil, nil)
 		if err != nil {
 			if commandErrIsFatal(err) {
 				return s.aofsz, err
@@ -232,6 +232,9 @@ func (s *Server) catchUpAndKeepUp(host string, port int, followc int, lTop, fTop
 	}
 
 	conn, err := DialTimeout(fmt.Sprintf("%s:%d", host, port), time.Second*2)
+	if err != nil {
+		return err
+	}
 	m, err := doServer(conn)
 	if err != nil {
 		return err
@@ -311,8 +314,7 @@ func (s *Server) catchUpAndKeepUp(host string, port int, followc int, lTop, fTop
 	}
 }
 
-
-func (s * Server) syncToLatestSnapshot(host string, port int, followc int) (lTop, fTop int64, err error) {
+func (s *Server) syncToLatestSnapshot(host string, port int, followc int) (lTop, fTop int64, err error) {
 	if s.followc.get() != followc {
 		err = errNoLongerFollowing
 		return

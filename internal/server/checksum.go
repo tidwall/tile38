@@ -90,7 +90,6 @@ func (s *Server) matchChecksums(conn *RESPConn, lPos, fPos, size int64) (match b
 	return csum == sum, nil
 }
 
-
 // Given leader offset lTop, and follower offset fTop, return the offset
 // for where the follower should replicate from. It can only be the whole
 // size of the follower's AOF, otherwise the two AOFs are incompatible.
@@ -108,7 +107,7 @@ func (s *Server) findFollowPos(addr string, followc int, lTop, fTop int64) (relP
 	}
 	defer conn.Close()
 
-	relPos = s.aofsz-fTop  // we'll be returning this, or setting an error
+	relPos = s.aofsz - fTop // we'll be returning this, or setting an error
 	if relPos == 0 {
 		return
 	}
@@ -138,8 +137,8 @@ func (s *Server) findFollowPos(addr string, followc int, lTop, fTop int64) (relP
 		return
 	}
 	// whether the end matches
-	fPos := s.aofsz-checksumsz
-	lPos := fPos-fTop+lTop
+	fPos := s.aofsz - checksumsz
+	lPos := fPos - fTop + lTop
 	match, err = s.matchChecksums(conn, lPos, fPos, checksumsz)
 	if err != nil {
 		return

@@ -144,7 +144,7 @@ func (server *Server) cmdAOFShrink() error {
 		return errAOFShrinkFailed
 	}
 
-	os.Remove(core.AppendFileName + "-bak")  // ignore error
+	os.Remove(core.AppendFileName + "-bak") // ignore error
 	// kill all followers connections
 	for conn := range server.aofconnM {
 		conn.Close()

@@ -20,6 +20,7 @@ func (item *testItem) Expires() time.Time {
 
 func TestBasic(t *testing.T) {
 	var list List
+	list.bgrun = true // Prevent expiration handlers from being called
 	now := time.Now()
 	list.Push(&testItem{"13", now.Add(13)})
 	list.Push(&testItem{"11", now.Add(11)})
@@ -41,6 +42,7 @@ func TestRandomQueue(t *testing.T) {
 	N := 1000
 	now := time.Now()
 	var list List
+	list.bgrun = true // Prevent expiration handlers from being called
 	for i := 0; i < N; i++ {
 		list.Push(&testItem{fmt.Sprintf("%d", i),
 			now.Add(time.Duration(rand.Float64() * float64(time.Second)))})
@@ -70,10 +72,6 @@ func TestExpires(t *testing.T) {
 	N := 1000
 	now := time.Now()
 	var list List
-	for i := 0; i < N; i++ {
-		list.Push(&testItem{fmt.Sprintf("%d", i),
-			now.Add(time.Duration(rand.Float64() * float64(time.Second)))})
-	}
 	var wg sync.WaitGroup
 	wg.Add(N)
 	var items []Item
@@ -81,6 +79,12 @@ func TestExpires(t *testing.T) {
 		items = append(items, item)
 		wg.Done()
 	}
+
+	for i := 0; i < N; i++ {
+		list.Push(&testItem{fmt.Sprintf("%d", i),
+			now.Add(time.Duration(rand.Float64() * float64(time.Second)))})
+	}
+
 	wg.Wait()
 	if len(items) != N {
 		t.Fatal("wrong result")

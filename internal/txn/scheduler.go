@@ -22,14 +22,14 @@ type Scheduler struct {
 	writerDone *sync.Cond // Signals when a write completes and other writes are pending
 	noReaders  *sync.Cond // Signals when no readers are executing
 
-	maxWriteDelay    time.Duration // Maximum time we will wait for ability enter a write phase - after this time we will interrupt scanners
-	maxWriteDuration time.Duration // Maximum time we will spend on writes after we enter a write phase
+	maxWriteDelay time.Duration // Maximum time we will wait for ability enter a write phase - after this time we will interrupt scanners
+	maxReadDelay  time.Duration // Maximum time we will spend on writes after we enter a write phase
 }
 
-func NewScheduler(maxWriteDelay time.Duration, maxWriteDuration time.Duration) *Scheduler {
+func NewScheduler(maxWriteDelay time.Duration, maxReadDelay time.Duration) *Scheduler {
 	s := &Scheduler{
-		maxWriteDelay:    maxWriteDelay,
-		maxWriteDuration: maxWriteDuration,
+		maxWriteDelay: maxWriteDelay,
+		maxReadDelay:  maxReadDelay,
 	}
 	s.endWrites = sync.NewCond(&s.mu)
 	s.writerDone = sync.NewCond(&s.mu)
@@ -39,6 +39,7 @@ func NewScheduler(maxWriteDelay time.Duration, maxWriteDuration time.Duration) *
 
 func (s *Scheduler) Write() (done func()) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	if s.writerCount > 0 {
 		// If there's already a writer running, no need to signal readers,
@@ -56,7 +57,6 @@ func (s *Scheduler) Write() (done func()) {
 	// Uncontended fast path - no readers or writers running
 	s.writing = true
 	s.writerCount++
-	s.mu.Unlock()
 	return s.completeWrite
 }
 
@@ -85,8 +85,6 @@ func (s *Scheduler) Scan() (done func(), status *Status) {
 }
 
 func (s *Scheduler) execWriteSlow() (done func()) {
-	defer s.mu.Unlock()
-
 	// One thread is always responsible for attempting to initiate writes and
 	// then signalling subsequent writers to run
 	writeInitiator := false
@@ -115,7 +113,7 @@ func (s *Scheduler) execWriteSlow() (done func()) {
 			}
 
 			// Set the write deadline and mark that we're now writing
-			s.writeDeadline = time.Now().Add(s.maxWriteDuration).UnixNano()
+			s.writeDeadline = time.Now().Add(s.maxReadDelay).UnixNano()
 			s.writing = true
 			break
 		} else {
@@ -127,7 +125,7 @@ func (s *Scheduler) execWriteSlow() (done func()) {
 			// check if we've been in the write phase for too long - if so, let readers run again
 			// and retry the wait
 			now := time.Now().UnixNano()
-			if s.writeDeadline < now {
+			if s.writeDeadline < now && s.pausedReaderCount > 0 {
 				// since writes are paused here, this goroutine becomes responsible to reinitiate the write phase
 				s.writing = false
 				atomic.StoreInt64(&s.readDeadline, time.Now().Add(s.maxWriteDelay).UnixNano())

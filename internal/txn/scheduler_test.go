@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -158,4 +159,128 @@ func BenchmarkRWMutexContended(b *testing.B) {
 	}()
 
 	wg.Wait()
+}
+
+func TestStarvation(t *testing.T) {
+	writesPerSec := 1
+	writeTime := 1 * time.Millisecond
+	writerCount := 50
+
+	readsPerSec := 10
+	readTime := 1 * time.Millisecond
+	readerCount := 100
+
+	scansPerSec := 2
+	scanTime := 3 * time.Second
+	scannerCount := 10
+
+	runTime := 20 * time.Second
+
+	var writeCount int32
+	var writeWaitTime int64
+
+	var readCount int32
+	var readWaitTime int64
+
+	var scanCount int32
+	var scanWaitTime int64
+	var scanRestarts int32
+
+	var wg sync.WaitGroup
+	sched := NewScheduler(200*time.Millisecond, 50*time.Millisecond)
+
+	done := int32(0)
+
+	writer := func() {
+		defer wg.Done()
+		ticker := time.NewTicker(time.Second / time.Duration(writesPerSec))
+		for atomic.LoadInt32(&done) == 0 {
+			func() {
+				start := time.Now()
+				done := sched.Write()
+				defer done()
+				wait := time.Now().Sub(start)
+				atomic.AddInt64(&writeWaitTime, int64(wait/time.Millisecond))
+				time.Sleep(writeTime)
+				atomic.AddInt32(&writeCount, 1)
+			}()
+			<-ticker.C
+		}
+	}
+
+	reader := func() {
+		defer wg.Done()
+		ticker := time.NewTicker(time.Second / time.Duration(readsPerSec))
+		for atomic.LoadInt32(&done) == 0 {
+			func() {
+				start := time.Now()
+				done := sched.Read()
+				defer done()
+				wait := time.Now().Sub(start)
+				atomic.AddInt64(&readWaitTime, int64(wait/time.Millisecond))
+				time.Sleep(readTime)
+				atomic.AddInt32(&readCount, 1)
+			}()
+			<-ticker.C
+		}
+	}
+
+	scanner := func() {
+		defer wg.Done()
+		ticker := time.NewTicker(time.Second / time.Duration(scansPerSec))
+		for atomic.LoadInt32(&done) == 0 {
+			func() {
+				start := time.Now()
+				cleanup, ts := sched.Scan()
+				defer cleanup()
+				wait := time.Now().Sub(start)
+				deadline := time.Now().Add(scanTime)
+				for {
+					time.Sleep(readTime)
+					if atomic.LoadInt32(&done) != 0 {
+						return
+					}
+					if ts.IsAborted() {
+						atomic.AddInt32(&scanRestarts, 1)
+						deadline = time.Now().Add(scanTime)
+						start = time.Now()
+						ts.Retry()
+						wait += time.Now().Sub(start)
+					}
+					if time.Now().After(deadline) {
+						atomic.AddInt64(&scanWaitTime, int64(wait/time.Millisecond))
+						atomic.AddInt32(&scanCount, 1)
+						return
+					}
+				}
+			}()
+			<-ticker.C
+		}
+	}
+
+	for i := 0; i < writerCount; i++ {
+		wg.Add(1)
+		go writer()
+	}
+
+	for i := 0; i < readerCount; i++ {
+		wg.Add(1)
+		go reader()
+	}
+
+	for i := 0; i < scannerCount; i++ {
+		wg.Add(1)
+		go scanner()
+	}
+
+	time.Sleep(runTime)
+	atomic.StoreInt32(&done, 1)
+	wg.Wait()
+
+	t.Logf("write count: %v	avg_delay: %v expect: %v", writeCount, writeWaitTime/int64(writeCount), writesPerSec*writerCount*(int(runTime/time.Second)))
+	t.Logf("read count: %v	avg_delay: %v", readCount, readWaitTime/int64(readCount))
+	t.Logf("scan count: %v	avg_delay: %v	restarts: %v", scanCount, scanWaitTime/int64(scanCount), scanRestarts)
+	if scanCount < 1 {
+		t.Fail()
+	}
 }

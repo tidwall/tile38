@@ -135,7 +135,7 @@ type Server struct {
 }
 
 // Serve starts a new tile38 server
-func Serve(host string, port int, dir string, http bool) error {
+func Serve(host string, port int, dir string, http bool, maxWriteDelay, maxReadDelay time.Duration) error {
 	if core.AppendFileName == "" {
 		core.AppendFileName = path.Join(dir, "appendonly.aof")
 	}
@@ -149,7 +149,7 @@ func Serve(host string, port int, dir string, http bool) error {
 		host:      host,
 		port:      port,
 		dir:       dir,
-		scheduler: txn.NewScheduler(200*time.Millisecond, 50*time.Millisecond), // TODO: make configurable?
+		scheduler: txn.NewScheduler(maxWriteDelay, maxReadDelay),
 		follows:   make(map[*bytes.Buffer]bool),
 		fcond:     sync.NewCond(&sync.Mutex{}),
 		lives:     make(map[*liveBuffer]bool),
@@ -1565,7 +1565,7 @@ func handleTimeoutError(ts *txn.Status, res *resp.Value, err *error) {
 }
 
 func doWithRetry(f func(*Message, *txn.Status) (res resp.Value, err error), msg *Message, ts *txn.Status) (res resp.Value, err error) {
-	for i := 0; i < 10; i++ {
+	for {
 		needRetry := false
 		func() {
 			defer func() {
@@ -1573,7 +1573,7 @@ func doWithRetry(f func(*Message, *txn.Status) (res resp.Value, err error), msg 
 				if r != nil {
 					if err, ok := r.(error); ok && errors.Is(err, txn.InterruptedError{}) {
 						needRetry = true
-						ts.ResetError()
+						ts.Retry()
 					} else {
 						panic(r)
 					}
@@ -1586,7 +1586,4 @@ func doWithRetry(f func(*Message, *txn.Status) (res resp.Value, err error), msg 
 			return
 		}
 	}
-	res = NOMessage
-	err = errTimeout
-	return
 }

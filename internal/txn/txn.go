@@ -5,12 +5,13 @@ import (
 	"time"
 )
 
-const deadlineMask = ^int64(0x3)
+const extraTimeMask = ^int64(0x3)
 const errCodeMask = int64(0x3)
 
 type Status struct {
-	s     *Scheduler
-	state int64
+	s        *Scheduler
+	deadline int64
+	flags    int64
 }
 
 func (ts *Status) IsAborted() bool {
@@ -33,11 +34,10 @@ func (ts *Status) GetDeadlineTime() time.Time {
 	if ts == nil {
 		return time.Time{}
 	}
-	deadline := ts.state & deadlineMask
-	if deadline == 0 {
+	if ts.deadline == 0 {
 		return time.Time{}
 	}
-	return time.Unix(0, deadline)
+	return time.Unix(0, ts.deadline)
 }
 
 func (ts *Status) WithDeadline(t time.Time) *Status {
@@ -46,40 +46,51 @@ func (ts *Status) WithDeadline(t time.Time) *Status {
 	}
 	if ts == nil {
 		return &Status{
-			state: t.UnixNano() & deadlineMask,
+			deadline: t.UnixNano(),
 		}
 	}
-	existingState := ts.state
-	existingDeadline := existingState & deadlineMask
+	existingDeadline := ts.deadline
 	if existingDeadline != 0 {
 		if t.UnixNano() > existingDeadline {
 			return ts
 		}
 	}
-	newState := (t.UnixNano() & deadlineMask) | (existingState & errCodeMask)
+
 	return &Status{
-		s:     ts.s,
-		state: newState,
+		s:        ts.s,
+		deadline: t.UnixNano(),
 	}
 }
 
-func (ts *Status) ResetError() {
-	ts.state = ts.state & deadlineMask
+func (ts *Status) Retry() {
+	// Release the current lock
+	ts.s.completeRead()
+
+	// Add in extra time for next time, and clear error
+	extraTime := ts.flags & extraTimeMask
+	if extraTime != 0 {
+		ts.flags = (extraTime * 2) & extraTimeMask
+	} else {
+		ts.flags = int64(ts.s.maxWriteDelay) & extraTimeMask
+	}
+
+	// Reacquire reader lock
+	ts.s.Read()
 }
 
 func (ts *Status) updateIfNeeded() {
-	errCode := ts.state & 0x3
+	errCode := ts.flags & errCodeMask
 	if errCode != 0 {
 		// Already set an error, no update needed
 		return
 	}
 
 	now := time.Now().UnixNano()
-	deadline := ts.state & deadlineMask
-	if deadline != 0 {
+	extraTime := ts.flags & extraTimeMask
+	if ts.deadline != 0 {
 		// Check if deadline is hit
-		if now >= deadline {
-			ts.state = ts.state | int64(errCodeDeadline)
+		if now >= ts.deadline {
+			ts.flags = extraTime | int64(errCodeDeadline)
 			return
 		}
 	}
@@ -87,16 +98,16 @@ func (ts *Status) updateIfNeeded() {
 	if ts.s != nil {
 		// Check if we are interrupted
 		readDeadline := atomic.LoadInt64(&ts.s.readDeadline)
-		if readDeadline != 0 && now >= readDeadline {
-			ts.state = ts.state | int64(errCodeInterrupted)
+		if readDeadline != 0 && now >= (readDeadline+extraTime) {
+			ts.flags = extraTime | int64(errCodeInterrupted)
 			return
 		}
 	}
 }
 
 func (ts *Status) err() txnErr {
-	errCode := ts.state & errCodeMask
-	switch byte(errCode) {
+	errCode := byte(ts.flags & errCodeMask)
+	switch errCode {
 	case errCodeClosed:
 		return ClosedError{}
 	case errCodeInterrupted:

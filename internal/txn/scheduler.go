@@ -9,7 +9,8 @@ import (
 const maxReaders = 1 << 30
 
 type Scheduler struct {
-	readDeadline int64 // Deadline for all reads to complete prior to scheduling a write, atomic access required
+	readDeadline int64  // Deadline for all reads to complete prior to scheduling a write, atomic access required
+	interrupted  uint32 // Whether any readers were interrupted to enter write phase, atomic access required
 
 	readerCount       int32 // Number of currently executing readers, atomic access required
 	pausedReaderCount int32 // Number of readers paused waiting for writers
@@ -22,14 +23,14 @@ type Scheduler struct {
 	writerDone *sync.Cond // Signals when a write completes and other writes are pending
 	noReaders  *sync.Cond // Signals when no readers are executing
 
-	maxWriteDelay time.Duration // Maximum time we will wait for ability enter a write phase - after this time we will interrupt scanners
-	maxReadDelay  time.Duration // Maximum time we will spend on writes after we enter a write phase
+	writeDelay time.Duration // Maximum time we will wait for ability enter a write phase - after this time we will interrupt scanners
+	readDelay  time.Duration // Maximum time we will spend on writes after we enter a write phase
 }
 
-func NewScheduler(maxWriteDelay time.Duration, maxReadDelay time.Duration) *Scheduler {
+func NewScheduler(initialWriteDelay time.Duration, maxReadDelay time.Duration) *Scheduler {
 	s := &Scheduler{
-		maxWriteDelay: maxWriteDelay,
-		maxReadDelay:  maxReadDelay,
+		writeDelay: initialWriteDelay,
+		readDelay:  maxReadDelay,
 	}
 	s.endWrites = sync.NewCond(&s.mu)
 	s.writerDone = sync.NewCond(&s.mu)
@@ -80,6 +81,10 @@ func (s *Scheduler) Scan() (done func(), status *Status) {
 		return s.execReadSlow(), &ts
 	}
 
+	// Set signalInterruptedMask since we're guaranteed to get the full time
+	// slice here
+	ts.status = signalInterruptedMask
+
 	// Uncontended read path
 	return s.completeRead, &ts
 }
@@ -93,7 +98,7 @@ func (s *Scheduler) execWriteSlow() (done func()) {
 		// No other writes pending
 
 		// set a deadline to end scans at
-		atomic.StoreInt64(&s.readDeadline, time.Now().Add(s.maxWriteDelay).UnixNano())
+		atomic.StoreInt64(&s.readDeadline, time.Now().Add(s.writeDelay).UnixNano())
 
 		// take responsibility for initiating the write phase
 		writeInitiator = true
@@ -113,8 +118,21 @@ func (s *Scheduler) execWriteSlow() (done func()) {
 			}
 
 			// Set the write deadline and mark that we're now writing
-			s.writeDeadline = time.Now().Add(s.maxReadDelay).UnixNano()
+			s.writeDeadline = time.Now().Add(s.readDelay).UnixNano()
 			s.writing = true
+
+			// Adjust the max write delay interval based on whether interruptions happened
+			// If we had to interrupt, double max write delay, if not, shrink by 25%, subject
+			// to reasonable limits
+			if atomic.CompareAndSwapUint32(&s.interrupted, 1, 0) {
+				if s.writeDelay < 1*time.Minute {
+					s.writeDelay *= 2
+				}
+			} else {
+				if s.writeDelay > 1*time.Microsecond {
+					s.writeDelay = s.writeDelay / 4 * 3
+				}
+			}
 			break
 		} else {
 			// this goroutine should write after the initiator completes
@@ -128,7 +146,7 @@ func (s *Scheduler) execWriteSlow() (done func()) {
 			if s.writeDeadline < now && s.pausedReaderCount > 0 {
 				// since writes are paused here, this goroutine becomes responsible to reinitiate the write phase
 				s.writing = false
-				atomic.StoreInt64(&s.readDeadline, time.Now().Add(s.maxWriteDelay).UnixNano())
+				atomic.StoreInt64(&s.readDeadline, time.Now().Add(s.writeDelay).UnixNano())
 				writeInitiator = true
 				s.endWrites.Broadcast()
 				continue
@@ -194,4 +212,8 @@ func (s *Scheduler) completeWrite() {
 	} else {
 		s.writerDone.Signal()
 	}
+}
+
+func (s *Scheduler) notifyInterrupted() {
+	atomic.CompareAndSwapUint32(&s.interrupted, 0, 1)
 }

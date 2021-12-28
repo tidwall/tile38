@@ -12,9 +12,10 @@ import (
 func TestScheduler(t *testing.T) {
 	readSlop := 100 * time.Millisecond
 	writeSlop := 200 * time.Millisecond
-	maxWriteWait := time.Second
 	maxWriteDuration := time.Second / 3
-	sched := NewScheduler(maxWriteWait, maxWriteDuration)
+	scanDuration := time.Second
+	maxWriteWait := scanDuration * 2
+	sched := NewScheduler(250*time.Millisecond, maxWriteDuration)
 
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(10*time.Second))
 	defer cancel()
@@ -47,12 +48,16 @@ func TestScheduler(t *testing.T) {
 				func() {
 					done, ts := sched.Scan()
 					defer done()
-
-					for j := 0; j < 100; j++ {
-						time.Sleep(time.Second / 10)
-						if ts.IsAborted() {
-							return
+				retry:
+					for {
+						for j := 0; j < 10; j++ {
+							time.Sleep(time.Second / 10)
+							if ts.IsAborted() {
+								ts.Retry()
+								continue retry
+							}
 						}
+						return
 					}
 				}()
 			}
@@ -282,5 +287,53 @@ func TestStarvation(t *testing.T) {
 	t.Logf("scan count: %v	avg_delay: %v	restarts: %v", scanCount, scanWaitTime/int64(scanCount), scanRestarts)
 	if scanCount < 1 {
 		t.Fail()
+	}
+}
+
+func TestReaderLockout(t *testing.T) {
+	var wg sync.WaitGroup
+
+	sched := NewScheduler(200*time.Millisecond, 50*time.Millisecond)
+
+	scanDone, ts := sched.Scan()
+	for i := 0; i < 5; i++ {
+		ts.Retry()
+	}
+
+	var done int32
+	maxTime := time.Duration(0)
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		for atomic.LoadInt32(&done) == 0 {
+			start := time.Now()
+			sched.Read()()
+			t := time.Now().Sub(start)
+			if t > maxTime {
+				maxTime = t
+			}
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		sched.Write()()
+		atomic.StoreInt32(&done, 1)
+	}()
+
+	for {
+		if ts.IsAborted() {
+			scanDone()
+			break
+		}
+		time.Sleep(1)
+	}
+
+	wg.Wait()
+	if maxTime > time.Second {
+		t.Fatal("read took too long:", maxTime)
 	}
 }

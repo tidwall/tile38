@@ -1587,3 +1587,14 @@ func doWithRetry(f func(*Message, *txn.Status) (res resp.Value, err error), msg 
 		}
 	}
 }
+
+func panicToError(v interface{}) error {
+	switch t := v.(type) {
+	case string:
+		return errors.New(t)
+	case error:
+		return t
+	default:
+		return errors.New(fmt.Sprint(v))
+	}
+}

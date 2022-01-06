@@ -2,7 +2,6 @@ package server
 
 import (
 	"bytes"
-	"errors"
 	"time"
 
 	"github.com/tidwall/geojson"
@@ -37,7 +36,7 @@ func (s *Server) cmdScan(msg *Message, ts *txn.Status) (res resp.Value, err erro
 		defer func() {
 			if r := recover(); r != nil {
 				res = NOMessage
-				err = errors.New(r.(string))
+				err = panicToError(r)
 				return
 			}
 		}()

@@ -2,7 +2,6 @@ package server
 
 import (
 	"bytes"
-	"errors"
 	"strconv"
 	"strings"
 	"time"
@@ -393,7 +392,7 @@ func (server *Server) cmdNearby(msg *Message, ts *txn.Status) (res resp.Value, e
 		defer func() {
 			if r := recover(); r != nil {
 				res = NOMessage
-				err = errors.New(r.(string))
+				err = panicToError(r)
 				return
 			}
 		}()
@@ -468,7 +467,7 @@ func (server *Server) cmdWithinOrIntersects(cmd string, msg *Message, ts *txn.St
 		defer func() {
 			if r := recover(); r != nil {
 				res = NOMessage
-				err = errors.New(r.(string))
+				err = panicToError(r)
 				return
 			}
 		}()
@@ -563,7 +562,7 @@ func (server *Server) cmdSearch(msg *Message, ts *txn.Status) (res resp.Value, e
 		defer func() {
 			if r := recover(); r != nil {
 				res = NOMessage
-				err = errors.New(r.(string))
+				err = panicToError(r)
 				return
 			}
 		}()

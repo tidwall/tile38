@@ -944,7 +944,7 @@ func (s *Server) luaTile38Iterate(coll *luaScanCollector, ts *txn.Status, deadli
 		defer lfs.Close()
 		defer func() {
 			if r := recover(); r != nil {
-				err = errors.New(r.(string))
+				err = panicToError(r)
 				return
 			}
 		}()

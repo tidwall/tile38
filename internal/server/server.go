@@ -132,17 +132,42 @@ type Server struct {
 
 	pubsub *pubsub
 	hookex expire.List
+
+	prometheusStats *prometheusStats
 }
 
 // Serve starts a new tile38 server
 func Serve(host string, port int, dir string, http bool, maxWriteDelay, maxReadDelay time.Duration) error {
+	// Initialize the server
+	server := &Server{
+		host:      host,
+		port:      port,
+		dir:       dir,
+		scheduler: txn.NewScheduler(maxWriteDelay, maxReadDelay),
+		follows:   make(map[*bytes.Buffer]bool),
+		fcond:     sync.NewCond(&sync.Mutex{}),
+		lives:     make(map[*liveBuffer]bool),
+		lcond:     sync.NewCond(&sync.Mutex{}),
+		hooks:     make(map[string]*Hook),
+		hooksOut:  make(map[string]*Hook),
+		aofconnM:  make(map[net.Conn]bool),
+		expires:   rhh.New(0),
+		started:   time.Now(),
+		conns:     make(map[int]*Client),
+		http:      http,
+		pubsub:    newPubsub(),
+	}
+
+	return server.Serve()
+}
+
+func NewServer(host string, port int, dir string, http bool, maxWriteDelay, maxReadDelay time.Duration) (*Server, error) {
 	if core.AppendFileName == "" {
 		core.AppendFileName = path.Join(dir, "appendonly.aof")
 	}
 	if core.QueueFileName == "" {
 		core.QueueFileName = path.Join(dir, "queue.db")
 	}
-	log.Infof("Server started, Tile38 version %s, git %s", core.Version, core.GitSHA)
 
 	// Initialize the server
 	server := &Server{
@@ -173,20 +198,19 @@ func Serve(host string, port int, dir string, http bool, maxWriteDelay, maxReadD
 	server.epc = endpoint.NewManager(server)
 	server.luascripts = server.newScriptMap()
 	server.luapool = server.newPool()
-	defer server.luapool.Shutdown()
 
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return err
+	if err := os.MkdirAll(server.dir, 0700); err != nil {
+		return nil, err
 	}
 	var err error
-	server.config, err = loadConfig(filepath.Join(dir, "config"))
+	server.config, err = loadConfig(filepath.Join(server.dir, "config"))
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	server.snapshotMeta, err = loadSnapshotMeta(filepath.Join(dir, "snapshot_meta"))
+	server.snapshotMeta, err = loadSnapshotMeta(filepath.Join(server.dir, "snapshot_meta"))
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Allow for geometry indexing options through environment variables:
@@ -238,7 +262,7 @@ func Serve(host string, port int, dir string, http bool, maxWriteDelay, maxReadD
 	// Load the queue before the aof
 	qdb, err := buntdb.Open(core.QueueFileName)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var qidx uint64
 	if err := qdb.View(func(tx *buntdb.Tx) error {
@@ -252,26 +276,36 @@ func Serve(host string, port int, dir string, http bool, maxWriteDelay, maxReadD
 		qidx = stringToUint64(val)
 		return nil
 	}); err != nil {
-		return err
+		return nil, err
 	}
 	err = qdb.CreateIndex("hooks", hookLogPrefix+"*", buntdb.IndexJSONCaseSensitive("hook"))
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	server.qdb = qdb
 	server.qidx = qidx
 	if err := server.migrateAOF(); err != nil {
-		return err
+		return nil, err
 	}
 
 	if core.AppendOnly == true {
 		f, err := os.OpenFile(core.AppendFileName, os.O_CREATE|os.O_RDWR, 0600)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		server.aof = f
 	}
+
+	return server, nil
+}
+
+func (server *Server) Serve() error {
+
+	log.Infof("Server started, Tile38 version %s, git %s", core.Version, core.GitSHA)
+
+	defer server.luapool.Shutdown()
+
 	// Only load AOF if we're not following anybody.
 	// Following means scrapping what you have
 	// and starting from the leader's latest snapshot.
@@ -734,6 +768,10 @@ func rewriteTimeoutMsg(msg *Message) (err error) {
 
 func (server *Server) handleInputCommand(client *Client, msg *Message) error {
 	start := time.Now()
+	defer func() {
+		server.prometheusStats.RequestComplete(msg.Command(), time.Since(start))
+	}()
+
 	serializeOutput := func(res resp.Value) (string, error) {
 		var resStr string
 		var err error

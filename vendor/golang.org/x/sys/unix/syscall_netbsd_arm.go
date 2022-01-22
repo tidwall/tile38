@@ -2,23 +2,17 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+//go:build arm && netbsd
 // +build arm,netbsd
 
 package unix
 
-func TimespecToNsec(ts Timespec) int64 { return int64(ts.Sec)*1e9 + int64(ts.Nsec) }
-
-func NsecToTimespec(nsec int64) (ts Timespec) {
-	ts.Sec = int64(nsec / 1e9)
-	ts.Nsec = int32(nsec % 1e9)
-	return
+func setTimespec(sec, nsec int64) Timespec {
+	return Timespec{Sec: sec, Nsec: int32(nsec)}
 }
 
-func NsecToTimeval(nsec int64) (tv Timeval) {
-	nsec += 999 // round up to microsecond
-	tv.Usec = int32(nsec % 1e9 / 1e3)
-	tv.Sec = int64(nsec / 1e9)
-	return
+func setTimeval(sec, usec int64) Timeval {
+	return Timeval{Sec: sec, Usec: int32(usec)}
 }
 
 func SetKevent(k *Kevent_t, fd, mode, flags int) {
@@ -33,6 +27,10 @@ func (iov *Iovec) SetLen(length int) {
 
 func (msghdr *Msghdr) SetControllen(length int) {
 	msghdr.Controllen = uint32(length)
+}
+
+func (msghdr *Msghdr) SetIovlen(length int) {
+	msghdr.Iovlen = int32(length)
 }
 
 func (cmsg *Cmsghdr) SetLen(length int) {

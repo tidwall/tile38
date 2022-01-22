@@ -54,6 +54,9 @@ type Collection struct {
 	points      int
 	objects     int // geometry count
 	nobjects    int // non-geometry count
+
+	// stats
+	stats CollectionStats
 }
 
 var counter uint64
@@ -68,6 +71,11 @@ func New() *Collection {
 		fieldValues: &fieldValues{},
 	}
 	return col
+}
+
+// Stats returns stats about collection operations.
+func (c *Collection) Stats() *CollectionStats {
+	return &c.stats
 }
 
 // Count returns the number of objects in collection.
@@ -144,6 +152,7 @@ func (c *Collection) Set(
 ) (
 	oldObject geojson.Object, oldFieldValues []float64, newFieldValues []float64,
 ) {
+	defer c.stats.Set.record()()
 	newItem := &itemT{id: id, obj: obj, fieldValuesSlot: nilValuesSlot}
 
 	// add the new item to main btree and remove the old one if needed
@@ -205,6 +214,7 @@ func (c *Collection) Set(
 func (c *Collection) Delete(id string) (
 	obj geojson.Object, fields []float64, ok bool,
 ) {
+	defer c.stats.Delete.record()()
 	oldItemV, ok := c.items.Delete(id)
 	if !ok {
 		return nil, nil, false
@@ -232,6 +242,7 @@ func (c *Collection) Delete(id string) (
 func (c *Collection) Get(id string) (
 	obj geojson.Object, fields []float64, ok bool,
 ) {
+	defer c.stats.Get.record()()
 	itemV, ok := c.items.Get(id)
 	if !ok {
 		return nil, nil, false
@@ -245,6 +256,7 @@ func (c *Collection) Get(id string) (
 func (c *Collection) SetField(id, field string, value float64) (
 	obj geojson.Object, fields []float64, updated bool, ok bool,
 ) {
+	defer c.stats.SetField.record()()
 	itemV, ok := c.items.Get(id)
 	if !ok {
 		return nil, nil, false, false
@@ -259,6 +271,7 @@ func (c *Collection) SetField(id, field string, value float64) (
 func (c *Collection) SetFields(
 	id string, inFields []string, inValues []float64,
 ) (obj geojson.Object, fields []float64, updatedCount int, ok bool) {
+	defer c.stats.SetFields.record()()
 	itemV, ok := c.items.Get(id)
 	if !ok {
 		return nil, nil, 0, false
@@ -340,6 +353,7 @@ func (c *Collection) Scan(
 	ts *txn.Status,
 	iterator func(id string, obj geojson.Object, fields []float64) bool,
 ) bool {
+	defer c.stats.Scan.record()()
 	var keepon = true
 	var count uint64
 	var offset uint64
@@ -373,6 +387,7 @@ func (c *Collection) ScanRange(
 	ts *txn.Status,
 	iterator func(id string, obj geojson.Object, fields []float64) bool,
 ) bool {
+	defer c.stats.ScanRange.record()()
 	var keepon = true
 	var count uint64
 	var offset uint64
@@ -415,6 +430,7 @@ func (c *Collection) SearchValues(
 	ts *txn.Status,
 	iterator func(id string, obj geojson.Object, fields []float64) bool,
 ) bool {
+	defer c.stats.SearchValues.record()()
 	var keepon = true
 	var count uint64
 	var offset uint64
@@ -446,6 +462,7 @@ func (c *Collection) SearchValuesRange(start, end string, desc bool,
 	ts *txn.Status,
 	iterator func(id string, obj geojson.Object, fields []float64) bool,
 ) bool {
+	defer c.stats.SearchValuesRange.record()()
 	var keepon = true
 	var count uint64
 	var offset uint64
@@ -479,6 +496,7 @@ func (c *Collection) ScanGreaterOrEqual(id string, desc bool,
 	ts *txn.Status,
 	iterator func(id string, obj geojson.Object, fields []float64) bool,
 ) bool {
+	defer c.stats.ScanGreaterOrEqual.record()()
 	var keepon = true
 	var count uint64
 	var offset uint64
@@ -598,6 +616,7 @@ func (c *Collection) Within(
 	ts *txn.Status,
 	iter func(id string, obj geojson.Object, fields []float64) bool,
 ) bool {
+	defer c.stats.Within.record()()
 	var count uint64
 	var offset uint64
 	if cursor != nil {
@@ -645,6 +664,7 @@ func (c *Collection) Intersects(
 	ts *txn.Status,
 	iter func(id string, obj geojson.Object, fields []float64) bool,
 ) bool {
+	defer c.stats.Intersects.record()()
 	var count uint64
 	var offset uint64
 	if cursor != nil {
@@ -690,6 +710,7 @@ func (c *Collection) Nearby(
 	ts *txn.Status,
 	iter func(id string, obj geojson.Object, fields []float64, dist float64) bool,
 ) bool {
+	defer c.stats.Nearby.record()()
 	// First look to see if there's at least one candidate in the circle's
 	// outer rectangle. This is a fast-fail operation.
 	if circle, ok := target.(*geojson.Circle); ok {

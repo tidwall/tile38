@@ -2,12 +2,12 @@ package server
 
 import (
 	"bytes"
-	"errors"
 	"time"
 
 	"github.com/tidwall/geojson"
 	"github.com/tidwall/resp"
 	"github.com/tidwall/tile38/internal/glob"
+	"github.com/tidwall/tile38/internal/txn"
 )
 
 func (s *Server) cmdScanArgs(vs []string) (
@@ -26,7 +26,7 @@ func (s *Server) cmdScanArgs(vs []string) (
 	return
 }
 
-func (s *Server) cmdScan(msg *Message) (res resp.Value, err error) {
+func (s *Server) cmdScan(msg *Message, ts *txn.Status) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Args[1:]
 
@@ -36,7 +36,7 @@ func (s *Server) cmdScan(msg *Message) (res resp.Value, err error) {
 		defer func() {
 			if r := recover(); r != nil {
 				res = NOMessage
-				err = errors.New(r.(string))
+				err = panicToError(r)
 				return
 			}
 		}()
@@ -69,7 +69,7 @@ func (s *Server) cmdScan(msg *Message) (res resp.Value, err error) {
 			g := glob.Parse(sc.globPattern, args.desc)
 			if g.Limits[0] == "" && g.Limits[1] == "" {
 				sc.col.Scan(args.desc, sc,
-					msg.Deadline,
+					ts,
 					func(id string, o geojson.Object, fields []float64) bool {
 						return sc.writeObject(ScanObjectParams{
 							id:     id,
@@ -80,7 +80,7 @@ func (s *Server) cmdScan(msg *Message) (res resp.Value, err error) {
 				)
 			} else {
 				sc.col.ScanRange(g.Limits[0], g.Limits[1], args.desc, sc,
-					msg.Deadline,
+					ts,
 					func(id string, o geojson.Object, fields []float64) bool {
 						return sc.writeObject(ScanObjectParams{
 							id:     id,

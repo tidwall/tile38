@@ -9,9 +9,10 @@ import (
 	"runtime"
 	"runtime/debug"
 
-	"github.com/tidwall/resp"
-	"github.com/yuin/gopher-lua"
 	"strings"
+
+	"github.com/tidwall/resp"
+	lua "github.com/yuin/gopher-lua"
 )
 
 var errCmdNotSupported = errors.New("command not supported in scripts")
@@ -271,7 +272,7 @@ func testLua() {
 	start = runMany(luaState, start, 100)
 	printMemStats()
 
-	start = runMany(luaState, start, 1000)
+	_ = runMany(luaState, start, 1000)
 	printMemStats()
 
 	luaState.Close()

@@ -95,12 +95,11 @@ func main() {
 		logServer("DONE")
 	})
 	select {}
-	return
 }
 
 func startTile38Server() {
 	log.Println("start tile38 server")
-	err := server.Serve("localhost", tile38Port, "data", false)
+	err := server.Serve("localhost", tile38Port, "data", false, 200*time.Millisecond, 50*time.Millisecond)
 	if err != nil {
 		log.Fatal(err)
 	}

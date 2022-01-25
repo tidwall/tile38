@@ -101,7 +101,7 @@ func (server *Server) cmdType(msg *Message) (resp.Value, error) {
 
 	var ok bool
 	var key string
-	if vs, key, ok = tokenval(vs); !ok || key == "" {
+	if _, key, ok = tokenval(vs); !ok || key == "" {
 		return NOMessage, errInvalidNumberOfArguments
 	}
 
@@ -258,7 +258,6 @@ func (server *Server) cmdGet(msg *Message) (resp.Value, error) {
 				} else {
 					fvals = append(fvals, resp.StringValue(fv.field), resp.StringValue(strconv.FormatFloat(fv.value, 'f', -1, 64)))
 				}
-				i++
 			}
 			if msg.OutputType == JSON {
 				buf.WriteString(`}`)
@@ -362,9 +361,9 @@ func (server *Server) cmdPdel(msg *Message) (res resp.Value, d commandDetails, e
 	if col != nil {
 		g := glob.Parse(d.pattern, false)
 		if g.Limits[0] == "" && g.Limits[1] == "" {
-			col.Scan(false, nil, msg.Deadline, iter)
+			col.Scan(false, nil, nil, iter)
 		} else {
-			col.ScanRange(g.Limits[0], g.Limits[1], false, nil, msg.Deadline, iter)
+			col.ScanRange(g.Limits[0], g.Limits[1], false, nil, nil, iter)
 		}
 		var atLeastOneNotDeleted bool
 		for i, dc := range d.children {

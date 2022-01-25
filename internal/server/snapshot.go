@@ -36,8 +36,8 @@ type SnapshotMeta struct {
 
 	mu sync.Mutex
 
-	_idstr	string
-	_offset	int64
+	_idstr  string
+	_offset int64
 
 	// this bit is not saved. It is for the current state to distinguish
 	// when it actually loaded the last-known snapshot vs just fetched it.
@@ -75,7 +75,7 @@ func (sm *SnapshotMeta) save() error {
 	if sm._offset != 0 {
 		m[Offset] = sm._offset
 	}
-	data, err := json.MarshalIndent(m, "","\t")
+	data, err := json.MarshalIndent(m, "", "\t")
 	if err != nil {
 		return err
 	}
@@ -99,7 +99,7 @@ func connLastSnapshotMeta(conn *RESPConn) (snapshotMeta *SnapshotMeta, err error
 	}
 	vals := v.Array()
 	snapshotMeta = &SnapshotMeta{
-		_idstr: vals[0].String(),
+		_idstr:  vals[0].String(),
 		_offset: int64(vals[1].Integer()),
 	}
 	log.Infof("Last snapshot known to the leader: %s", snapshotMeta._idstr)
@@ -215,10 +215,9 @@ func (s *Server) doSaveSnapshot(snapshotId uint64, snapshotIdStr, snapshotDir st
 
 func (s *Server) cmdLoadSnapshot(msg *Message) (res resp.Value, err error) {
 	start := time.Now()
-	vs := msg.Args[1:]
 	var ok bool
 	var snapshotIdStr string
-	if vs, snapshotIdStr, ok = tokenval(vs); !ok || snapshotIdStr == "" {
+	if _, snapshotIdStr, ok = tokenval(msg.Args[1:]); !ok || snapshotIdStr == "" {
 		log.Errorf("Failed to find snapshot ID string: %v", msg.Args)
 		return NOMessage, errInvalidNumberOfArguments
 	}
@@ -229,7 +228,7 @@ func (s *Server) cmdLoadSnapshot(msg *Message) (res resp.Value, err error) {
 	return OKMessage(msg, start), nil
 }
 
-func (s *Server) fetchSnapshot(snapshotIdStr string) (snapshotDir string, err error){
+func (s *Server) fetchSnapshot(snapshotIdStr string) (snapshotDir string, err error) {
 	snapshotDir = s.getSnapshotDir(snapshotIdStr)
 	if _, err = os.Stat(snapshotDir); os.IsNotExist(err) {
 		if err = os.MkdirAll(snapshotDir, 0700); err != nil {
@@ -253,7 +252,7 @@ func (s *Server) fetchSnapshot(snapshotIdStr string) (snapshotDir string, err er
 	return
 }
 
-func (s * Server) cleanUpSnapshots() {
+func (s *Server) cleanUpSnapshots() {
 	snapshotsDir := filepath.Join(s.dir, "snapshots")
 	dirs, err := ioutil.ReadDir(snapshotsDir)
 	if err != nil {

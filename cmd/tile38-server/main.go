@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/tidwall/tile38/core"
 	"github.com/tidwall/tile38/internal/hservice"
@@ -26,18 +27,20 @@ import (
 )
 
 var (
-	dir         string
-	port        int
-	host        string
-	verbose     bool
-	veryVerbose bool
-	devMode     bool
-	quiet       bool
-	pidfile     string
-	cpuprofile  string
-	memprofile  string
-	pprofport   int
-	nohup       bool
+	dir           string
+	port          int
+	host          string
+	verbose       bool
+	veryVerbose   bool
+	devMode       bool
+	quiet         bool
+	pidfile       string
+	cpuprofile    string
+	memprofile    string
+	pprofport     int
+	nohup         bool
+	maxWriteDelay time.Duration
+	maxReadDelay  time.Duration
 )
 
 // TODO: Set to false in 2.*
@@ -266,6 +269,8 @@ Developer Options:
 	flag.IntVar(&pprofport, "pprofport", 0, "pprofport http at port")
 	flag.StringVar(&cpuprofile, "cpuprofile", "", "write cpu profile to `file`")
 	flag.StringVar(&memprofile, "memprofile", "", "write memory profile to `file`")
+	flag.DurationVar(&maxWriteDelay, "writedelay", 200*time.Millisecond, "target time to wait for reads to complete when a write command is pending")
+	flag.DurationVar(&maxReadDelay, "readdealy", 50*time.Millisecond, "target time to wait for writes to complete when a read command is pending")
 	flag.Parse()
 
 	var logw io.Writer = os.Stderr
@@ -410,7 +415,7 @@ Developer Options:
 		// we don't currently support evio in Tile38
 		log.Warnf("evio is not currently supported")
 	}
-	if err := server.Serve(host, port, dir, httpTransport); err != nil {
+	if err := server.Serve(host, port, dir, httpTransport, maxWriteDelay, maxReadDelay); err != nil {
 		log.Fatal(err)
 	}
 }

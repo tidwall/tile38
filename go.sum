@@ -28,6 +28,8 @@ github.com/gomodule/redigo v2.0.1-0.20181026001555-e8fc0692a7e2+incompatible h1:
 github.com/gomodule/redigo v2.0.1-0.20181026001555-e8fc0692a7e2+incompatible/go.mod h1:B4C85qUVwatsJoIUNIfCRsp7qO0iAmpGFZ4EELWSbC4=
 github.com/housecanary/btree v0.0.0-snapshot h1:YkL9cwi1qD2YA9AH2Lt3fMc11HbfXwVyxtplH0lLVAg=
 github.com/housecanary/btree v0.0.0-snapshot/go.mod h1:GACxDzJxd6Zn8sqluR1cMHWdh1gWlGbCD/9MBmVelOo=
+github.com/housecanary/btree v0.0.1-snapshot h1:VjN2eywcxD+m6pPn8TM8+0mtW6MsJ/BNf25hbCp0/r8=
+github.com/housecanary/btree v0.0.1-snapshot/go.mod h1:GACxDzJxd6Zn8sqluR1cMHWdh1gWlGbCD/9MBmVelOo=
 github.com/housecanary/geoindex v1.4.0-allocfix h1:lRqKLrmwdf8EF6B6bFg9ljoLOYxJ9R65MjDB9bqv+6c=
 github.com/housecanary/geoindex v1.4.0-allocfix/go.mod h1:WJ0IevTWzIlm2F9XtjnnQEOtyGBuZuwHKpicZNUh9Yw=
 github.com/housecanary/geoindex v1.4.0-snapshot h1:yn2VzhtgvBI+lfdABkT6uKRMkcAjCKt+IasNoQor7r4=

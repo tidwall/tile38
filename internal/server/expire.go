@@ -72,8 +72,8 @@ const bgExpireSegmentSize = 20
 // segmented sweep of the expires list
 func (s *Server) expirePurgeSweep(rng *rand.Rand) (purged int) {
 	now := time.Now().UnixNano()
-	ul := s.WriterLock()
-	defer ul()
+	s.writemu.Lock()
+	defer s.writemu.Unlock()
 	if s.expires.Len() == 0 {
 		return 0
 	}
@@ -85,10 +85,19 @@ func (s *Server) expirePurgeSweep(rng *rand.Rand) (purged int) {
 					// expired, purge from database
 					msg := &Message{}
 					msg.Args = []string{"del", key, id}
-					_, d, err := s.cmdDel(msg)
-					if err != nil {
-						log.Fatal(err)
-					}
+					var d commandDetails
+					func() {
+						// release the aux lock and acquire the main lock since
+						// modifications to the main trees will happen here.
+						s.writemu.Unlock()
+						defer s.writemu.Lock()
+						defer s.WriterLock()()
+						var err error
+						_, d, err = s.cmdDel(msg)
+						if err != nil {
+							log.Fatal(err)
+						}
+					}()
 					if err := s.writeAOF(msg.Args, &d); err != nil {
 						log.Fatal(err)
 					}
@@ -97,8 +106,8 @@ func (s *Server) expirePurgeSweep(rng *rand.Rand) (purged int) {
 			}
 		}
 		// recycle the lock
-		ul()
-		ul = s.WriterLock()
+		s.writemu.Unlock()
+		s.writemu.Lock()
 	}
 	return purged
 }

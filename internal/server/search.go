@@ -2,7 +2,6 @@ package server
 
 import (
 	"bytes"
-	"errors"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +12,7 @@ import (
 	"github.com/tidwall/resp"
 	"github.com/tidwall/tile38/internal/bing"
 	"github.com/tidwall/tile38/internal/glob"
+	"github.com/tidwall/tile38/internal/txn"
 )
 
 const defaultCircleSteps = 64
@@ -381,7 +381,7 @@ var nearbyTypes = []string{"point"}
 var withinOrIntersectsTypes = []string{
 	"geo", "bounds", "hash", "tile", "quadkey", "get", "object", "circle"}
 
-func (server *Server) cmdNearby(msg *Message) (res resp.Value, err error) {
+func (server *Server) cmdNearby(msg *Message, ts *txn.Status) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Args[1:]
 	wr := &bytes.Buffer{}
@@ -392,7 +392,7 @@ func (server *Server) cmdNearby(msg *Message) (res resp.Value, err error) {
 		defer func() {
 			if r := recover(); r != nil {
 				res = NOMessage
-				err = errors.New(r.(string))
+				err = panicToError(r)
 				return
 			}
 		}()
@@ -437,7 +437,7 @@ func (server *Server) cmdNearby(msg *Message) (res resp.Value, err error) {
 				noLock:   true,
 			})
 		}
-		sc.col.Nearby(s.obj, sc, msg.Deadline, iter)
+		sc.col.Nearby(s.obj, sc, ts, iter)
 	}
 	sc.writeFoot()
 	if msg.OutputType == JSON {
@@ -447,15 +447,15 @@ func (server *Server) cmdNearby(msg *Message) (res resp.Value, err error) {
 	return respOut, nil
 }
 
-func (server *Server) cmdWithin(msg *Message) (res resp.Value, err error) {
-	return server.cmdWithinOrIntersects("within", msg)
+func (server *Server) cmdWithin(msg *Message, ts *txn.Status) (res resp.Value, err error) {
+	return server.cmdWithinOrIntersects("within", msg, ts)
 }
 
-func (server *Server) cmdIntersects(msg *Message) (res resp.Value, err error) {
-	return server.cmdWithinOrIntersects("intersects", msg)
+func (server *Server) cmdIntersects(msg *Message, ts *txn.Status) (res resp.Value, err error) {
+	return server.cmdWithinOrIntersects("intersects", msg, ts)
 }
 
-func (server *Server) cmdWithinOrIntersects(cmd string, msg *Message) (res resp.Value, err error) {
+func (server *Server) cmdWithinOrIntersects(cmd string, msg *Message, ts *txn.Status) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Args[1:]
 
@@ -467,7 +467,7 @@ func (server *Server) cmdWithinOrIntersects(cmd string, msg *Message) (res resp.
 		defer func() {
 			if r := recover(); r != nil {
 				res = NOMessage
-				err = errors.New(r.(string))
+				err = panicToError(r)
 				return
 			}
 		}()
@@ -491,7 +491,7 @@ func (server *Server) cmdWithinOrIntersects(cmd string, msg *Message) (res resp.
 	sc.writeHead()
 	if sc.col != nil {
 		if cmd == "within" {
-			sc.col.Within(s.obj, s.sparse, sc, msg.Deadline, func(
+			sc.col.Within(s.obj, s.sparse, sc, ts, func(
 				id string, o geojson.Object, fields []float64,
 			) bool {
 				if server.hasExpired(s.key, id) {
@@ -505,7 +505,7 @@ func (server *Server) cmdWithinOrIntersects(cmd string, msg *Message) (res resp.
 				})
 			})
 		} else if cmd == "intersects" {
-			sc.col.Intersects(s.obj, s.sparse, sc, msg.Deadline, func(
+			sc.col.Intersects(s.obj, s.sparse, sc, ts, func(
 				id string,
 				o geojson.Object,
 				fields []float64,
@@ -550,7 +550,7 @@ func (server *Server) cmdSeachValuesArgs(vs []string) (
 	return
 }
 
-func (server *Server) cmdSearch(msg *Message) (res resp.Value, err error) {
+func (server *Server) cmdSearch(msg *Message, ts *txn.Status) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Args[1:]
 
@@ -562,7 +562,7 @@ func (server *Server) cmdSearch(msg *Message) (res resp.Value, err error) {
 		defer func() {
 			if r := recover(); r != nil {
 				res = NOMessage
-				err = errors.New(r.(string))
+				err = panicToError(r)
 				return
 			}
 		}()
@@ -590,7 +590,7 @@ func (server *Server) cmdSearch(msg *Message) (res resp.Value, err error) {
 		} else {
 			g := glob.Parse(sc.globPattern, s.desc)
 			if g.Limits[0] == "" && g.Limits[1] == "" {
-				sc.col.SearchValues(s.desc, sc, msg.Deadline,
+				sc.col.SearchValues(s.desc, sc, ts,
 					func(id string, o geojson.Object, fields []float64) bool {
 						return sc.writeObject(ScanObjectParams{
 							id:     id,
@@ -605,7 +605,7 @@ func (server *Server) cmdSearch(msg *Message) (res resp.Value, err error) {
 				// globSingle is only for ID matches, not values.
 				sc.globSingle = false
 				sc.col.SearchValuesRange(g.Limits[0], g.Limits[1], s.desc, sc,
-					msg.Deadline,
+					ts,
 					func(id string, o geojson.Object, fields []float64) bool {
 						return sc.writeObject(ScanObjectParams{
 							id:     id,

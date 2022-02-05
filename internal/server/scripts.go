@@ -161,7 +161,7 @@ func (pl *lStatePool) new() *lua.LState {
 		ls.Push(lua.LNumber(dt))
 		return 1
 	}
-	iterate := func(ls *lua.LState) int {
+	baseIterate := func(ls *lua.LState, pcall bool) (string, error) {
 		evalCmd := ls.GetGlobal("EVAL_CMD").String()
 		ts := ls.GetGlobal("TXN_STATUS").(*lua.LUserData).Value.(*txn.Status)
 		callback := ls.ToFunction(1)
@@ -194,12 +194,30 @@ func (pl *lStatePool) new() *lua.LState {
 			itr: itr,
 		}
 
-		err := pl.s.luaTile38Iterate(coll, ts, dl, evalCmd, strings.ToLower(cmd), vs)
+		err := pl.s.luaTile38Iterate(coll, ts, dl, pcall, evalCmd, strings.ToLower(cmd), vs)
+		return strconv.FormatUint(coll.cursor, 10), err
+	}
+	iterate := func(ls *lua.LState) int {
+		cursor, err := baseIterate(ls, false)
 		if err != nil {
+			if errors.Is(err, txn.DeadlineError{}) { // Must panic here to preserve error type
+				panic(err)
+			}
 			ls.RaiseError("%v", err)
 		}
-		ls.Push(lua.LString(strconv.FormatUint(coll.cursor, 10)))
+		ls.Push(lua.LString(cursor))
 		return 1
+	}
+	piterate := func(ls *lua.LState) int {
+		cursor, err := baseIterate(ls, true)
+		if err != nil {
+			ls.Push(lua.LFalse)
+			ls.Push(lua.LString(err.Error()))
+			return 2
+		}
+		ls.Push(lua.LTrue)
+		ls.Push(lua.LString(cursor))
+		return 2
 	}
 	fieldIndexes := func(ls *lua.LState) int {
 		colName := ls.ToString(1)
@@ -241,6 +259,7 @@ func (pl *lStatePool) new() *lua.LState {
 		"sha1hex":       sha1hex,
 		"distance_to":   distanceTo,
 		"iterate":       iterate,
+		"piterate":      piterate,
 		"field_indexes": fieldIndexes,
 		"get":           getObject,
 	}
@@ -905,7 +924,7 @@ func (s *Server) luaTile38NonAtomic(msg *Message, deadline time.Time) (resp.Valu
 	return res, nil
 }
 
-func (s *Server) luaTile38Iterate(coll *luaScanCollector, ts *txn.Status, deadline time.Time, evalcmd, cmd string, vs []string) (err error) {
+func (s *Server) luaTile38Iterate(coll *luaScanCollector, ts *txn.Status, deadline time.Time, pcall bool, evalcmd, cmd string, vs []string) error {
 	// Acquire a lock if we don't already have one
 	switch evalcmd {
 	case "evalna", "evalnasha":
@@ -920,6 +939,28 @@ func (s *Server) luaTile38Iterate(coll *luaScanCollector, ts *txn.Status, deadli
 		return errCatchingUp
 	}
 
+	skipScan := uint64(0)
+	skipMatch := uint64(0)
+	for {
+		scanStart, scanEnd, matchCount, err := s.luaTile38IterateInner(coll, ts, evalcmd, cmd, vs, skipScan, skipMatch)
+		skipMatch += matchCount
+		skipScan += scanEnd - scanStart
+
+		if pcall { // pcall always returns the error to let the script process it
+			return err
+		}
+
+		if errors.Is(err, txn.InterruptedError{}) { // if not a pcall, retry if was interrupted
+			ts.Retry()
+			continue
+		}
+
+		// not an interruption, return the error if any
+		return err
+	}
+}
+
+func (s *Server) luaTile38IterateInner(coll *luaScanCollector, ts *txn.Status, evalcmd, cmd string, vs []string, skipScan, skipMatch uint64) (scanStart, scanEnd, matchCount uint64, err error) {
 	// Parse the command args
 	var lfs liveFenceSwitches
 	switch cmd {
@@ -942,17 +983,21 @@ func (s *Server) luaTile38Iterate(coll *luaScanCollector, ts *txn.Status, deadli
 	// Ensure we clean up lfs if needed
 	if lfs.usingLua() {
 		defer lfs.Close()
-		defer func() {
-			if r := recover(); r != nil {
-				err = panicToError(r)
-				return
-			}
-		}()
 	}
 
 	// Fencing doesn't make sense
 	if lfs.fence {
-		return errors.New("fence not supported")
+		err = errors.New("fence not supported")
+		return
+	}
+
+	// adjust the limits and offset by the number we should skip
+	lfs.cursor += skipScan
+	if lfs.limit.matched != 0 {
+		lfs.limit.matched -= skipMatch
+	}
+	if lfs.limit.scanned != 0 {
+		lfs.limit.scanned -= skipScan
 	}
 
 	sc, err := s.newScanner(
@@ -960,18 +1005,27 @@ func (s *Server) luaTile38Iterate(coll *luaScanCollector, ts *txn.Status, deadli
 		lfs.cursor, lfs.limit, lfs.wheres, lfs.whereins, lfs.whereevals, lfs.nofields)
 
 	if err != nil {
-		return err
+		return
 	}
 
 	// If collection doesn't exist, just return
 	if sc.col == nil {
-		return nil
+		return 0, 0, 0, nil
 	}
 
-	// Handle deadline exceeded errors
-	if !ts.GetDeadlineTime().IsZero() {
-		defer handleTimeoutError(ts, nil, &err)
-	}
+	// Handle any errors that occur during processing, and track position
+	defer func() {
+		scanStart = lfs.cursor
+		if sc.numberIters > lfs.cursor {
+			scanEnd = sc.numberIters
+		} else {
+			scanEnd = lfs.cursor
+		}
+		matchCount = sc.count
+		if r := recover(); r != nil {
+			err = panicToError(r)
+		}
+	}()
 
 	// For the duration of this call, we need to pretend we are operating as
 	// a "evalro" command. This ensures that if the Lua callback function
@@ -1107,7 +1161,8 @@ func (s *Server) luaTile38Iterate(coll *luaScanCollector, ts *txn.Status, deadli
 
 	sc.writeFoot()
 
-	return nil
+	err = nil
+	return
 }
 
 func (s *Server) luaTile38Get(ls *lua.LState, evalcmd, key, id string) (result lua.LValue, err error) {

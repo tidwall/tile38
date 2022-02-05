@@ -16,7 +16,7 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-func runScriptIterate(callback lua.LGFunction, fn string, deadline time.Time) ([]lua.LValue, *lua.LState) {
+func runScriptFunc(callback lua.LGFunction, fn string, deadline time.Time) ([]lua.LValue, *lua.LState) {
 	itemCount := 5000
 	s := &Server{
 		config:  &Config{},
@@ -73,12 +73,17 @@ func runScriptIterate(callback lua.LGFunction, fn string, deadline time.Time) ([
 
 	top := ls.GetTop()
 	ls.Push(ls.GetGlobal("tile38").(*lua.LTable).RawGetString(fn))
-	ls.Push(ls.NewFunction(callback))
+	var nargs int
+	if callback != nil {
+		ls.Push(ls.NewFunction(callback))
+		nargs++
+	}
 	for _, a := range []string{"nearby", "test", "cursor", "100", "limit", "2000/4000", "where", "v", "1", "1", "ids", "point", "0", "0"} {
 		ls.Push(lua.LString(a))
+		nargs++
 	}
 
-	ls.Call(15, lua.MultRet)
+	ls.Call(nargs, lua.MultRet)
 	scanDone()
 	scanDone = nil
 	nret := ls.GetTop() - top
@@ -96,9 +101,37 @@ func runScriptIterate(callback lua.LGFunction, fn string, deadline time.Time) ([
 	return results, ls
 }
 
+func TestScriptCallInterruptedCall(t *testing.T) {
+	results, _ := runScriptFunc(nil, "call", time.Time{})
+
+	if len(results) != 1 {
+		t.Fatal("expected 1 results")
+	}
+}
+
+func TestScriptCallTimeoutCall(t *testing.T) {
+	var panicResult interface{}
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				panicResult = r
+			}
+		}()
+		_, _ = runScriptFunc(nil, "call", time.Now().Add(-1))
+	}()
+
+	if panicResult == nil {
+		t.Fatal("expected a panic")
+	}
+
+	if err, ok := panicResult.(error); !ok || !errors.Is(err, txn.DeadlineError{}) {
+		t.Fatal("expected a deadline error, got", panicResult)
+	}
+}
+
 func TestScriptIterateInterruptedCall(t *testing.T) {
 	var collectedIds []string
-	results, _ := runScriptIterate(lua.LGFunction(func(ls *lua.LState) int {
+	results, _ := runScriptFunc(lua.LGFunction(func(ls *lua.LState) int {
 		ud := ls.ToUserData(1)
 		itr := ud.Value.(*luaScanIterator)
 		collectedIds = append(collectedIds, itr.currentParams.id)
@@ -135,7 +168,7 @@ func TestScriptIterateTimeoutCall(t *testing.T) {
 				panicResult = r
 			}
 		}()
-		_, _ = runScriptIterate(lua.LGFunction(func(ls *lua.LState) int {
+		_, _ = runScriptFunc(lua.LGFunction(func(ls *lua.LState) int {
 			ls.Push(lua.LTrue)
 			return 1
 		}), "iterate", time.Now().Add(-1))
@@ -151,7 +184,7 @@ func TestScriptIterateTimeoutCall(t *testing.T) {
 }
 
 func TestScriptPiterateInterruptedCall(t *testing.T) {
-	results, _ := runScriptIterate(lua.LGFunction(func(ls *lua.LState) int {
+	results, _ := runScriptFunc(lua.LGFunction(func(ls *lua.LState) int {
 		ls.Push(lua.LTrue)
 		return 1
 	}), "piterate", time.Time{})
@@ -170,7 +203,7 @@ func TestScriptPiterateInterruptedCall(t *testing.T) {
 }
 
 func TestScriptPiterateTimeoutCall(t *testing.T) {
-	results, _ := runScriptIterate(lua.LGFunction(func(ls *lua.LState) int {
+	results, _ := runScriptFunc(lua.LGFunction(func(ls *lua.LState) int {
 		ls.Push(lua.LTrue)
 		return 1
 	}), "piterate", time.Now().Add(-1))
@@ -189,7 +222,7 @@ func TestScriptPiterateTimeoutCall(t *testing.T) {
 }
 
 func TestScriptPiterateTimeoutCall_ignored(t *testing.T) {
-	results, ls := runScriptIterate(lua.LGFunction(func(ls *lua.LState) int {
+	results, ls := runScriptFunc(lua.LGFunction(func(ls *lua.LState) int {
 		ls.Push(lua.LTrue)
 		return 1
 	}), "piterate", time.Now().Add(-1))

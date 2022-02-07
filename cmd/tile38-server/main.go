@@ -7,7 +7,7 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
-	_ "net/http/pprof"
+	httppprof "net/http/pprof"
 	"os"
 	"os/signal"
 	"runtime"
@@ -18,6 +18,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/tidwall/tile38/core"
 	"github.com/tidwall/tile38/internal/hservice"
 	"github.com/tidwall/tile38/internal/log"
@@ -27,20 +30,21 @@ import (
 )
 
 var (
-	dir           string
-	port          int
-	host          string
-	verbose       bool
-	veryVerbose   bool
-	devMode       bool
-	quiet         bool
-	pidfile       string
-	cpuprofile    string
-	memprofile    string
-	pprofport     int
-	nohup         bool
-	maxWriteDelay time.Duration
-	maxReadDelay  time.Duration
+	dir            string
+	port           int
+	host           string
+	verbose        bool
+	veryVerbose    bool
+	devMode        bool
+	quiet          bool
+	pidfile        string
+	cpuprofile     string
+	memprofile     string
+	pprofport      int
+	prometheusport int
+	nohup          bool
+	maxWriteDelay  time.Duration
+	maxReadDelay   time.Duration
 )
 
 // TODO: Set to false in 2.*
@@ -271,6 +275,7 @@ Developer Options:
 	flag.StringVar(&memprofile, "memprofile", "", "write memory profile to `file`")
 	flag.DurationVar(&maxWriteDelay, "writedelay", 200*time.Millisecond, "target time to wait for reads to complete when a write command is pending")
 	flag.DurationVar(&maxReadDelay, "readdealy", 50*time.Millisecond, "target time to wait for writes to complete when a read command is pending")
+	flag.IntVar(&prometheusport, "prometheusport", 0, "prometheus http at port")
 	flag.Parse()
 
 	var logw io.Writer = os.Stderr
@@ -293,6 +298,11 @@ Developer Options:
 	hostd := ""
 	if host != "" {
 		hostd = "Addr: " + host + ", "
+	}
+
+	srv, err := server.NewServer(host, port, dir, httpTransport, maxWriteDelay, maxReadDelay)
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	// pprof
@@ -340,7 +350,28 @@ Developer Options:
 	if pprofport != 0 {
 		log.Debugf("pprof http at port %d", pprofport)
 		go func() {
-			log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", pprofport), nil))
+			mux := http.NewServeMux()
+			mux.HandleFunc("/debug/pprof/", httppprof.Index)
+			mux.HandleFunc("/debug/pprof/cmdline", httppprof.Cmdline)
+			mux.HandleFunc("/debug/pprof/profile", httppprof.Profile)
+			mux.HandleFunc("/debug/pprof/symbol", httppprof.Symbol)
+			mux.HandleFunc("/debug/pprof/trace", httppprof.Trace)
+			log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", pprofport), mux))
+		}()
+	}
+
+	if prometheusport != 0 {
+		log.Debugf("prometheus http at port %d", pprofport)
+		reg := prometheus.NewRegistry()
+		reg.MustRegister(collectors.NewGoCollector())
+		reg.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{
+			Namespace: "tile38_",
+		}))
+		srv.EnablePrometheusStats(reg)
+		go func() {
+			mux := http.NewServeMux()
+			mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
+			log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", prometheusport), mux))
 		}()
 	}
 
@@ -415,7 +446,7 @@ Developer Options:
 		// we don't currently support evio in Tile38
 		log.Warnf("evio is not currently supported")
 	}
-	if err := server.Serve(host, port, dir, httpTransport, maxWriteDelay, maxReadDelay); err != nil {
+	if err := srv.Serve(); err != nil {
 		log.Fatal(err)
 	}
 }

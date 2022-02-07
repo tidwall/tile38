@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/tidwall/resp"
 	"github.com/tidwall/tile38/core"
 	"github.com/tidwall/tile38/internal/collection"
@@ -539,4 +540,264 @@ func (s *Server) statsCollections(line string) (string, error) {
 		return "", err
 	}
 	return `{"ok":true,"stats":` + string(data) + `,"elapsed":"` + time.Now().Sub(start).String() + "\"}", nil
+}
+
+type prometheusStats struct {
+	requests prometheus.ObserverVec
+}
+
+func (s *Server) EnablePrometheusStats(registry prometheus.Registerer) {
+	prometheus.MustRegister(&simpleCollector{
+		desc: prometheus.NewDesc("tile38_server_info", "", nil, prometheus.Labels{
+			"id":      s.config.serverID(),
+			"pid":     strconv.Itoa(os.Getpid()),
+			"version": core.Version,
+		}),
+		collect: func(desc *prometheus.Desc, obs chan<- prometheus.Metric) {
+			obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, 1)
+		},
+	})
+
+	prometheus.MustRegister(&simpleCollector{
+		desc: prometheus.NewDesc("tile38_collection_size_bytes", "", []string{"collection"}, nil),
+		collect: func(desc *prometheus.Desc, obs chan<- prometheus.Metric) {
+			defer s.ReaderLock()()
+			s.cols.Scan(func(key string, value interface{}) bool {
+				col := value.(*collection.Collection)
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(col.TotalWeight()), key)
+				return true
+			})
+		},
+	})
+
+	registry.MustRegister(&simpleCollector{
+		desc: prometheus.NewDesc("tile38_collection_items_count", "", []string{"collection", "type"}, nil),
+		collect: func(desc *prometheus.Desc, obs chan<- prometheus.Metric) {
+			defer s.ReaderLock()()
+			s.cols.Scan(func(key string, value interface{}) bool {
+				col := value.(*collection.Collection)
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(col.PointCount()), key, "point")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(col.Count()), key, "object")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(col.StringCount()), key, "string")
+				return true
+			})
+		},
+	})
+
+	registry.MustRegister(&simpleCollector{
+		desc: prometheus.NewDesc("tile38_server_followers_count", "", nil, nil),
+		collect: func(desc *prometheus.Desc, obs chan<- prometheus.Metric) {
+			defer s.ReaderLock()()
+			obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(len(s.aofconnM)))
+		},
+	})
+
+	registry.MustRegister(&simpleCollector{
+		desc: prometheus.NewDesc("tile38_server_connected_clients_count", "", nil, nil),
+		collect: func(desc *prometheus.Desc, obs chan<- prometheus.Metric) {
+			s.connsmu.RLock()
+			defer s.connsmu.RUnlock()
+			obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(len(s.conns)))
+		},
+	})
+
+	registry.MustRegister(&simpleCollector{
+		desc: prometheus.NewDesc("tile38_server_uptime_seconds_total", "", nil, nil),
+		collect: func(desc *prometheus.Desc, obs chan<- prometheus.Metric) {
+			s.connsmu.RLock()
+			defer s.connsmu.RUnlock()
+			obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, time.Since(s.started).Seconds())
+		},
+	})
+
+	registry.MustRegister(&simpleCollector{
+		desc: prometheus.NewDesc("tile38_server_max_heap_size", "", nil, nil),
+		collect: func(desc *prometheus.Desc, obs chan<- prometheus.Metric) {
+			obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(s.config.maxMemory()))
+		},
+	})
+
+	registry.MustRegister(&simpleCollector{
+		desc: prometheus.NewDesc("tile38_aof_enabled", "", nil, nil),
+		collect: func(desc *prometheus.Desc, obs chan<- prometheus.Metric) {
+			obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(boolInt(core.AppendOnly)))
+		},
+	})
+
+	registry.MustRegister(&simpleCollector{
+		desc: prometheus.NewDesc("tile38_aof_rewrite_in_progress", "", nil, nil),
+		collect: func(desc *prometheus.Desc, obs chan<- prometheus.Metric) {
+			defer s.ReaderLock()()
+			obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(boolInt(s.shrinking)))
+		},
+	})
+
+	registry.MustRegister(&simpleCollector{
+		desc: prometheus.NewDesc("tile38_aof_size_bytes", "", nil, nil),
+		collect: func(desc *prometheus.Desc, obs chan<- prometheus.Metric) {
+			defer s.ReaderLock()()
+			obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(s.aofsz))
+		},
+	})
+
+	registry.MustRegister(&simpleCollector{
+		desc: prometheus.NewDesc("tile38_server_connections_received_total", "", nil, nil),
+		collect: func(desc *prometheus.Desc, obs chan<- prometheus.Metric) {
+			obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(s.statsTotalConns.get()))
+		},
+	})
+
+	registry.MustRegister(&simpleCollector{
+		desc: prometheus.NewDesc("tile38_server_commands_processed_total", "", nil, nil),
+		collect: func(desc *prometheus.Desc, obs chan<- prometheus.Metric) {
+			obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(s.statsTotalCommands.get()))
+		},
+	})
+
+	registry.MustRegister(&simpleCollector{
+		desc: prometheus.NewDesc("tile38_server_messages_sent_total", "", nil, nil),
+		collect: func(desc *prometheus.Desc, obs chan<- prometheus.Metric) {
+			obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(s.statsTotalMsgsSent.get()))
+		},
+	})
+
+	registry.MustRegister(&simpleCollector{
+		desc: prometheus.NewDesc("tile38_server_expired_keys_total", "", nil, nil),
+		collect: func(desc *prometheus.Desc, obs chan<- prometheus.Metric) {
+			obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(s.statsExpired.get()))
+		},
+	})
+
+	registry.MustRegister(&simpleCollector{
+		desc: prometheus.NewDesc("tile38_collection_operations_total", "", []string{"collection", "operation"}, nil),
+		collect: func(desc *prometheus.Desc, obs chan<- prometheus.Metric) {
+			defer s.ReaderLock()()
+			s.cols.Scan(func(key string, value interface{}) bool {
+				col := value.(*collection.Collection)
+				stats := col.Stats()
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(stats.Get.Count()), key, "get")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(stats.Set.Count()), key, "set")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(stats.Delete.Count()), key, "delete")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(stats.SetField.Count()), key, "set_field")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(stats.SetFields.Count()), key, "set_fields")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(stats.Scan.Count()), key, "scan")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(stats.ScanRange.Count()), key, "scan_range")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(stats.SearchValues.Count()), key, "search_values")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(stats.SearchValuesRange.Count()), key, "search_values_range")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(stats.ScanGreaterOrEqual.Count()), key, "scan_greater_or_equal")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(stats.Within.Count()), key, "within")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(stats.Intersects.Count()), key, "intersects")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(stats.Nearby.Count()), key, "nearby")
+				return true
+			})
+		},
+	})
+
+	registry.MustRegister(&simpleCollector{
+		desc: prometheus.NewDesc("tile38_collection_operations_duration_seconds_total", "", []string{"collection", "operation"}, nil),
+		collect: func(desc *prometheus.Desc, obs chan<- prometheus.Metric) {
+			defer s.ReaderLock()()
+			s.cols.Scan(func(key string, value interface{}) bool {
+				col := value.(*collection.Collection)
+				stats := col.Stats()
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(stats.Get.TotalDuration().Seconds()), key, "get")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(stats.Set.TotalDuration().Seconds()), key, "set")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(stats.Delete.TotalDuration().Seconds()), key, "delete")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(stats.SetField.TotalDuration().Seconds()), key, "set_field")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(stats.SetFields.TotalDuration().Seconds()), key, "set_fields")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(stats.Scan.TotalDuration().Seconds()), key, "scan")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(stats.ScanRange.TotalDuration().Seconds()), key, "scan_range")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(stats.SearchValues.TotalDuration().Seconds()), key, "search_values")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(stats.SearchValuesRange.TotalDuration().Seconds()), key, "search_values_range")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(stats.ScanGreaterOrEqual.TotalDuration().Seconds()), key, "scan_greater_or_equal")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(stats.Within.TotalDuration().Seconds()), key, "within")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(stats.Intersects.TotalDuration().Seconds()), key, "intersects")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(stats.Nearby.TotalDuration().Seconds()), key, "nearby")
+				return true
+			})
+		},
+	})
+
+	registry.MustRegister(&simpleCollector{
+		desc: prometheus.NewDesc("tile38_collection_operations_duration_seconds_min", "", []string{"collection", "operation"}, nil),
+		collect: func(desc *prometheus.Desc, obs chan<- prometheus.Metric) {
+			defer s.ReaderLock()()
+			s.cols.Scan(func(key string, value interface{}) bool {
+				col := value.(*collection.Collection)
+				stats := col.Stats()
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.Get.MinDuration().Seconds()), key, "get")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.Set.MinDuration().Seconds()), key, "set")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.Delete.MinDuration().Seconds()), key, "delete")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.SetField.MinDuration().Seconds()), key, "set_field")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.SetFields.MinDuration().Seconds()), key, "set_fields")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.Scan.MinDuration().Seconds()), key, "scan")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.ScanRange.MinDuration().Seconds()), key, "scan_range")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.SearchValues.MinDuration().Seconds()), key, "search_values")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.SearchValuesRange.MinDuration().Seconds()), key, "search_values_range")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.ScanGreaterOrEqual.MinDuration().Seconds()), key, "scan_greater_or_equal")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.Within.MinDuration().Seconds()), key, "within")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.Intersects.MinDuration().Seconds()), key, "intersects")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.Nearby.MinDuration().Seconds()), key, "nearby")
+				return true
+			})
+		},
+	})
+
+	registry.MustRegister(&simpleCollector{
+		desc: prometheus.NewDesc("tile38_collection_operations_duration_seconds_max", "", []string{"collection", "operation"}, nil),
+		collect: func(desc *prometheus.Desc, obs chan<- prometheus.Metric) {
+			defer s.ReaderLock()()
+			s.cols.Scan(func(key string, value interface{}) bool {
+				col := value.(*collection.Collection)
+				stats := col.Stats()
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.Get.MaxDuration().Seconds()), key, "get")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.Set.MaxDuration().Seconds()), key, "set")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.Delete.MaxDuration().Seconds()), key, "delete")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.SetField.MaxDuration().Seconds()), key, "set_field")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.SetFields.MaxDuration().Seconds()), key, "set_fields")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.Scan.MaxDuration().Seconds()), key, "scan")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.ScanRange.MaxDuration().Seconds()), key, "scan_range")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.SearchValues.MaxDuration().Seconds()), key, "search_values")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.SearchValuesRange.MaxDuration().Seconds()), key, "search_values_range")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.ScanGreaterOrEqual.MaxDuration().Seconds()), key, "scan_greater_or_equal")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.Within.MaxDuration().Seconds()), key, "within")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.Intersects.MaxDuration().Seconds()), key, "intersects")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.Nearby.MaxDuration().Seconds()), key, "nearby")
+				return true
+			})
+		},
+	})
+
+	requests := prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "tile38",
+		Name:      "request_duration_seconds",
+	}, []string{"command"})
+
+	registry.MustRegister(requests)
+
+	stats := &prometheusStats{
+		requests: requests,
+	}
+	s.prometheusStats = stats
+}
+
+func (s *prometheusStats) RequestComplete(command string, elapsed time.Duration) {
+	if s == nil {
+		return
+	}
+
+	s.requests.WithLabelValues(command).Observe(elapsed.Seconds())
+}
+
+type simpleCollector struct {
+	desc    *prometheus.Desc
+	collect func(desc *prometheus.Desc, obs chan<- prometheus.Metric)
+}
+
+func (c *simpleCollector) Describe(descs chan<- *prometheus.Desc) {
+	descs <- c.desc
+}
+
+func (c *simpleCollector) Collect(obs chan<- prometheus.Metric) {
+	c.collect(c.desc, obs)
 }

@@ -67,7 +67,7 @@ func Load(
 	f io.Reader,
 	loadItem func (r io.Reader, obuf []byte) (Item, []byte, error),
 ) (t *BTree, err error) {
-	t = &BTree{}
+	t = New(32, nil)
 	var word uint64
 
 	if err = binary.Read(f, binary.BigEndian, &word); err != nil {

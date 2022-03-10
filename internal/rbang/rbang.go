@@ -1,12 +1,15 @@
-package collection
+package rbang
 
 import (
+	"fmt"
+
 	"github.com/tidwall/geoindex/child"
 )
 
 const (
-	maxEntries = 32
-	minEntries = maxEntries * 40 / 100
+	defaultMaxEntries   = 32
+	DefaultSplitEntries = defaultMaxEntries * 60 / 100
+	DefaultJoinEntries  = defaultMaxEntries * 40 / 100
 )
 
 type rect struct {
@@ -16,7 +19,7 @@ type rect struct {
 
 type node struct {
 	count int
-	rects [maxEntries + 1]rect
+	rects [defaultMaxEntries + 1]rect
 }
 
 // RTree ...
@@ -25,6 +28,12 @@ type RTree struct {
 	root     rect
 	count    int
 	reinsert []rect
+
+	splitEntries int
+	joinEntries  int
+
+	stats        RTreeStats
+	statsEnabled bool
 }
 
 func (r *rect) expand(b *rect) {
@@ -113,22 +122,79 @@ func (r *rect) enlargedArea(b *rect) float64 {
 	return area
 }
 
+func (tr *RTree) Stats() *RTreeStats {
+	return &tr.stats
+}
+
+func (tr *RTree) SetStatsEnabled(value bool) {
+	tr.statsEnabled = value
+}
+
+func (tr *RTree) GetSplitEntries() int {
+	if tr.splitEntries == 0 {
+		return DefaultSplitEntries
+	}
+
+	return tr.splitEntries
+}
+
+func (tr *RTree) SetSplitEntries(value int) error {
+	if value < tr.joinEntries || value > defaultMaxEntries {
+		return fmt.Errorf("split entries value must be between %d and %d", tr.joinEntries, defaultMaxEntries)
+	}
+
+	tr.splitEntries = value
+	return nil
+}
+
+func (tr *RTree) GetJoinEntries() int {
+	if tr.joinEntries == 0 {
+		return DefaultJoinEntries
+	}
+
+	return tr.joinEntries
+}
+
+func (tr *RTree) SetJoinEntries(value int) error {
+	if value < 0 || value > tr.GetJoinEntries() {
+		return fmt.Errorf("join entries value must be between %d and %d", 0, tr.GetJoinEntries())
+	}
+
+	tr.joinEntries = value
+	return nil
+}
+
 // Insert inserts an item into the RTree
 func (tr *RTree) Insert(min, max [2]float64, value interface{}) {
 	var item rect
+
 	fit(min, max, value, &item)
 	tr.insert(&item)
+
+	if tr.statsEnabled {
+		tr.stats.Height.SetCount(uint64(tr.height))
+	}
 }
 
 func (tr *RTree) insert(item *rect) {
 	if tr.root.data == nil {
 		fit(item.min, item.max, new(node), &tr.root)
 	}
-	grown := tr.root.insert(item, tr.height)
+
+	// if the splitEntries specified, only fill tree nodes up to the specified capacity
+	splitEntries := tr.GetSplitEntries()
+
+	stats := &tr.stats
+	if !tr.statsEnabled {
+		stats = nil
+	}
+
+	grown := tr.root.insert(item, tr.height, splitEntries, stats)
 	if grown {
 		tr.root.expand(item)
 	}
-	if tr.root.data.(*node).count == maxEntries+1 {
+
+	if tr.root.data.(*node).count == splitEntries+1 {
 		newRoot := new(node)
 		tr.root.splitLargestAxisEdgeSnap(&newRoot.rects[1])
 		newRoot.rects[0] = tr.root
@@ -136,6 +202,10 @@ func (tr *RTree) insert(item *rect) {
 		tr.root.data = newRoot
 		tr.root.recalc()
 		tr.height++
+
+		if stats != nil {
+			tr.stats.Split.IncCount(1)
+		}
 	}
 	tr.count++
 }
@@ -225,7 +295,7 @@ func (r *rect) splitLargestAxisEdgeSnap(right *rect) {
 	right.recalc()
 }
 
-func (r *rect) insert(item *rect, height int) (grown bool) {
+func (r *rect) insert(item *rect, height, splitTrigger int, stats *RTreeStats) (grown bool) {
 	n := r.data.(*node)
 	if height == 0 {
 		n.rects[n.count] = *item
@@ -236,14 +306,18 @@ func (r *rect) insert(item *rect, height int) (grown bool) {
 	// choose subtree
 	index := r.chooseLeastEnlargement(item)
 	child := &n.rects[index]
-	grown = child.insert(item, height-1)
+	grown = child.insert(item, height-1, splitTrigger, stats)
 	if grown {
 		child.expand(item)
 		grown = !r.contains(item)
 	}
-	if child.data.(*node).count == maxEntries+1 {
+	if child.data.(*node).count == splitTrigger+1 {
 		child.splitLargestAxisEdgeSnap(&n.rects[n.count])
 		n.count++
+
+		if stats != nil {
+			stats.Split.IncCount(1)
+		}
 	}
 	return grown
 }
@@ -373,9 +447,15 @@ func (tr *RTree) Delete(min, max [2]float64, data interface{}) {
 	if tr.root.data == nil || !tr.root.contains(&item) {
 		return
 	}
+
+	stats := &tr.stats
+	if !tr.statsEnabled {
+		stats = nil
+	}
+
 	var removed, recalced bool
 	removed, recalced, tr.reinsert =
-		tr.root.delete(&item, tr.height, tr.reinsert[:0])
+		tr.root.delete(&item, tr.height, tr.GetJoinEntries(), tr.reinsert[:0], stats)
 	if !removed {
 		return
 	}
@@ -399,7 +479,7 @@ func (tr *RTree) Delete(min, max [2]float64, data interface{}) {
 	}
 }
 
-func (r *rect) delete(item *rect, height int, reinsert []rect) (
+func (r *rect) delete(item *rect, height int, joinTrigger int, reinsert []rect, stats *RTreeStats) (
 	removed, recalced bool, reinsertOut []rect,
 ) {
 	n := r.data.(*node)
@@ -423,11 +503,11 @@ func (r *rect) delete(item *rect, height int, reinsert []rect) (
 				continue
 			}
 			removed, recalced, reinsert =
-				n.rects[i].delete(item, height-1, reinsert)
+				n.rects[i].delete(item, height-1, joinTrigger, reinsert, stats)
 			if !removed {
 				continue
 			}
-			if n.rects[i].data.(*node).count < minEntries {
+			if n.rects[i].data.(*node).count < joinTrigger {
 				// underflow
 				if !recalced {
 					recalced = r.onEdge(&n.rects[i])
@@ -436,6 +516,10 @@ func (r *rect) delete(item *rect, height int, reinsert []rect) (
 				n.rects[i] = n.rects[n.count-1]
 				n.rects[n.count-1].data = nil
 				n.count--
+
+				if stats != nil {
+					stats.Join.IncCount(1)
+				}
 			}
 			if recalced {
 				r.recalc()

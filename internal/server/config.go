@@ -13,6 +13,7 @@ import (
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/resp"
 	"github.com/tidwall/tile38/internal/glob"
+	"github.com/tidwall/tile38/internal/rbang"
 )
 
 const (
@@ -22,18 +23,20 @@ const (
 
 // Config keys
 const (
-	FollowHost    = "follow_host"
-	FollowPort    = "follow_port"
-	FollowID      = "follow_id"
-	FollowPos     = "follow_pos"
-	ServerID      = "server_id"
-	ReadOnly      = "read_only"
-	RequirePass   = "requirepass"
-	LeaderAuth    = "leaderauth"
-	ProtectedMode = "protected-mode"
-	MaxMemory     = "maxmemory"
-	AutoGC        = "autogc"
-	KeepAlive     = "keepalive"
+	FollowHost        = "follow_host"
+	FollowPort        = "follow_port"
+	FollowID          = "follow_id"
+	FollowPos         = "follow_pos"
+	ServerID          = "server_id"
+	ReadOnly          = "read_only"
+	RequirePass       = "requirepass"
+	LeaderAuth        = "leaderauth"
+	ProtectedMode     = "protected-mode"
+	MaxMemory         = "maxmemory"
+	AutoGC            = "autogc"
+	KeepAlive         = "keepalive"
+	RTreeSplitEntries = "rtree_split_entries"
+	RTreeJoinEntries  = "rtree_join_entries"
 )
 
 var validProperties = []string{RequirePass, LeaderAuth, ProtectedMode, MaxMemory, AutoGC, KeepAlive}
@@ -63,6 +66,9 @@ type Config struct {
 	_autoGC         uint64
 	_keepAliveP     string
 	_keepAlive      int64
+
+	_rtree_join_entries  int
+	_rtree_split_entries int
 }
 
 func loadConfig(path string) (*Config, error) {
@@ -111,6 +117,10 @@ func loadConfig(path string) (*Config, error) {
 	if err := config.setProperty(KeepAlive, config._keepAliveP, true); err != nil {
 		return nil, err
 	}
+
+	config._rtree_split_entries = rbang.DefaultSplitEntries
+	config._rtree_join_entries = rbang.DefaultJoinEntries
+
 	config.write(false)
 	return config, nil
 }
@@ -286,6 +296,28 @@ func (config *Config) setProperty(name, value string, fromLoad bool) error {
 				config._keepAlive = int64(keepalive)
 			}
 		}
+	case RTreeSplitEntries:
+		if value == "" {
+			config._rtree_split_entries = rbang.DefaultSplitEntries
+		} else {
+			value, err := strconv.ParseUint(value, 10, 32)
+			if err != nil {
+				invalid = true
+			} else {
+				config._rtree_split_entries = int(value)
+			}
+		}
+	case RTreeJoinEntries:
+		if value == "" {
+			config._rtree_join_entries = rbang.DefaultJoinEntries
+		} else {
+			value, err := strconv.ParseUint(value, 10, 32)
+			if err != nil {
+				invalid = true
+			} else {
+				config._rtree_join_entries = int(value)
+			}
+		}
 	}
 
 	if invalid {
@@ -352,28 +384,28 @@ func (s *Server) cmdConfigGet(msg *Message) (res resp.Value, err error) {
 	}
 	return
 }
-func (s *Server) cmdConfigSet(msg *Message) (res resp.Value, err error) {
+func (s *Server) cmdConfigSet(msg *Message) (res resp.Value, configName string, err error) {
 	start := time.Now()
 	vs := msg.Args[1:]
 	var ok bool
 	var name string
 
 	if vs, name, ok = tokenval(vs); !ok {
-		return NOMessage, errInvalidNumberOfArguments
+		return NOMessage, "", errInvalidNumberOfArguments
 	}
 	var value string
 	if vs, value, ok = tokenval(vs); !ok {
 		if strings.ToLower(name) != RequirePass {
-			return NOMessage, errInvalidNumberOfArguments
+			return NOMessage, "", errInvalidNumberOfArguments
 		}
 	}
 	if len(vs) != 0 {
-		return NOMessage, errInvalidNumberOfArguments
+		return NOMessage, "", errInvalidNumberOfArguments
 	}
 	if err := s.config.setProperty(name, value, false); err != nil {
-		return NOMessage, err
+		return NOMessage, name, err
 	}
-	return OKMessage(msg, start), nil
+	return OKMessage(msg, start), configName, nil
 }
 func (s *Server) cmdConfigRewrite(msg *Message) (res resp.Value, err error) {
 	start := time.Now()
@@ -455,6 +487,18 @@ func (config *Config) autoGC() uint64 {
 func (config *Config) keepAlive() int64 {
 	config.mu.RLock()
 	v := config._keepAlive
+	config.mu.RUnlock()
+	return v
+}
+func (config *Config) rtree_join_entries() int {
+	config.mu.RLock()
+	v := config._rtree_join_entries
+	config.mu.RUnlock()
+	return v
+}
+func (config *Config) rtree_split_entries() int {
+	config.mu.RLock()
+	v := config._rtree_split_entries
 	config.mu.RUnlock()
 	return v
 }

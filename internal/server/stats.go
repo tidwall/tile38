@@ -744,6 +744,24 @@ func (s *Server) EnablePrometheusStats(registry prometheus.Registerer) {
 	})
 
 	registry.MustRegister(&simpleCollector{
+		desc: prometheus.NewDesc("tile38_collection_tree_depth", "", []string{"collection"}, nil),
+		collect: func(desc *prometheus.Desc, obs chan<- prometheus.Metric) {
+			defer s.ReaderLock()()
+			s.cols.Scan(func(key string, value interface{}) bool {
+				col := value.(*collection.Collection)
+
+				stats := col.TreeStats()
+
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.Height.Count()), key, "height")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.Join.Count()), key, "join")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.Split.Count()), key, "split")
+
+				return true
+			})
+		},
+	})
+
+	registry.MustRegister(&simpleCollector{
 		desc: prometheus.NewDesc("tile38_collection_operations_duration_seconds_max", "", []string{"collection", "operation"}, nil),
 		collect: func(desc *prometheus.Desc, obs chan<- prometheus.Metric) {
 			defer s.ReaderLock()()

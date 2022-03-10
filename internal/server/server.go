@@ -1160,7 +1160,31 @@ func (server *Server) command(msg *Message, client *Client, ts *txn.Status) (
 	case "config get":
 		res, err = server.cmdConfigGet(msg)
 	case "config set":
-		res, err = server.cmdConfigSet(msg)
+		var configName string
+		res, configName, err = server.cmdConfigSet(msg)
+
+		// Right now these config values are ephemeral, and will not apply to new collections getting created
+		if configName == RTreeJoinEntries {
+			configValue := server.config.rtree_join_entries()
+
+			server.cols.Scan(func(key string, value interface{}) bool {
+				col := value.(*collection.Collection)
+				col.SetRTreeJoinEntries(configValue)
+
+				return false
+			})
+		}
+
+		if configName == RTreeSplitEntries {
+			configValue := server.config.rtree_split_entries()
+
+			server.cols.Scan(func(key string, value interface{}) bool {
+				col := value.(*collection.Collection)
+				col.SetRTreeSplitEntries(configValue)
+
+				return false
+			})
+		}
 	case "config rewrite":
 		res, err = server.cmdConfigRewrite(msg)
 	case "config", "script", "snapshot":

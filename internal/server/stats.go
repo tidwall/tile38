@@ -744,7 +744,7 @@ func (s *Server) EnablePrometheusStats(registry prometheus.Registerer) {
 	})
 
 	registry.MustRegister(&simpleCollector{
-		desc: prometheus.NewDesc("tile38_collection_tree_depth", "", []string{"collection"}, nil),
+		desc: prometheus.NewDesc("tile38_collection_tree", "", []string{"collection", "stat"}, nil),
 		collect: func(desc *prometheus.Desc, obs chan<- prometheus.Metric) {
 			defer s.ReaderLock()()
 			s.cols.Scan(func(key string, value interface{}) bool {
@@ -753,8 +753,8 @@ func (s *Server) EnablePrometheusStats(registry prometheus.Registerer) {
 				stats := col.TreeStats()
 
 				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.Height.Count()), key, "height")
-				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.Join.Count()), key, "join")
-				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.Split.Count()), key, "split")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.Join.Count()), key, "joins")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.Split.Count()), key, "splits")
 
 				return true
 			})

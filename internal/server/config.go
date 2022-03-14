@@ -419,7 +419,7 @@ func (s *Server) cmdConfigSet(msg *Message) (res resp.Value, err error) {
 			col := value.(*collection.Collection)
 			col.SetRTreeJoinEntries(configValue)
 
-			return false
+			return true
 		})
 	}
 
@@ -430,7 +430,7 @@ func (s *Server) cmdConfigSet(msg *Message) (res resp.Value, err error) {
 			col := value.(*collection.Collection)
 			col.SetRTreeSplitEntries(configValue)
 
-			return false
+			return true
 		})
 	}
 

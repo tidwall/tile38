@@ -75,4 +75,7 @@ type RTreeStats struct {
 	Split  OpStat
 	Join   OpStat
 	Height OpStat
+
+	SplitEntries OpStat
+	JoinEntries  OpStat
 }

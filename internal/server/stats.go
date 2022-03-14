@@ -756,6 +756,9 @@ func (s *Server) EnablePrometheusStats(registry prometheus.Registerer) {
 				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.Join.Count()), key, "joins")
 				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.Split.Count()), key, "splits")
 
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.SplitEntries.Count()), key, "split_entries")
+				obs <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(stats.JoinEntries.Count()), key, "join_entries")
+
 				return true
 			})
 		},

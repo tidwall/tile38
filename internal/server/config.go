@@ -356,6 +356,10 @@ func (config *Config) getProperty(name string) string {
 		return formatMemSize(config._maxMemory)
 	case KeepAlive:
 		return strconv.FormatUint(uint64(config._keepAlive), 10)
+	case RTreeJoinEntries:
+		return strconv.FormatUint(uint64(config._rtree_join_entries), 10)
+	case RTreeSplitEntries:
+		return strconv.FormatUint(uint64(config._rtree_split_entries), 10)
 	}
 }
 

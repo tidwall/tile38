@@ -125,6 +125,23 @@ func (c *Collection) Bounds() (minX, minY, maxX, maxY float64) {
 	return
 }
 
+func (c *Collection) ReIndex() {
+	indexTree := &rbang.RTree{}
+	indexTree.SetStatsEnabled(true)
+
+	index := geoindex.Wrap(indexTree)
+
+	iter := func(min, max [2]float64, data interface{}) bool {
+		index.Insert(min, max, data)
+		return true
+	}
+
+	c.index.Scan(iter)
+
+	c.index = index
+	c.indexTree = indexTree
+}
+
 func objIsSpatial(obj geojson.Object) bool {
 	_, ok := obj.(geojson.Spatial)
 	return ok

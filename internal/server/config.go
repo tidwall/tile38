@@ -12,6 +12,7 @@ import (
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/resp"
+	"github.com/tidwall/tile38/internal/collection"
 	"github.com/tidwall/tile38/internal/glob"
 	"github.com/tidwall/tile38/internal/rbang"
 )
@@ -384,28 +385,52 @@ func (s *Server) cmdConfigGet(msg *Message) (res resp.Value, err error) {
 	}
 	return
 }
-func (s *Server) cmdConfigSet(msg *Message) (res resp.Value, configName string, err error) {
+func (s *Server) cmdConfigSet(msg *Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Args[1:]
 	var ok bool
 	var name string
 
 	if vs, name, ok = tokenval(vs); !ok {
-		return NOMessage, "", errInvalidNumberOfArguments
+		return NOMessage, errInvalidNumberOfArguments
 	}
 	var value string
 	if vs, value, ok = tokenval(vs); !ok {
 		if strings.ToLower(name) != RequirePass {
-			return NOMessage, "", errInvalidNumberOfArguments
+			return NOMessage, errInvalidNumberOfArguments
 		}
 	}
 	if len(vs) != 0 {
-		return NOMessage, "", errInvalidNumberOfArguments
+		return NOMessage, errInvalidNumberOfArguments
 	}
 	if err := s.config.setProperty(name, value, false); err != nil {
-		return NOMessage, name, err
+		return NOMessage, err
 	}
-	return OKMessage(msg, start), configName, nil
+
+	// Right now these config values are ephemeral, and will not apply to new collections getting created
+	if name == RTreeJoinEntries {
+		configValue := s.config.rtree_join_entries()
+
+		s.cols.Scan(func(key string, value interface{}) bool {
+			col := value.(*collection.Collection)
+			col.SetRTreeJoinEntries(configValue)
+
+			return false
+		})
+	}
+
+	if name == RTreeSplitEntries {
+		configValue := s.config.rtree_split_entries()
+
+		s.cols.Scan(func(key string, value interface{}) bool {
+			col := value.(*collection.Collection)
+			col.SetRTreeSplitEntries(configValue)
+
+			return false
+		})
+	}
+
+	return OKMessage(msg, start), nil
 }
 func (s *Server) cmdConfigRewrite(msg *Message) (res resp.Value, err error) {
 	start := time.Now()

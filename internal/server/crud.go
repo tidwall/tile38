@@ -1077,3 +1077,28 @@ func (server *Server) cmdTTL(msg *Message) (res resp.Value, err error) {
 	}
 	return
 }
+
+func (server *Server) cmdReindex(msg *Message) (res resp.Value, err error) {
+	vs := msg.Args[1:]
+
+	var ok bool
+	var key string
+	if _, key, ok = tokenval(vs); !ok || key == "" {
+		return NOMessage, errInvalidNumberOfArguments
+	}
+
+	col := server.getCol(key)
+
+	if col == nil {
+		if msg.OutputType == RESP {
+			return resp.NullValue(), nil
+		}
+		return NOMessage, errKeyNotFound
+	}
+
+	col.ReIndex()
+
+	res = resp.IntegerValue(0)
+
+	return
+}

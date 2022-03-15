@@ -132,7 +132,7 @@ func (tr *RTree) SetStatsEnabled(value bool) {
 
 func (tr *RTree) GetSplitEntries() int {
 	if tr.splitEntries == 0 {
-		return defaultMaxEntries
+		return DefaultSplitEntries
 	}
 
 	return tr.splitEntries
@@ -196,7 +196,7 @@ func (tr *RTree) insert(item *rect) {
 		tr.root.expand(item)
 	}
 
-	if tr.root.data.(*node).count == splitEntries+1 {
+	if tr.root.data.(*node).count >= splitEntries+1 {
 		newRoot := new(node)
 		tr.root.splitLargestAxisEdgeSnap(&newRoot.rects[1])
 		newRoot.rects[0] = tr.root
@@ -313,7 +313,7 @@ func (r *rect) insert(item *rect, height, splitTrigger int, stats *RTreeStats) (
 		child.expand(item)
 		grown = !r.contains(item)
 	}
-	if child.data.(*node).count == splitTrigger+1 {
+	if child.data.(*node).count >= splitTrigger+1 {
 		child.splitLargestAxisEdgeSnap(&n.rects[n.count])
 		n.count++
 

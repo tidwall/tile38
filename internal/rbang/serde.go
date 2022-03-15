@@ -113,7 +113,9 @@ func (tr *RTree) Load(
 		}
 
 		for x := 0; x < n.count; x++ {
-			findMaxEntries(n.rects[x].data.(*node))
+			if n.rects[x].data != nil {
+				findMaxEntries(n.rects[x].data.(*node))
+			}
 		}
 	}
 

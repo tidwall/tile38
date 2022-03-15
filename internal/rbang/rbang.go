@@ -132,7 +132,7 @@ func (tr *RTree) SetStatsEnabled(value bool) {
 
 func (tr *RTree) GetSplitEntries() int {
 	if tr.splitEntries == 0 {
-		return DefaultSplitEntries
+		return defaultMaxEntries
 	}
 
 	return tr.splitEntries

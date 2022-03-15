@@ -7,7 +7,7 @@ import (
 	"unsafe"
 )
 
-func (tr *RTree) Save(f io.Writer, saveValue func (w io.Writer, value interface{}) error) (err error) {
+func (tr *RTree) Save(f io.Writer, saveValue func(w io.Writer, value interface{}) error) (err error) {
 	if err = binary.Write(f, binary.BigEndian, uint64(tr.height)); err != nil {
 		return
 	}
@@ -31,7 +31,7 @@ func (tr *RTree) Save(f io.Writer, saveValue func (w io.Writer, value interface{
 }
 
 func (r *rect) save(f io.Writer,
-	saveValue func (w io.Writer, data interface{}) error,
+	saveValue func(w io.Writer, data interface{}) error,
 	height int,
 ) (err error) {
 	if _, err = f.Write(floatsAsBytes(r.min[:])); err != nil {
@@ -76,7 +76,7 @@ func (r *rect) save(f io.Writer,
 
 func (tr *RTree) Load(
 	f io.Reader,
-	loadValue func (r io.Reader, obuf []byte) (interface{}, []byte, error),
+	loadValue func(r io.Reader, obuf []byte) (interface{}, []byte, error),
 ) (err error) {
 	var word uint64
 
@@ -103,13 +103,19 @@ func (tr *RTree) Load(
 		}
 	}
 
+	if tr.statsEnabled {
+		tr.stats.Height.SetCount(uint64(tr.height))
+		tr.stats.SplitEntries.SetCount(uint64(tr.splitEntries))
+		tr.stats.JoinEntries.SetCount(uint64(tr.joinEntries))
+	}
+
 	return
 }
 
 func load(
 	f io.Reader,
 	oldBuf []byte,
-	loadValue func (r io.Reader, obuf []byte) (interface{}, []byte, error),
+	loadValue func(r io.Reader, obuf []byte) (interface{}, []byte, error),
 ) (r rect, buf []byte, err error) {
 	buf = oldBuf[:]
 

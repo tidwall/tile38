@@ -25,7 +25,6 @@ import (
 	"github.com/tidwall/buntdb"
 	"github.com/tidwall/geojson"
 	"github.com/tidwall/geojson/geometry"
-	"github.com/tidwall/rbang"
 	"github.com/tidwall/redcon"
 	"github.com/tidwall/resp"
 	"github.com/tidwall/rhh"
@@ -34,6 +33,7 @@ import (
 	"github.com/tidwall/tile38/internal/endpoint"
 	"github.com/tidwall/tile38/internal/expire"
 	"github.com/tidwall/tile38/internal/log"
+	"github.com/tidwall/tile38/internal/rbang"
 	"github.com/tidwall/tile38/internal/txn"
 	"github.com/tidwall/tinybtree"
 )

@@ -9,7 +9,7 @@ import (
 	"github.com/mmcloughlin/geohash"
 	"github.com/tidwall/geojson"
 	"github.com/tidwall/geojson/geometry"
-	"github.com/tidwall/rbang"
+	"github.com/tidwall/tile38/internal/rbang"
 	"github.com/tidwall/resp"
 	"github.com/tidwall/rhh"
 	"github.com/tidwall/tile38/internal/collection"

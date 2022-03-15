@@ -15,8 +15,8 @@ import (
 	"github.com/tidwall/btree"
 	"github.com/tidwall/geoindex"
 	"github.com/tidwall/geojson"
-	"github.com/tidwall/rbang"
 	"github.com/tidwall/tile38/internal/log"
+	"github.com/tidwall/tile38/internal/rbang"
 	"github.com/tidwall/tinybtree"
 )
 
@@ -137,7 +137,7 @@ func (c *Collection) saveStats(statsFile string, snapshotId uint64) (err error) 
 	return
 }
 
-func (c * Collection) loadStats(statsFile string, snapshotId uint64) (err error) {
+func (c *Collection) loadStats(statsFile string, snapshotId uint64) (err error) {
 	var f *os.File
 	f, err = os.Open(statsFile)
 	log.Infof("Opened stats file: %s", statsFile)
@@ -243,7 +243,7 @@ func (c *Collection) saveFields(fieldsFile string, snapshotId uint64) (err error
 	return
 }
 
-func (c * Collection) loadFields(fieldsFile string, snapshotId uint64) (err error) {
+func (c *Collection) loadFields(fieldsFile string, snapshotId uint64) (err error) {
 	var f *os.File
 	f, err = os.Open(fieldsFile)
 	log.Infof("Opened fields file: %s", fieldsFile)
@@ -369,10 +369,10 @@ func loadFieldValues(f *os.File) (fv *fieldValues, err error) {
 
 	fv = &fieldValues{
 		freelist: bytesAsFreeList(byteFreeList),
-		data: make([][]float64, nRows),
+		data:     make([][]float64, nRows),
 	}
 	for i := uint64(0); i < nRows; i++ {
-		fv.data[i] = bytesAsFloats(byteData[i*8*nCols:(i+1)*8*nCols])
+		fv.data[i] = bytesAsFloats(byteData[i*8*nCols : (i+1)*8*nCols])
 	}
 	return
 }
@@ -431,7 +431,7 @@ func (c *Collection) saveItems(dataFile string, treeFile string, snapshotId uint
 
 	itemMap = make(map[*itemT]uint32, c.items.Len())
 	var itemNum uint32
-	itemSaver := func (w io.Writer, value interface{}) (err error) {
+	itemSaver := func(w io.Writer, value interface{}) (err error) {
 		item := value.(*itemT)
 		itemMap[item] = itemNum
 		if err = binary.Write(w, binary.BigEndian, itemNum); err != nil {
@@ -461,7 +461,7 @@ func (c *Collection) saveItems(dataFile string, treeFile string, snapshotId uint
 	}
 
 	if err = binary.Write(bdw, binary.BigEndian, snapshotId); err != nil {
-		log.Errorf( "Failed to write snapshotId into items data file")
+		log.Errorf("Failed to write snapshotId into items data file")
 		return
 	}
 
@@ -473,7 +473,7 @@ func (c *Collection) saveItems(dataFile string, treeFile string, snapshotId uint
 	return
 }
 
-func (c * Collection) loadItemsData(dataFile string, snapshotId uint64, parseOpts *geojson.ParseOptions) (itemList []*itemT, err error) {
+func (c *Collection) loadItemsData(dataFile string, snapshotId uint64, parseOpts *geojson.ParseOptions) (itemList []*itemT, err error) {
 	var f *os.File
 	f, err = os.Open(dataFile)
 	log.Infof("Opened itemsData file: %s", dataFile)
@@ -503,11 +503,11 @@ func (c * Collection) loadItemsData(dataFile string, snapshotId uint64, parseOpt
 	var fvs int32
 
 	type todoItem struct {
-		index int
+		index   int
 		spatial bool
-		id string
-		json string
-		slot fieldValuesSlot
+		id      string
+		json    string
+		slot    fieldValuesSlot
 	}
 
 	todoChannel := make(chan todoItem, 1024)
@@ -556,11 +556,11 @@ func (c * Collection) loadItemsData(dataFile string, snapshotId uint64, parseOpt
 			return
 		}
 		todoChannel <- todoItem{
-			index: i,
+			index:   i,
 			spatial: spatial,
-			id: idStr,
-			json: objStr,
-			slot: fieldValuesSlot(fvs),
+			id:      idStr,
+			json:    objStr,
+			slot:    fieldValuesSlot(fvs),
 		}
 	}
 	close(todoChannel)
@@ -573,7 +573,7 @@ func (c * Collection) loadItemsData(dataFile string, snapshotId uint64, parseOpt
 	return
 }
 
-func (c * Collection) loadItemsTree(treeFile string, itemList []*itemT, snapshotId uint64) (err error) {
+func (c *Collection) loadItemsTree(treeFile string, itemList []*itemT, snapshotId uint64) (err error) {
 	var f *os.File
 	f, err = os.Open(treeFile)
 	log.Infof("Opened itemsTree file: %s", treeFile)
@@ -596,7 +596,7 @@ func (c * Collection) loadItemsTree(treeFile string, itemList []*itemT, snapshot
 		if err = binary.Read(r, binary.BigEndian, &itemNum); err != nil {
 			return
 		}
-		return itemList[itemNum], obuf,nil
+		return itemList[itemNum], obuf, nil
 	}
 
 	if c.items, err = tinybtree.Load(br, itemLoader); err != nil {
@@ -609,7 +609,7 @@ func (c * Collection) loadItemsTree(treeFile string, itemList []*itemT, snapshot
 	return
 }
 
-func (c * Collection) saveValuesTree(treeFile string, itemMap map[*itemT]uint32, snapshotId uint64) (err error) {
+func (c *Collection) saveValuesTree(treeFile string, itemMap map[*itemT]uint32, snapshotId uint64) (err error) {
 	var f *os.File
 	f, err = os.Create(treeFile)
 	log.Infof("Created valuesTree file: %s", treeFile)
@@ -633,7 +633,7 @@ func (c * Collection) saveValuesTree(treeFile string, itemMap map[*itemT]uint32,
 		return
 	}
 
-	itemSaver := func (w io.Writer, itm btree.Item) (err error) {
+	itemSaver := func(w io.Writer, itm btree.Item) (err error) {
 		item := itm.(*itemT)
 		if err = binary.Write(w, binary.BigEndian, itemMap[item]); err != nil {
 			return
@@ -652,7 +652,7 @@ func (c * Collection) saveValuesTree(treeFile string, itemMap map[*itemT]uint32,
 	return
 }
 
-func (c * Collection) loadValuesTree(treeFile string, itemList []*itemT, snapshotId uint64) (err error) {
+func (c *Collection) loadValuesTree(treeFile string, itemList []*itemT, snapshotId uint64) (err error) {
 	var f *os.File
 	f, err = os.Open(treeFile)
 	log.Infof("Opened valuesTree file: %s", treeFile)
@@ -675,7 +675,7 @@ func (c * Collection) loadValuesTree(treeFile string, itemList []*itemT, snapsho
 		if err = binary.Read(r, binary.BigEndian, &itemNum); err != nil {
 			return
 		}
-		return itemList[itemNum], obuf,nil
+		return itemList[itemNum], obuf, nil
 	}
 
 	if c.values, err = btree.Load(br, itemLoader); err != nil {
@@ -712,7 +712,7 @@ func (c *Collection) saveIndexTree(indexFile string, itemMap map[*itemT]uint32, 
 		return
 	}
 
-	itemSaver := func (w io.Writer, data interface{}) (err error) {
+	itemSaver := func(w io.Writer, data interface{}) (err error) {
 		item := data.(*itemT)
 		if err = binary.Write(w, binary.BigEndian, itemMap[item]); err != nil {
 			return
@@ -731,7 +731,7 @@ func (c *Collection) saveIndexTree(indexFile string, itemMap map[*itemT]uint32, 
 	return
 }
 
-func (c * Collection) loadIndexTree(treeFile string, itemList []*itemT, snapshotId uint64) (err error) {
+func (c *Collection) loadIndexTree(treeFile string, itemList []*itemT, snapshotId uint64) (err error) {
 	var f *os.File
 	f, err = os.Open(treeFile)
 	log.Infof("Opened indexTree file: %s", treeFile)
@@ -754,10 +754,13 @@ func (c * Collection) loadIndexTree(treeFile string, itemList []*itemT, snapshot
 		if err = binary.Read(r, binary.BigEndian, &itemNum); err != nil {
 			return
 		}
-		return itemList[itemNum], obuf,nil
+		return itemList[itemNum], obuf, nil
 	}
+	c.indexTree = &rbang.RTree{}
+	c.indexTree.SetStatsEnabled(true)
 
-	c.index = geoindex.Wrap(&rbang.RTree{})
+	c.index = geoindex.Wrap(c.indexTree)
+
 	if err = c.index.Load(br, itemLoader); err != nil {
 		log.Errorf("Failed to load valuesTree")
 	}
@@ -806,9 +809,8 @@ func loadString(r io.Reader, buf []byte) (s string, newBuf []byte, err error) {
 	if _, err = io.ReadFull(r, newBuf); err != nil {
 		return
 	}
-	return string(newBuf), newBuf,nil
+	return string(newBuf), newBuf, nil
 }
-
 
 func freeListAsBytes(row []fieldValuesSlot) []byte {
 	fvsSize := int(unsafe.Sizeof(fieldValuesSlot(0)))
@@ -840,7 +842,7 @@ func bytesAsFloats(row []byte) []float64 {
 	return *(*[]float64)(unsafe.Pointer(&row))
 }
 
-func verifySnapshotId(w io.Reader, snapshotId uint64) (err error){
+func verifySnapshotId(w io.Reader, snapshotId uint64) (err error) {
 	var word uint64
 	if err = binary.Read(w, binary.BigEndian, &word); err != nil {
 		log.Errorf("Failed to read snapshotId")

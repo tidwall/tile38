@@ -40,7 +40,7 @@ const (
 	RTreeJoinEntries  = "rtree_join_entries"
 )
 
-var validProperties = []string{RequirePass, LeaderAuth, ProtectedMode, MaxMemory, AutoGC, KeepAlive}
+var validProperties = []string{RequirePass, LeaderAuth, ProtectedMode, MaxMemory, AutoGC, KeepAlive, RTreeSplitEntries, RTreeJoinEntries}
 
 // Config is a tile38 config
 type Config struct {

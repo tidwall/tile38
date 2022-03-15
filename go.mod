@@ -34,7 +34,7 @@ require (
 	github.com/tidwall/lotsa v1.0.1 // indirect
 	github.com/tidwall/match v1.1.1
 	github.com/tidwall/pretty v1.2.0
-	github.com/tidwall/rbang v1.2.2
+	github.com/tidwall/rbang v1.2.2 // indirect
 	github.com/tidwall/redbench v0.0.0-20181110173744-17c5b5b864a4
 	github.com/tidwall/redcon v0.0.0-20171003141744-3df12143a4fe
 	github.com/tidwall/resp v0.0.0-20160908231031-b2b1a7ca20e3

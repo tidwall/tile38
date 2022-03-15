@@ -105,21 +105,25 @@ func (tr *RTree) Load(
 
 	// Temporary code - analyze the fill factor on existing collection
 	maxEntries := 0
-	var findMaxEntries func(n *node)
+	var findMaxEntries func(i interface{})
 
-	findMaxEntries = func(n *node) {
-		if n.count > maxEntries {
-			maxEntries = n.count
+	findMaxEntries = func(i interface{}) {
+		if i == nil {
+			return
 		}
 
-		for x := 0; x < n.count; x++ {
-			if n.rects[x].data != nil {
-				findMaxEntries(n.rects[x].data.(*node))
+		if i.(*node).count > maxEntries {
+			maxEntries = i.(*node).count
+		}
+
+		for x := 0; x < i.(*node).count; x++ {
+			if i.(*node).rects[x].data != nil {
+				findMaxEntries(i.(*node).rects[x].data)
 			}
 		}
 	}
 
-	findMaxEntries(tr.root.data.(*node))
+	findMaxEntries(tr.root.data)
 
 	if maxEntries > tr.GetSplitEntries() {
 		tr.SetSplitEntries(maxEntries)

@@ -173,8 +173,8 @@ func (tr *RTree) Insert(min, max [2]float64, value interface{}) {
 
 	if tr.statsEnabled {
 		tr.stats.Height.SetCount(uint64(tr.height))
-		tr.stats.SplitEntries.SetCount(uint64(tr.splitEntries))
-		tr.stats.JoinEntries.SetCount(uint64(tr.joinEntries))
+		tr.stats.SplitEntries.SetCount(uint64(tr.GetSplitEntries()))
+		tr.stats.JoinEntries.SetCount(uint64(tr.GetJoinEntries()))
 	}
 }
 

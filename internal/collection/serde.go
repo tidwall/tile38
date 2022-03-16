@@ -764,6 +764,7 @@ func (c *Collection) loadIndexTree(treeFile string, itemList []*itemT, snapshotI
 	if err = c.index.Load(br, itemLoader); err != nil {
 		log.Errorf("Failed to load valuesTree")
 	}
+
 	if err = verifySnapshotId(br, snapshotId); err != nil {
 		return
 	}

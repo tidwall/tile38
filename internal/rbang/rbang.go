@@ -171,11 +171,7 @@ func (tr *RTree) Insert(min, max [2]float64, value interface{}) {
 	fit(min, max, value, &item)
 	tr.insert(&item)
 
-	if tr.statsEnabled {
-		tr.stats.Height.SetCount(uint64(tr.height))
-		tr.stats.SplitEntries.SetCount(uint64(tr.GetSplitEntries()))
-		tr.stats.JoinEntries.SetCount(uint64(tr.GetJoinEntries()))
-	}
+	tr.RecordStats()
 }
 
 func (tr *RTree) insert(item *rect) {
@@ -619,4 +615,12 @@ func (tr *RTree) Replace(
 ) {
 	tr.Delete(oldMin, oldMax, oldData)
 	tr.Insert(newMin, newMax, newData)
+}
+
+func (tr *RTree) RecordStats() {
+	if tr.statsEnabled {
+		tr.stats.Height.SetCount(uint64(tr.height))
+		tr.stats.SplitEntries.SetCount(uint64(tr.GetSplitEntries()))
+		tr.stats.JoinEntries.SetCount(uint64(tr.GetJoinEntries()))
+	}
 }

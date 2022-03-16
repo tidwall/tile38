@@ -140,6 +140,8 @@ func (c *Collection) ReIndex() {
 
 	c.index = index
 	c.indexTree = indexTree
+
+	c.indexTree.RecordStats()
 }
 
 func objIsSpatial(obj geojson.Object) bool {

@@ -101,44 +101,40 @@ func (tr *RTree) Load(
 		if tr.root, buf, err = load(f, buf, loadValue); err != nil {
 			return
 		}
-	}
 
-	// Temporary code - analyze the fill factor on existing collection
-	maxEntries := 0
-	var findMaxEntries func(data interface{})
+		// Temporary code - analyze the fill factor on existing collection
+		maxEntries := 0
+		var findMaxEntries func(data interface{})
 
-	findMaxEntries = func(data interface{}) {
-		if data == nil {
-			return
-		}
+		findMaxEntries = func(data interface{}) {
+			if data == nil {
+				return
+			}
 
-		switch data := data.(type) {
-		case *node:
-			{
-				if data.count > maxEntries {
-					maxEntries = data.count
-				}
+			switch data := data.(type) {
+			case *node:
+				{
+					if data.count > maxEntries {
+						maxEntries = data.count
+					}
 
-				for x := 0; x < data.count; x++ {
-					if data.rects[x].data != nil {
-						findMaxEntries(data.rects[x].data)
+					for x := 0; x < data.count; x++ {
+						if data.rects[x].data != nil {
+							findMaxEntries(data.rects[x].data)
+						}
 					}
 				}
 			}
 		}
+
+		findMaxEntries(tr.root.data)
+
+		if maxEntries > tr.GetSplitEntries() {
+			tr.SetSplitEntries(maxEntries)
+		}
 	}
 
-	findMaxEntries(tr.root.data)
-
-	if maxEntries > tr.GetSplitEntries() {
-		tr.SetSplitEntries(maxEntries)
-	}
-
-	if tr.statsEnabled {
-		tr.stats.Height.SetCount(uint64(tr.height))
-		tr.stats.SplitEntries.SetCount(uint64(tr.GetSplitEntries()))
-		tr.stats.JoinEntries.SetCount(uint64(tr.GetJoinEntries()))
-	}
+	tr.RecordStats()
 
 	return
 }

@@ -536,7 +536,7 @@ func (r *rect) delete(item *rect, height int, stats *RTreeStats) (removed, recal
 				r.recalc()
 			}
 
-			if item.data.(*node).count == 0 {
+			if n.rects[i].data.(*node).count == 0 {
 				for x := i + 1; x < n.count; x++ {
 					n.rects[x-1] = n.rects[x]
 				}

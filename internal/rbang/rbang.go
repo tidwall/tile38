@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/tidwall/geoindex/child"
+	"github.com/tidwall/tile38/internal/log"
 )
 
 const (
@@ -516,6 +517,8 @@ func (r *rect) delete(item *rect, height int, joinTrigger int, reinsert []rect, 
 				n.rects[i] = n.rects[n.count-1]
 				n.rects[n.count-1].data = nil
 				n.count--
+
+				log.Infof("Deleting at height %d, reinsert count %d", height, len(reinsert))
 
 				if stats != nil {
 					stats.Join.IncCount(1)

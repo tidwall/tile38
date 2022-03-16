@@ -7,9 +7,11 @@ import (
 )
 
 const (
-	defaultMaxEntries   = 32
-	DefaultSplitEntries = defaultMaxEntries * 60 / 100
-	DefaultJoinEntries  = defaultMaxEntries * 40 / 100
+	defaultMaxEntries = 32
+	//DefaultSplitEntries = defaultMaxEntries * 60 / 100
+	//DefaultJoinEntries  = defaultMaxEntries * 40 / 100
+	DefaultSplitEntries = 20
+	DefaultJoinEntries  = 4
 )
 
 type rect struct {

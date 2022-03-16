@@ -10,8 +10,8 @@ const (
 	defaultMaxEntries = 32
 	//DefaultSplitEntries = defaultMaxEntries * 60 / 100
 	//DefaultJoinEntries  = defaultMaxEntries * 40 / 100
-	DefaultSplitEntries = 20
-	DefaultJoinEntries  = 4
+	DefaultSplitEntries = 28
+	DefaultJoinEntries  = 2
 )
 
 type rect struct {

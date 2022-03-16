@@ -441,7 +441,6 @@ func (tr *RTree) Scan(iter func(min, max [2]float64, data interface{}) bool) {
 	tr.root.scan(tr.height, iter)
 }
 
-// Delete data from tree
 func (tr *RTree) Delete(min, max [2]float64, data interface{}) {
 	var item rect
 	fit(min, max, data, &item)
@@ -455,8 +454,34 @@ func (tr *RTree) Delete(min, max [2]float64, data interface{}) {
 	}
 
 	var removed, recalced bool
+
+	removed, recalced = tr.root.delete(&item, tr.height, stats)
+
+	if !removed {
+		return
+	}
+
+	if recalced {
+		tr.root.recalc()
+	}
+}
+
+// Delete data from tree
+func (tr *RTree) DeleteOld(min, max [2]float64, data interface{}) {
+	var item rect
+	fit(min, max, data, &item)
+	if tr.root.data == nil || !tr.root.contains(&item) {
+		return
+	}
+
+	stats := &tr.stats
+	if !tr.statsEnabled {
+		stats = nil
+	}
+
+	var removed, recalced bool
 	removed, recalced, tr.reinsert =
-		tr.root.delete(&item, tr.height, tr.GetJoinEntries(), tr.reinsert[:0], stats)
+		tr.root.deleteOld(&item, tr.height, tr.GetJoinEntries(), tr.reinsert[:0], stats)
 	if !removed {
 		return
 	}
@@ -480,7 +505,53 @@ func (tr *RTree) Delete(min, max [2]float64, data interface{}) {
 	}
 }
 
-func (r *rect) delete(item *rect, height int, joinTrigger int, reinsert []rect, stats *RTreeStats) (
+func (r *rect) delete(item *rect, height int, stats *RTreeStats) (removed, recalced bool) {
+	n := r.data.(*node)
+
+	if height == 0 {
+		for i := 0; i < n.count; i++ {
+			if n.rects[i].data == item.data {
+				// found the target item to delete
+				recalced = r.onEdge(&n.rects[i])
+				n.rects[i] = n.rects[n.count-1]
+				n.rects[n.count-1].data = nil
+				n.count--
+				if recalced {
+					r.recalc()
+				}
+				return true, recalced
+			}
+		}
+	} else {
+		for i := 0; i < n.count; i++ {
+			if !n.rects[i].contains(item) {
+				continue
+			}
+
+			removed, recalced = n.rects[i].delete(item, height-1, stats)
+			if !removed {
+				continue
+			}
+			if recalced {
+				r.recalc()
+			}
+
+			if item.data.(*node).count == 0 {
+				for x := i + 1; x < n.count; x++ {
+					n.rects[x-1] = n.rects[x]
+				}
+				n.count--
+			}
+
+			return removed, recalced
+		}
+	}
+
+	return false, false
+
+}
+
+func (r *rect) deleteOld(item *rect, height int, joinTrigger int, reinsert []rect, stats *RTreeStats) (
 	removed, recalced bool, reinsertOut []rect,
 ) {
 	n := r.data.(*node)
@@ -504,7 +575,7 @@ func (r *rect) delete(item *rect, height int, joinTrigger int, reinsert []rect, 
 				continue
 			}
 			removed, recalced, reinsert =
-				n.rects[i].delete(item, height-1, joinTrigger, reinsert, stats)
+				n.rects[i].deleteOld(item, height-1, joinTrigger, reinsert, stats)
 			if !removed {
 				continue
 			}

@@ -61,8 +61,6 @@ type Collection struct {
 	stats CollectionStats
 }
 
-var counter uint64
-
 // New creates an empty collection
 func New() *Collection {
 	indexTree := &rbang.RTree{}
@@ -135,9 +133,9 @@ func (c *Collection) ReIndex() {
 	countAdded := 0
 	countSeen := 0
 
-	iter := func(item btree.Item) bool {
+	iter := func(key string, value interface{}) bool {
 		countSeen++
-		iitm := item.(*itemT)
+		iitm := value.(*itemT)
 
 		if !iitm.obj.Empty() {
 			countAdded++
@@ -146,13 +144,13 @@ func (c *Collection) ReIndex() {
 			index.Insert(
 				[2]float64{rect.Min.X, rect.Min.Y},
 				[2]float64{rect.Max.X, rect.Max.Y},
-				item)
+				value)
 		}
 
 		return true
 	}
 
-	c.values.Ascend(iter)
+	c.items.Scan(iter)
 
 	c.index = index
 	c.indexTree = indexTree

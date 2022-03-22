@@ -1096,6 +1096,7 @@ func (server *Server) cmdReindex(msg *Message) (res resp.Value, err error) {
 		return NOMessage, errKeyNotFound
 	}
 
+	
 	col.ReIndex()
 
 	res = resp.IntegerValue(0)

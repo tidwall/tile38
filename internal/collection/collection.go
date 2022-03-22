@@ -131,12 +131,25 @@ func (c *Collection) ReIndex() {
 
 	index := geoindex.Wrap(indexTree)
 
-	iter := func(min, max [2]float64, data interface{}) bool {
-		index.Insert(min, max, data)
+	count := 0
+
+	iter := func(item btree.Item) bool {
+		count++
+
+		iitm := item.(*itemT)
+
+		if !iitm.obj.Empty() {
+			rect := iitm.obj.Rect()
+			index.Insert(
+				[2]float64{rect.Min.X, rect.Min.Y},
+				[2]float64{rect.Max.X, rect.Max.Y},
+				item)
+		}
+
 		return true
 	}
 
-	c.index.Scan(iter)
+	c.values.Ascend(iter)
 
 	c.index = index
 	c.indexTree = indexTree

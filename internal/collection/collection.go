@@ -9,6 +9,7 @@ import (
 	"github.com/tidwall/geojson"
 	"github.com/tidwall/geojson/geo"
 	"github.com/tidwall/geojson/geometry"
+	"github.com/tidwall/tile38/internal/log"
 	"github.com/tidwall/tile38/internal/rbang"
 	"github.com/tidwall/tile38/internal/txn"
 	"github.com/tidwall/tinybtree"
@@ -131,14 +132,16 @@ func (c *Collection) ReIndex() {
 
 	index := geoindex.Wrap(indexTree)
 
-	count := 0
+	countAdded := 0
+	countSeen := 0
 
 	iter := func(item btree.Item) bool {
-		count++
-
+		countSeen++
 		iitm := item.(*itemT)
 
 		if !iitm.obj.Empty() {
+			countAdded++
+
 			rect := iitm.obj.Rect()
 			index.Insert(
 				[2]float64{rect.Min.X, rect.Min.Y},
@@ -153,6 +156,8 @@ func (c *Collection) ReIndex() {
 
 	c.index = index
 	c.indexTree = indexTree
+
+	log.Infof("Collection reindexed with %d nodes, saw %d items", countAdded, countSeen)
 
 	c.indexTree.RecordStats()
 }

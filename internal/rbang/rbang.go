@@ -532,15 +532,21 @@ func (r *rect) delete(item *rect, height int, stats *RTreeStats) (removed, recal
 			if !removed {
 				continue
 			}
-			if recalced {
-				r.recalc()
-			}
 
 			if n.rects[i].data.(*node).count == 0 {
 				for x := i + 1; x < n.count; x++ {
 					n.rects[x-1] = n.rects[x]
 				}
+				n.rects[n.count-1].data = nil
 				n.count--
+
+				if stats != nil {
+					stats.Join.IncCount(1)
+				}
+			}
+
+			if recalced {
+				r.recalc()
 			}
 
 			return removed, recalced

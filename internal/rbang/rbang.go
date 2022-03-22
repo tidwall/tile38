@@ -457,12 +457,17 @@ func (tr *RTree) Delete(min, max [2]float64, data interface{}) {
 
 	removed, recalced = tr.root.delete(&item, tr.height, stats)
 
-	if !removed {
-		return
-	}
+	if removed {
+		tr.count--
 
-	if recalced {
-		tr.root.recalc()
+		if tr.count == 0 {
+			tr.root = rect{}
+			recalced = false
+		}
+
+		if recalced {
+			tr.root.recalc()
+		}
 	}
 }
 

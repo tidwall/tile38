@@ -9,7 +9,8 @@ import (
 	"github.com/tidwall/geojson"
 	"github.com/tidwall/geojson/geo"
 	"github.com/tidwall/geojson/geometry"
-	"github.com/tidwall/rbang"
+	"github.com/tidwall/tile38/internal/log"
+	"github.com/tidwall/tile38/internal/rbang"
 	"github.com/tidwall/tile38/internal/txn"
 	"github.com/tidwall/tinybtree"
 )
@@ -45,6 +46,7 @@ func (item *itemT) Less(other btree.Item, ctx interface{}) bool {
 // Collection represents a collection of geojson objects.
 type Collection struct {
 	items       tinybtree.BTree // items sorted by keys
+	indexTree   *rbang.RTree
 	index       *geoindex.Index // items geospatially indexed
 	values      *btree.BTree    // items sorted by value+key
 	fieldMap    map[string]int
@@ -59,23 +61,38 @@ type Collection struct {
 	stats CollectionStats
 }
 
-var counter uint64
-
 // New creates an empty collection
 func New() *Collection {
+	indexTree := &rbang.RTree{}
+	indexTree.SetStatsEnabled(true)
+
 	col := &Collection{
-		index:       geoindex.Wrap(&rbang.RTree{}),
+		indexTree:   indexTree,
+		index:       geoindex.Wrap(indexTree),
 		values:      btree.New(32, nil),
 		fieldMap:    make(map[string]int),
 		fieldArr:    make([]string, 0),
 		fieldValues: &fieldValues{},
 	}
+
 	return col
 }
 
 // Stats returns stats about collection operations.
 func (c *Collection) Stats() *CollectionStats {
 	return &c.stats
+}
+
+func (c *Collection) TreeStats() *rbang.RTreeStats {
+	return c.indexTree.Stats()
+}
+
+func (c *Collection) SetRTreeJoinEntries(value int) error {
+	return c.indexTree.SetJoinEntries(value)
+}
+
+func (c *Collection) SetRTreeSplitEntries(value int) error {
+	return c.indexTree.SetSplitEntries(value)
 }
 
 // Count returns the number of objects in collection.
@@ -105,6 +122,42 @@ func (c *Collection) Bounds() (minX, minY, maxX, maxY float64) {
 		return min[0], min[1], max[0], max[1]
 	}
 	return
+}
+
+func (c *Collection) ReIndex() {
+	indexTree := &rbang.RTree{}
+	indexTree.SetStatsEnabled(true)
+
+	index := geoindex.Wrap(indexTree)
+
+	countAdded := 0
+	countSeen := 0
+
+	iter := func(key string, value interface{}) bool {
+		countSeen++
+		iitm := value.(*itemT)
+
+		if !iitm.obj.Empty() {
+			countAdded++
+
+			rect := iitm.obj.Rect()
+			index.Insert(
+				[2]float64{rect.Min.X, rect.Min.Y},
+				[2]float64{rect.Max.X, rect.Max.Y},
+				value)
+		}
+
+		return true
+	}
+
+	c.items.Scan(iter)
+
+	c.index = index
+	c.indexTree = indexTree
+
+	log.Infof("Collection reindexed with %d nodes, saw %d items", countAdded, countSeen)
+
+	c.indexTree.RecordStats()
 }
 
 func objIsSpatial(obj geojson.Object) bool {

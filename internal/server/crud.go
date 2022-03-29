@@ -9,7 +9,7 @@ import (
 	"github.com/mmcloughlin/geohash"
 	"github.com/tidwall/geojson"
 	"github.com/tidwall/geojson/geometry"
-	"github.com/tidwall/rbang"
+	"github.com/tidwall/tile38/internal/rbang"
 	"github.com/tidwall/resp"
 	"github.com/tidwall/rhh"
 	"github.com/tidwall/tile38/internal/collection"
@@ -1075,5 +1075,31 @@ func (server *Server) cmdTTL(msg *Message) (res resp.Value, err error) {
 			res = resp.IntegerValue(-2)
 		}
 	}
+	return
+}
+
+func (server *Server) cmdReindex(msg *Message) (res resp.Value, err error) {
+	vs := msg.Args[1:]
+
+	var ok bool
+	var key string
+	if _, key, ok = tokenval(vs); !ok || key == "" {
+		return NOMessage, errInvalidNumberOfArguments
+	}
+
+	col := server.getCol(key)
+
+	if col == nil {
+		if msg.OutputType == RESP {
+			return resp.NullValue(), nil
+		}
+		return NOMessage, errKeyNotFound
+	}
+
+	
+	col.ReIndex()
+
+	res = resp.IntegerValue(0)
+
 	return
 }

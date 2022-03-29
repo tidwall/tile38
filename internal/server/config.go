@@ -12,7 +12,9 @@ import (
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/resp"
+	"github.com/tidwall/tile38/internal/collection"
 	"github.com/tidwall/tile38/internal/glob"
+	"github.com/tidwall/tile38/internal/rbang"
 )
 
 const (
@@ -22,21 +24,23 @@ const (
 
 // Config keys
 const (
-	FollowHost    = "follow_host"
-	FollowPort    = "follow_port"
-	FollowID      = "follow_id"
-	FollowPos     = "follow_pos"
-	ServerID      = "server_id"
-	ReadOnly      = "read_only"
-	RequirePass   = "requirepass"
-	LeaderAuth    = "leaderauth"
-	ProtectedMode = "protected-mode"
-	MaxMemory     = "maxmemory"
-	AutoGC        = "autogc"
-	KeepAlive     = "keepalive"
+	FollowHost        = "follow_host"
+	FollowPort        = "follow_port"
+	FollowID          = "follow_id"
+	FollowPos         = "follow_pos"
+	ServerID          = "server_id"
+	ReadOnly          = "read_only"
+	RequirePass       = "requirepass"
+	LeaderAuth        = "leaderauth"
+	ProtectedMode     = "protected-mode"
+	MaxMemory         = "maxmemory"
+	AutoGC            = "autogc"
+	KeepAlive         = "keepalive"
+	RTreeSplitEntries = "rtree_split_entries"
+	RTreeJoinEntries  = "rtree_join_entries"
 )
 
-var validProperties = []string{RequirePass, LeaderAuth, ProtectedMode, MaxMemory, AutoGC, KeepAlive}
+var validProperties = []string{RequirePass, LeaderAuth, ProtectedMode, MaxMemory, AutoGC, KeepAlive, RTreeSplitEntries, RTreeJoinEntries}
 
 // Config is a tile38 config
 type Config struct {
@@ -63,6 +67,9 @@ type Config struct {
 	_autoGC         uint64
 	_keepAliveP     string
 	_keepAlive      int64
+
+	_rtree_join_entries  int
+	_rtree_split_entries int
 }
 
 func loadConfig(path string) (*Config, error) {
@@ -111,6 +118,10 @@ func loadConfig(path string) (*Config, error) {
 	if err := config.setProperty(KeepAlive, config._keepAliveP, true); err != nil {
 		return nil, err
 	}
+
+	config._rtree_split_entries = rbang.DefaultSplitEntries
+	config._rtree_join_entries = rbang.DefaultJoinEntries
+
 	config.write(false)
 	return config, nil
 }
@@ -286,6 +297,28 @@ func (config *Config) setProperty(name, value string, fromLoad bool) error {
 				config._keepAlive = int64(keepalive)
 			}
 		}
+	case RTreeSplitEntries:
+		if value == "" {
+			config._rtree_split_entries = rbang.DefaultSplitEntries
+		} else {
+			value, err := strconv.ParseUint(value, 10, 32)
+			if err != nil {
+				invalid = true
+			} else {
+				config._rtree_split_entries = int(value)
+			}
+		}
+	case RTreeJoinEntries:
+		if value == "" {
+			config._rtree_join_entries = rbang.DefaultJoinEntries
+		} else {
+			value, err := strconv.ParseUint(value, 10, 32)
+			if err != nil {
+				invalid = true
+			} else {
+				config._rtree_join_entries = int(value)
+			}
+		}
 	}
 
 	if invalid {
@@ -323,6 +356,10 @@ func (config *Config) getProperty(name string) string {
 		return formatMemSize(config._maxMemory)
 	case KeepAlive:
 		return strconv.FormatUint(uint64(config._keepAlive), 10)
+	case RTreeJoinEntries:
+		return strconv.FormatUint(uint64(config._rtree_join_entries), 10)
+	case RTreeSplitEntries:
+		return strconv.FormatUint(uint64(config._rtree_split_entries), 10)
 	}
 }
 
@@ -373,6 +410,30 @@ func (s *Server) cmdConfigSet(msg *Message) (res resp.Value, err error) {
 	if err := s.config.setProperty(name, value, false); err != nil {
 		return NOMessage, err
 	}
+
+	// Right now these config values are ephemeral, and will not apply to new collections getting created
+	if name == RTreeJoinEntries {
+		configValue := s.config.rtree_join_entries()
+
+		s.cols.Scan(func(key string, value interface{}) bool {
+			col := value.(*collection.Collection)
+			col.SetRTreeJoinEntries(configValue)
+
+			return true
+		})
+	}
+
+	if name == RTreeSplitEntries {
+		configValue := s.config.rtree_split_entries()
+
+		s.cols.Scan(func(key string, value interface{}) bool {
+			col := value.(*collection.Collection)
+			col.SetRTreeSplitEntries(configValue)
+
+			return true
+		})
+	}
+
 	return OKMessage(msg, start), nil
 }
 func (s *Server) cmdConfigRewrite(msg *Message) (res resp.Value, err error) {
@@ -455,6 +516,18 @@ func (config *Config) autoGC() uint64 {
 func (config *Config) keepAlive() int64 {
 	config.mu.RLock()
 	v := config._keepAlive
+	config.mu.RUnlock()
+	return v
+}
+func (config *Config) rtree_join_entries() int {
+	config.mu.RLock()
+	v := config._rtree_join_entries
+	config.mu.RUnlock()
+	return v
+}
+func (config *Config) rtree_split_entries() int {
+	config.mu.RLock()
+	v := config._rtree_split_entries
 	config.mu.RUnlock()
 	return v
 }

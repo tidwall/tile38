@@ -1,4 +1,4 @@
-package collection
+package rbang
 
 import (
 	"sync/atomic"
@@ -36,6 +36,13 @@ func updateIfLess(addr *uint64, new uint64) {
 	}
 }
 
+func (s *OpStat) SetCount(value uint64) {
+	atomic.StoreUint64(&s.count, value)
+}
+
+func (s *OpStat) IncCount(value uint64) {
+	atomic.AddUint64(&s.count, value)
+}
 
 func (s *OpStat) record() func() {
 	start := time.Now()
@@ -64,18 +71,11 @@ func (s *OpStat) MinDuration() time.Duration {
 	return time.Duration(s.minDuration)
 }
 
-type CollectionStats struct {
-	Get                OpStat
-	Set                OpStat
-	Delete             OpStat
-	SetField           OpStat
-	SetFields          OpStat
-	Scan               OpStat
-	ScanRange          OpStat
-	SearchValues       OpStat
-	SearchValuesRange  OpStat
-	ScanGreaterOrEqual OpStat
-	Within             OpStat
-	Intersects         OpStat
-	Nearby             OpStat
+type RTreeStats struct {
+	Split  OpStat
+	Join   OpStat
+	Height OpStat
+
+	SplitEntries OpStat
+	JoinEntries  OpStat
 }

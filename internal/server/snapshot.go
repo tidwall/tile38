@@ -329,3 +329,4 @@ func (s *Server) doLoadSnapshot(snapshotIdStr string) error {
 	log.Infof("Loaded snapshot %s", snapshotIdStr)
 	return nil
 }
+

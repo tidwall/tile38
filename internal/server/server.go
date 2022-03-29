@@ -25,7 +25,6 @@ import (
 	"github.com/tidwall/buntdb"
 	"github.com/tidwall/geojson"
 	"github.com/tidwall/geojson/geometry"
-	"github.com/tidwall/rbang"
 	"github.com/tidwall/redcon"
 	"github.com/tidwall/resp"
 	"github.com/tidwall/rhh"
@@ -34,6 +33,7 @@ import (
 	"github.com/tidwall/tile38/internal/endpoint"
 	"github.com/tidwall/tile38/internal/expire"
 	"github.com/tidwall/tile38/internal/log"
+	"github.com/tidwall/tile38/internal/rbang"
 	"github.com/tidwall/tile38/internal/txn"
 	"github.com/tidwall/tinybtree"
 )
@@ -975,7 +975,10 @@ func (server *Server) handleInputCommand(client *Client, msg *Message) error {
 	case "aof", "aofmd5":
 		// Read lock on AOF
 		defer server.ReaderLock()()
+	case "reindex":
+		defer server.WriterLock()()
 	}
+
 	res, d, err := func() (res resp.Value, d commandDetails, err error) {
 		if !msg.Deadline.IsZero() {
 			if write {
@@ -1196,6 +1199,8 @@ func (server *Server) command(msg *Message, client *Client, ts *txn.Status) (
 		res, err = server.cmdPsubscribe(msg)
 	case "publish":
 		res, err = server.cmdPublish(msg)
+	case "reindex":
+		res, err = server.cmdReindex(msg)
 	case "test":
 		res, err = server.cmdTest(msg)
 	}

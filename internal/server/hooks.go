@@ -145,7 +145,7 @@ func (s *Server) cmdSetHook(msg *Message) (
 	hook.ScanWriter, err = s.newScanWriter(
 		&wr, cmsg, args.key, args.output, args.precision, args.glob, false,
 		args.cursor, args.limit, args.wheres, args.whereins, args.whereevals,
-		args.nofields)
+		args.nofields, args.mvt)
 	if err != nil {
 
 		return NOMessage, d, err

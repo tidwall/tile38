@@ -85,6 +85,7 @@ require (
 	github.com/tidwall/cities v0.1.0 // indirect
 	github.com/tidwall/grect v0.1.4 // indirect
 	github.com/tidwall/lotsa v1.0.2 // indirect
+	github.com/tidwall/mvt v0.1.2 // indirect
 	github.com/tidwall/rtred v0.1.2 // indirect
 	github.com/tidwall/tinyqueue v0.1.1 // indirect
 	github.com/xdg/stringprep v1.0.3 // indirect

@@ -107,7 +107,8 @@ func (s *Server) goLive(
 	s.mu.RLock()
 	sw, err = s.newScanWriter(
 		&wr, msg, lfs.key, lfs.output, lfs.precision, lfs.glob, false,
-		lfs.cursor, lfs.limit, lfs.wheres, lfs.whereins, lfs.whereevals, lfs.nofields)
+		lfs.cursor, lfs.limit, lfs.wheres, lfs.whereins, lfs.whereevals,
+		lfs.nofields, lfs.mvt)
 	s.mu.RUnlock()
 
 	// everything below if for live SCAN, NEARBY, WITHIN, INTERSECTS

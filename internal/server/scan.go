@@ -48,7 +48,7 @@ func (s *Server) cmdScan(msg *Message) (res resp.Value, err error) {
 	sw, err := s.newScanWriter(
 		wr, msg, args.key, args.output, args.precision, args.glob, false,
 		args.cursor, args.limit, args.wheres, args.whereins, args.whereevals,
-		args.nofields)
+		args.nofields, args.mvt)
 	if err != nil {
 		return NOMessage, err
 	}

@@ -213,6 +213,7 @@ type searchScanBaseTokens struct {
 	clip       bool
 	buffer     float64
 	hasbuffer  bool
+	mvt        bool
 }
 
 func (s *Server) parseSearchScanBaseTokens(

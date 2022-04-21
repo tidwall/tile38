@@ -131,7 +131,7 @@ func parseRectArea(ltyp string, vs []string) (nvs []string, rect *geojson.Rect, 
 			Min: geometry.Point{X: minLon, Y: minLat},
 			Max: geometry.Point{X: maxLon, Y: maxLat},
 		})
-	case "tile":
+	case "tile", "mvt":
 		var sx, sy, sz string
 		if vs, sx, ok = tokenval(vs); !ok || sx == "" {
 			err = errInvalidNumberOfArguments
@@ -188,6 +188,7 @@ func (s *Server) cmdSearchArgs(
 		err = errInvalidNumberOfArguments
 		return
 	}
+
 	if lfs.searchScanBaseTokens.output == outputBounds {
 		if cmd == "within" || cmd == "intersects" {
 			if _, err := strconv.ParseFloat(typ, 64); err == nil {
@@ -208,6 +209,7 @@ func (s *Server) cmdSearchArgs(
 		err = errInvalidArgument(typ)
 		return
 	}
+
 	switch ltyp {
 	case "point":
 		var slat, slon, smeters string
@@ -352,11 +354,12 @@ func (s *Server) cmdSearchArgs(
 		if err != nil {
 			return
 		}
-	case "bounds", "hash", "tile", "quadkey":
+	case "bounds", "hash", "tile", "mvt", "quadkey":
 		vs, lfs.obj, err = parseRectArea(ltyp, vs)
 		if err != nil {
 			return
 		}
+		lfs.mvt = ltyp == "mvt"
 	case "get":
 		if lfs.clip {
 			err = errInvalidArgument("cannot clip with get")
@@ -463,6 +466,7 @@ var nearbyTypes = map[string]bool{
 var withinOrIntersectsTypes = map[string]bool{
 	"geo": true, "bounds": true, "hash": true, "tile": true, "quadkey": true,
 	"get": true, "object": true, "circle": true, "point": true, "sector": true,
+	"mvt": true,
 }
 
 func (s *Server) cmdNearby(msg *Message) (res resp.Value, err error) {
@@ -489,7 +493,8 @@ func (s *Server) cmdNearby(msg *Message) (res resp.Value, err error) {
 	}
 	sw, err := s.newScanWriter(
 		wr, msg, sargs.key, sargs.output, sargs.precision, sargs.glob, false,
-		sargs.cursor, sargs.limit, sargs.wheres, sargs.whereins, sargs.whereevals, sargs.nofields)
+		sargs.cursor, sargs.limit, sargs.wheres, sargs.whereins,
+		sargs.whereevals, sargs.nofields, sargs.mvt)
 	if err != nil {
 		return NOMessage, err
 	}
@@ -581,7 +586,8 @@ func (s *Server) cmdWithinOrIntersects(cmd string, msg *Message) (res resp.Value
 	}
 	sw, err := s.newScanWriter(
 		wr, msg, sargs.key, sargs.output, sargs.precision, sargs.glob, false,
-		sargs.cursor, sargs.limit, sargs.wheres, sargs.whereins, sargs.whereevals, sargs.nofields)
+		sargs.cursor, sargs.limit, sargs.wheres, sargs.whereins,
+		sargs.whereevals, sargs.nofields, sargs.mvt)
 	if err != nil {
 		return NOMessage, err
 	}
@@ -665,7 +671,8 @@ func (s *Server) cmdSearch(msg *Message) (res resp.Value, err error) {
 	}
 	sw, err := s.newScanWriter(
 		wr, msg, sargs.key, sargs.output, sargs.precision, sargs.glob, true,
-		sargs.cursor, sargs.limit, sargs.wheres, sargs.whereins, sargs.whereevals, sargs.nofields)
+		sargs.cursor, sargs.limit, sargs.wheres, sargs.whereins,
+		sargs.whereevals, sargs.nofields, sargs.mvt)
 	if err != nil {
 		return NOMessage, err
 	}

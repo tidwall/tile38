@@ -5,10 +5,12 @@
 </p>
 <p align="center">
 <a href="https://tile38.com/slack/"><img src="https://img.shields.io/badge/slack-channel-orange.svg" alt="Slack Channel"></a>
-<a href="https://hub.docker.com/r/tile38/tile38"><img src="https://img.shields.io/badge/docker-ready-blue.svg" alt="Docker Ready"></a>
+<a href="https://hub.docker.com/r/tile38/tile38"><img src="https://img.shields.io/docker/pulls/tile38/tile38.svg" alt="Docker Pulls"></a>
 </p>
 
-Tile38 is an open source (MIT licensed), in-memory geolocation data store, spatial index, and realtime geofence. It supports a variety of object types including lat/lon points, bounding boxes, XYZ tiles, Geohashes, and GeoJSON. 
+
+Tile38 is an open source (MIT licensed), in-memory geolocation data store, spatial index, and realtime geofencing server.
+It supports a variety of object types including lat/lon points, bounding boxes, XYZ tiles, Geohashes, and GeoJSON. 
 
 <p align="center">
 <i>This README is quick start document. You can find detailed documentation at <a href="https://tile38.com">https://tile38.com</a>.</i><br><br>

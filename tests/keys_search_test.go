@@ -48,7 +48,7 @@ func keys_KNN_basic_test(mc *mockServer) error {
 		{"NEARBY", "mykey", "LIMIT", 10, "IDS", "POINT", 20, 20, 4000000}, {"[0 [2 3 5 1 4 6]]"},
 		{"NEARBY", "mykey", "LIMIT", 10, "IDS", "POINT", 20, 20, 1500000}, {"[0 [2 3 5]]"},
 		{"NEARBY", "mykey", "LIMIT", 10, "DISTANCE", "POINT", 52, 13, 100}, {`[0 [[6 {"type":"Point","coordinates":[13,52]} 0]]]`},
-		{"NEARBY", "mykey", "LIMIT", 10, "DISTANCE", "POINT", 52.1, 13.1, 100000}, {`[0 [[6 {"type":"Point","coordinates":[13,52]} 13053.885940801563]]]`},
+		{"NEARBY", "mykey", "LIMIT", 10, "POINT", 52.1, 13.1, 100000}, {`[0 [[6 {"type":"Point","coordinates":[13,52]}]]]`},
 	})
 }
 

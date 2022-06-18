@@ -21,7 +21,9 @@ If applicable, provide logs, panics, system messages to help explain your proble
 
 **Operating System (please complete the following information):**
  - OS: [e.g. Linux / Windows / Mac OS]
- - Version [e.g. 1.19.0]
+ - CPU: [e.g. amd64 / arm64 / Apple Silicon / Intel]
+ - Version: [e.g. 1.19.0]
+ - Container: [e.g. Docker / None]
 
 **Additional context**
 Add any other context about the problem here.

@@ -308,6 +308,8 @@ func Serve(opts Options) error {
 		go func() {
 			http.HandleFunc("/", s.MetricsIndexHandler)
 			http.HandleFunc("/metrics", s.MetricsHandler)
+			http.HandleFunc("/health/ready", s.ReadinessHandler)
+			http.HandleFunc("/health/live", s.LiveNessHandler)
 			log.Fatal(http.ListenAndServe(opts.MetricsAddr, nil))
 		}()
 	}

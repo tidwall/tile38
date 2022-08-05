@@ -1,10 +1,10 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
-	"net/http"
-
 	"github.com/tidwall/tile38/core"
+	"net/http"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -73,6 +73,60 @@ func (s *Server) MetricsHandler(w http.ResponseWriter, r *http.Request) {
 	)
 
 	promhttp.HandlerFor(reg, promhttp.HandlerOpts{}).ServeHTTP(w, r)
+}
+
+type Response struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
+func WriteJSONResponse(w http.ResponseWriter, code int, resp interface{}) error {
+	enc, err := json.Marshal(resp)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return err
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+
+	_, err = w.Write(enc)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// ReadinessHandler Если сервер временно недоступен, то отдаст код 200
+func (s *Server) ReadinessHandler(w http.ResponseWriter, _ *http.Request) {
+	var args []string
+	args = append(args, "SERVER")
+	_, err := s.cmdServer(&Message{Args: args, OutputType: JSON})
+	if err != nil {
+		_ = WriteJSONResponse(w, http.StatusExpectationFailed, Response{
+			Status:  "ok",
+			Message: err.Error(),
+		})
+		return
+	}
+	_ = WriteJSONResponse(w, http.StatusOK, Response{
+		Status: "ok",
+	})
+}
+
+// LiveNessHandler всегда отдает 200 Ok, если сервер умрет, то тут будет 502
+func (s *Server) LiveNessHandler(w http.ResponseWriter, _ *http.Request) {
+	_, err := s.cmdHealthz(&Message{OutputType: RESP})
+	if err != nil {
+		_ = WriteJSONResponse(w, http.StatusExpectationFailed, Response{
+			Status:  "ok",
+			Message: err.Error(),
+		})
+		return
+	}
+	_ = WriteJSONResponse(w, http.StatusOK, Response{
+		Status: "ok",
+	})
 }
 
 func (s *Server) Describe(ch chan<- *prometheus.Desc) {

@@ -50,6 +50,23 @@
             ]
           },
           {
+            "name": "circle",
+            "arguments": [
+              {
+                "name": "lat",
+                "type": "double"
+              },
+              {
+                "name": "lon",
+                "type": "double"
+              },
+              {
+                "name": "meters",
+                "type": "double"
+              }
+            ]
+          },
+          {
             "name": "POINT",
             "arguments": [
               {
@@ -913,7 +930,7 @@
                 "type": "geohash"
               }
             ]
-          },          
+          },
           {
             "name": "SECTOR",
             "arguments": [

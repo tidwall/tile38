@@ -758,6 +758,40 @@ func (s *Server) parseSetArgs(vs []string) (
 		if err != nil {
 			return
 		}
+	case lcb(typ, "circle"):
+		var slat, slon, smeters string
+		if vs, slat, ok = tokenval(vs); !ok || slat == "" {
+			err = errInvalidNumberOfArguments
+			return
+		}
+		if vs, slon, ok = tokenval(vs); !ok || slon == "" {
+			err = errInvalidNumberOfArguments
+			return
+		}
+		var lat, lon, meters float64
+		if lat, err = strconv.ParseFloat(slat, 64); err != nil {
+			err = errInvalidArgument(slat)
+			return
+		}
+		if lon, err = strconv.ParseFloat(slon, 64); err != nil {
+			err = errInvalidArgument(slon)
+			return
+		}
+		if vs, smeters, ok = tokenval(vs); !ok || smeters == "" {
+			err = errInvalidNumberOfArguments
+			return
+		}
+		meters, err = strconv.ParseFloat(smeters, 64)
+		if err != nil || meters < 0 {
+			err = errInvalidArgument(smeters)
+			return
+		}
+		if meters == 0 {
+			d.obj = geojson.NewPoint(geometry.Point{X: lon, Y: lat})
+		} else {
+			c := geojson.NewCircle(geometry.Point{X: lon, Y: lat}, meters, defaultCircleSteps)
+			d.obj = c.Primative()
+		}
 	}
 	if len(vs) != 0 {
 		err = errInvalidNumberOfArguments

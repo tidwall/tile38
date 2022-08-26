@@ -2,6 +2,15 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.29.0] = 2022-07-14
+
+### Added
+- b883f35: Add pending_events stat
+- #643: Expose config and INFO response for replia-priorty (@rave-eserating)
+
+### Fixed
+- 8e61f81: Fixed test on Apple silicon
+
 ## [1.28.0] = 2022-04-12
 ### Added
 - 10f8564: Added option to "not found" for DEL

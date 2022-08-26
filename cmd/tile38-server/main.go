@@ -436,9 +436,6 @@ Developer Options:
     | | | | | -_|_  | . |  %s%s, PID: %d
     |_| |_|_|___|___|___|  tile38.com
 
-Please consider sponsoring Tile38 development, especially if your company
-benefits from this software. Visit tile38.com/sponsor today to learn more.
-
 `, core.Version, gitsha, strconv.IntSize, runtime.GOARCH, runtime.GOOS, hostd,
 			saddr, os.Getpid())
 	}

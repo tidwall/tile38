@@ -113,6 +113,7 @@ type Server struct {
 	lstack       []*commandDetails
 	lives        map[*liveBuffer]bool
 	lcond        *sync.Cond
+	lwait        sync.WaitGroup
 	fcup         bool         // follow caught up
 	fcuponce     bool         // follow caught up once
 	shrinking    bool         // aof shrinking flag
@@ -312,6 +313,7 @@ func Serve(opts Options) error {
 		}()
 	}
 
+	s.lwait.Add(1)
 	go s.processLives()
 	go s.watchOutOfMemory()
 	go s.watchLuaStatePool()
@@ -322,11 +324,7 @@ func Serve(opts Options) error {
 		// Stop background routines
 		s.followc.add(1) // this will force any follow communication to die
 		s.stopServer.set(true)
-
-		// notify the live geofence connections that we are stopping.
-		s.lcond.L.Lock()
-		s.lcond.Wait()
-		s.lcond.L.Lock()
+		s.lwait.Wait()
 	}()
 
 	// Server is now loaded and ready. Wait for network error messages.

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/tidwall/redcon"
 	"github.com/tidwall/tile38/internal/log"
@@ -21,6 +22,13 @@ type liveBuffer struct {
 }
 
 func (s *Server) processLives() {
+	defer s.lwait.Done()
+	go func() {
+		for {
+			s.lcond.Broadcast()
+			time.Sleep(time.Second / 4)
+		}
+	}()
 	s.lcond.L.Lock()
 	defer s.lcond.L.Unlock()
 	for {

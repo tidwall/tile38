@@ -7,7 +7,6 @@ import (
 
 	"github.com/tidwall/geojson"
 	"github.com/tidwall/resp"
-	"github.com/tidwall/tile38/internal/glob"
 )
 
 func (s *Server) cmdScanArgs(vs []string) (
@@ -46,7 +45,7 @@ func (s *Server) cmdScan(msg *Message) (res resp.Value, err error) {
 	}
 	wr := &bytes.Buffer{}
 	sw, err := s.newScanWriter(
-		wr, msg, args.key, args.output, args.precision, args.glob, false,
+		wr, msg, args.key, args.output, args.precision, args.globs, false,
 		args.cursor, args.limit, args.wheres, args.whereins, args.whereevals,
 		args.nofields, args.mvt)
 	if err != nil {
@@ -65,8 +64,8 @@ func (s *Server) cmdScan(msg *Message) (res resp.Value, err error) {
 			}
 			sw.count = uint64(count)
 		} else {
-			g := glob.Parse(sw.globPattern, args.desc)
-			if g.Limits[0] == "" && g.Limits[1] == "" {
+			limits := multiGlobParse(sw.globs, args.desc)
+			if limits[0] == "" && limits[1] == "" {
 				sw.col.Scan(args.desc, sw,
 					msg.Deadline,
 					func(id string, o geojson.Object, fields []float64) bool {
@@ -78,7 +77,7 @@ func (s *Server) cmdScan(msg *Message) (res resp.Value, err error) {
 					},
 				)
 			} else {
-				sw.col.ScanRange(g.Limits[0], g.Limits[1], args.desc, sw,
+				sw.col.ScanRange(limits[0], limits[1], args.desc, sw,
 					msg.Deadline,
 					func(id string, o geojson.Object, fields []float64) bool {
 						return sw.writeObject(ScanWriterParams{

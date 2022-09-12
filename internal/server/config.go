@@ -21,22 +21,23 @@ const (
 
 // Config keys
 const (
-	FollowHost    = "follow_host"
-	FollowPort    = "follow_port"
-	FollowID      = "follow_id"
-	FollowPos     = "follow_pos"
-	ServerID      = "server_id"
-	ReadOnly      = "read_only"
-	RequirePass   = "requirepass"
-	LeaderAuth    = "leaderauth"
-	ProtectedMode = "protected-mode"
-	MaxMemory     = "maxmemory"
-	AutoGC        = "autogc"
-	KeepAlive     = "keepalive"
-	LogConfig     = "logconfig"
+	FollowHost      = "follow_host"
+	FollowPort      = "follow_port"
+	FollowID        = "follow_id"
+	FollowPos       = "follow_pos"
+	ReplicaPriority = "replica-priority"
+	ServerID        = "server_id"
+	ReadOnly        = "read_only"
+	RequirePass     = "requirepass"
+	LeaderAuth      = "leaderauth"
+	ProtectedMode   = "protected-mode"
+	MaxMemory       = "maxmemory"
+	AutoGC          = "autogc"
+	KeepAlive       = "keepalive"
+	LogConfig       = "logconfig"
 )
 
-var validProperties = []string{RequirePass, LeaderAuth, ProtectedMode, MaxMemory, AutoGC, KeepAlive, LogConfig}
+var validProperties = []string{RequirePass, LeaderAuth, ProtectedMode, MaxMemory, AutoGC, KeepAlive, LogConfig, ReplicaPriority}
 
 // Config is a tile38 config
 type Config struct {
@@ -44,12 +45,13 @@ type Config struct {
 
 	mu sync.RWMutex
 
-	_followHost string
-	_followPort int64
-	_followID   string
-	_followPos  int64
-	_serverID   string
-	_readOnly   bool
+	_followHost      string
+	_followPort      int64
+	_followID        string
+	_followPos       int64
+	_replicaPriority int64
+	_serverID        string
+	_readOnly        bool
 
 	_requirePassP   string
 	_requirePass    string
@@ -97,6 +99,15 @@ func loadConfig(path string) (*Config, error) {
 
 	if config._serverID == "" {
 		config._serverID = randomKey(16)
+	}
+
+	// Need to be sure we look for existence vs not zero because zero is an intentional setting
+	// anything less than zero will be considered default and will result in no slave_priority
+	// being output when INFO is called.
+	if gjson.Get(json, ReplicaPriority).Exists() {
+		config._replicaPriority = gjson.Get(json, ReplicaPriority).Int()
+	} else {
+		config._replicaPriority = -1
 	}
 
 	// load properties
@@ -166,6 +177,9 @@ func (config *Config) write(writeProperties bool) {
 	}
 	if config._followPos != 0 {
 		m[FollowPos] = config._followPos
+	}
+	if config._replicaPriority >= 0 {
+		m[ReplicaPriority] = config._replicaPriority
 	}
 	if config._serverID != "" {
 		m[ServerID] = config._serverID
@@ -312,6 +326,13 @@ func (config *Config) setProperty(name, value string, fromLoad bool) error {
 		} else {
 			config._logConfig = value
 		}
+	case ReplicaPriority:
+		replicaPriority, err := strconv.ParseUint(value, 10, 64)
+		if err != nil || replicaPriority < 0 {
+			invalid = true
+		} else {
+			config._replicaPriority = int64(replicaPriority)
+		}
 	}
 
 	if invalid {
@@ -351,6 +372,12 @@ func (config *Config) getProperty(name string) string {
 		return strconv.FormatUint(uint64(config._keepAlive), 10)
 	case LogConfig:
 		return config._logConfig
+	case ReplicaPriority:
+		if config._replicaPriority < 0 {
+			return ""
+		} else {
+			return strconv.FormatUint(uint64(config._replicaPriority), 10)
+		}
 	}
 }
 
@@ -423,6 +450,12 @@ func (config *Config) followHost() string {
 func (config *Config) followPort() int {
 	config.mu.RLock()
 	v := config._followPort
+	config.mu.RUnlock()
+	return int(v)
+}
+func (config *Config) replicaPriority() int {
+	config.mu.RLock()
+	v := config._replicaPriority
 	config.mu.RUnlock()
 	return int(v)
 }

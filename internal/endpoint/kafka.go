@@ -80,26 +80,30 @@ func (conn *KafkaConn) Send(msg string) error {
 
 		switch conn.ep.Kafka.Auth {
 		case "sasl":
-			// Other than TLS authentication, SASL does not require SSL
+			// This path allows to either provide a custom ca certificate
+			// or, because RootCAs is nil, is using the hosts ca set
+			// to verify the server certificate
 			if conn.ep.Kafka.SSL {
 				tlsConfig := tls.Config{}
 
-				log.Debugf("building kafka tls root config")
-				caCertPool, err := loadRootTLSCert(conn.ep.Kafka.CACertFile)
-				if err != nil {
-					return err
+				if conn.ep.Kafka.CACertFile != "" {
+					caCertPool, err := loadRootTLSCert(conn.ep.Kafka.CACertFile)
+					if err != nil {
+						return err
+					}
+					tlsConfig.RootCAs = &caCertPool
 				}
-				tlsConfig.RootCAs = &caCertPool
 
 				cfg.Net.TLS.Enable = true
 				cfg.Net.TLS.Config = &tlsConfig
 			}
 
-			log.Debugf("building kafka sasl config")
 			cfg.Net.SASL.Enable = true
 			cfg.Net.SASL.User = os.Getenv("KAFKA_USERNAME")
 			cfg.Net.SASL.Password = os.Getenv("KAFKA_PASSWORD")
 			cfg.Net.SASL.Handshake = true
+			cfg.Net.SASL.Mechanism = sarama.SASLTypePlaintext
+
 			if conn.ep.Kafka.SASLSHA256 {
 				cfg.Net.SASL.SCRAMClientGeneratorFunc = func() sarama.SCRAMClient { return &XDGSCRAMClient{HashGeneratorFcn: SHA256} }
 				cfg.Net.SASL.Mechanism = sarama.SASLTypeSCRAMSHA256
@@ -110,25 +114,26 @@ func (conn *KafkaConn) Send(msg string) error {
 			}
 		case "tls":
 			tlsConfig := tls.Config{}
+			cfg.Net.TLS.Enable = true
 
-			log.Debugf("building kafka tls client config")
 			certificates, err := loadClientTLSCert(conn.ep.Kafka.KeyFile, conn.ep.Kafka.CertFile)
 			if err != nil {
 				cfg.MetricRegistry.UnregisterAll()
 				return err
 			}
+			tlsConfig.Certificates = certificates
 
-			// TLS authentication requires SSL
-			// and Tile38 requires certificates to be validated
-			caCertPool, err := loadRootTLSCert(conn.ep.Kafka.CACertFile)
-			if err != nil {
-				return err
+			// This path allows to either provide a custom ca certificate
+			// or, because RootCAs is nil, is using the hosts ca set
+			// to verify server certificate
+			if conn.ep.Kafka.CACertFile != "" {
+				caCertPool, err := loadRootTLSCert(conn.ep.Kafka.CACertFile)
+				if err != nil {
+					return err
+				}
+				tlsConfig.RootCAs = &caCertPool
 			}
 
-			cfg.Net.TLS.Enable = true
-
-			tlsConfig.Certificates = certificates
-			tlsConfig.RootCAs = &caCertPool
 			cfg.Net.TLS.Config = &tlsConfig
 		}
 

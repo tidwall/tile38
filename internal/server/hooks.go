@@ -143,7 +143,7 @@ func (s *Server) cmdSetHook(msg *Message) (
 	}
 	var wr bytes.Buffer
 	hook.ScanWriter, err = s.newScanWriter(
-		&wr, cmsg, args.key, args.output, args.precision, args.glob, false,
+		&wr, cmsg, args.key, args.output, args.precision, args.globs, false,
 		args.cursor, args.limit, args.wheres, args.whereins, args.whereevals,
 		args.nofields, args.mvt)
 	if err != nil {

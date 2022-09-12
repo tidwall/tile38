@@ -4,7 +4,6 @@ import (
 	"runtime"
 
 	"github.com/tidwall/btree"
-	"github.com/tidwall/geoindex"
 	"github.com/tidwall/geojson"
 	"github.com/tidwall/geojson/geo"
 	"github.com/tidwall/geojson/geometry"
@@ -28,13 +27,13 @@ type itemT struct {
 	fieldValuesSlot fieldValuesSlot
 }
 
-func byID(a, b interface{}) bool {
-	return a.(*itemT).id < b.(*itemT).id
+func byID(a, b *itemT) bool {
+	return a.id < b.id
 }
 
-func byValue(a, b interface{}) bool {
-	value1 := a.(*itemT).obj.String()
-	value2 := b.(*itemT).obj.String()
+func byValue(a, b *itemT) bool {
+	value1 := a.obj.String()
+	value2 := b.obj.String()
 	if value1 < value2 {
 		return true
 	}
@@ -45,13 +44,11 @@ func byValue(a, b interface{}) bool {
 	return byID(a, b)
 }
 
-func byExpires(a, b interface{}) bool {
-	item1 := a.(*itemT)
-	item2 := b.(*itemT)
-	if item1.expires < item2.expires {
+func byExpires(a, b *itemT) bool {
+	if a.expires < b.expires {
 		return true
 	}
-	if item1.expires > item2.expires {
+	if a.expires > b.expires {
 		return false
 	}
 	// the values match so we'll compare IDs, which are always unique.
@@ -60,10 +57,10 @@ func byExpires(a, b interface{}) bool {
 
 // Collection represents a collection of geojson objects.
 type Collection struct {
-	items       *btree.BTree    // items sorted by id
-	index       *geoindex.Index // items geospatially indexed
-	values      *btree.BTree    // items sorted by value+id
-	expires     *btree.BTree    // items sorted by ex+id
+	items       *btree.BTreeG[*itemT] // items sorted by id
+	spatial     *rtree.RTreeG[*itemT] // items geospatially indexed
+	values      *btree.BTreeG[*itemT] // items sorted by value+id
+	expires     *btree.BTreeG[*itemT] // items sorted by ex+id
 	fieldMap    map[string]int
 	fieldArr    []string
 	fieldValues *fieldValues
@@ -73,13 +70,15 @@ type Collection struct {
 	nobjects    int // non-geometry count
 }
 
+var optsNoLock = btree.Options{NoLocks: true}
+
 // New creates an empty collection
 func New() *Collection {
 	col := &Collection{
-		items:       btree.NewNonConcurrent(byID),
-		index:       geoindex.Wrap(&rtree.RTree{}),
-		values:      btree.NewNonConcurrent(byValue),
-		expires:     btree.NewNonConcurrent(byExpires),
+		items:       btree.NewBTreeGOptions(byID, optsNoLock),
+		values:      btree.NewBTreeGOptions(byValue, optsNoLock),
+		expires:     btree.NewBTreeGOptions(byExpires, optsNoLock),
+		spatial:     &rtree.RTreeG[*itemT]{},
 		fieldMap:    make(map[string]int),
 		fieldArr:    make([]string, 0),
 		fieldValues: &fieldValues{},
@@ -109,7 +108,7 @@ func (c *Collection) TotalWeight() int {
 
 // Bounds returns the bounds of all the items in the collection.
 func (c *Collection) Bounds() (minX, minY, maxX, maxY float64) {
-	min, max := c.index.Bounds()
+	min, max := c.spatial.Bounds()
 	if len(min) >= 2 && len(max) >= 2 {
 		return min[0], min[1], max[0], max[1]
 	}
@@ -134,7 +133,7 @@ func (c *Collection) objWeight(item *itemT) int {
 func (c *Collection) indexDelete(item *itemT) {
 	if !item.obj.Empty() {
 		rect := item.obj.Rect()
-		c.index.Delete(
+		c.spatial.Delete(
 			[2]float64{rect.Min.X, rect.Min.Y},
 			[2]float64{rect.Max.X, rect.Max.Y},
 			item)
@@ -144,7 +143,7 @@ func (c *Collection) indexDelete(item *itemT) {
 func (c *Collection) indexInsert(item *itemT) {
 	if !item.obj.Empty() {
 		rect := item.obj.Rect()
-		c.index.Insert(
+		c.spatial.Insert(
 			[2]float64{rect.Min.X, rect.Min.Y},
 			[2]float64{rect.Max.X, rect.Max.Y},
 			item)
@@ -164,9 +163,8 @@ func (c *Collection) Set(
 	newItem := &itemT{id: id, obj: obj, fieldValuesSlot: nilValuesSlot, expires: ex}
 
 	// add the new item to main btree and remove the old one if needed
-	oldItem := c.items.Set(newItem)
-	if oldItem != nil {
-		oldItem := oldItem.(*itemT)
+	oldItem, ok := c.items.Set(newItem)
+	if ok {
 		// the old item was removed, now let's remove it from the rtree/btree.
 		if objIsSpatial(oldItem.obj) {
 			c.indexDelete(oldItem)
@@ -191,8 +189,10 @@ func (c *Collection) Set(
 		oldFieldValues = c.fieldValues.get(oldItem.fieldValuesSlot)
 		newFieldValues = oldFieldValues
 		newItem.fieldValuesSlot = oldItem.fieldValuesSlot
+		if len(oldFieldValues) > 0 {
+			oldFieldValues = append([]float64{}, oldFieldValues...)
+		}
 	}
-
 	if fields == nil {
 		if len(values) > 0 {
 			newFieldValues = values
@@ -230,11 +230,10 @@ func (c *Collection) Set(
 func (c *Collection) Delete(id string) (
 	obj geojson.Object, fields []float64, ok bool,
 ) {
-	v := c.items.Delete(&itemT{id: id})
-	if v == nil {
+	oldItem, ok := c.items.Delete(&itemT{id: id})
+	if !ok {
 		return nil, nil, false
 	}
-	oldItem := v.(*itemT)
 	if objIsSpatial(oldItem.obj) {
 		if !oldItem.obj.Empty() {
 			c.indexDelete(oldItem)
@@ -261,20 +260,18 @@ func (c *Collection) Delete(id string) (
 func (c *Collection) Get(id string) (
 	obj geojson.Object, fields []float64, ex int64, ok bool,
 ) {
-	itemV := c.items.Get(&itemT{id: id})
-	if itemV == nil {
+	item, ok := c.items.Get(&itemT{id: id})
+	if !ok {
 		return nil, nil, 0, false
 	}
-	item := itemV.(*itemT)
 	return item.obj, c.fieldValues.get(item.fieldValuesSlot), item.expires, true
 }
 
 func (c *Collection) SetExpires(id string, ex int64) bool {
-	v := c.items.Get(&itemT{id: id})
-	if v == nil {
+	item, ok := c.items.Get(&itemT{id: id})
+	if !ok {
 		return false
 	}
-	item := v.(*itemT)
 	if item.expires != 0 {
 		c.expires.Delete(item)
 	}
@@ -290,11 +287,10 @@ func (c *Collection) SetExpires(id string, ex int64) bool {
 func (c *Collection) SetField(id, field string, value float64) (
 	obj geojson.Object, fields []float64, updated bool, ok bool,
 ) {
-	itemV := c.items.Get(&itemT{id: id})
-	if itemV == nil {
+	item, ok := c.items.Get(&itemT{id: id})
+	if !ok {
 		return nil, nil, false, false
 	}
-	item := itemV.(*itemT)
 	_, updateCount, weightDelta := c.setFieldValues(item, []string{field}, []float64{value})
 	c.weight += weightDelta
 	return item.obj, c.fieldValues.get(item.fieldValuesSlot), updateCount > 0, true
@@ -304,11 +300,10 @@ func (c *Collection) SetField(id, field string, value float64) (
 func (c *Collection) SetFields(
 	id string, inFields []string, inValues []float64,
 ) (obj geojson.Object, fields []float64, updatedCount int, ok bool) {
-	itemV := c.items.Get(&itemT{id: id})
-	if itemV == nil {
+	item, ok := c.items.Get(&itemT{id: id})
+	if !ok {
 		return nil, nil, 0, false
 	}
-	item := itemV.(*itemT)
 	newFieldValues, updateCount, weightDelta := c.setFieldValues(item, inFields, inValues)
 	c.weight += weightDelta
 	return item.obj, newFieldValues, updateCount, true
@@ -392,20 +387,19 @@ func (c *Collection) Scan(
 		offset = cursor.Offset()
 		cursor.Step(offset)
 	}
-	iter := func(item interface{}) bool {
+	iter := func(item *itemT) bool {
 		count++
 		if count <= offset {
 			return true
 		}
 		nextStep(count, cursor, deadline)
-		iitm := item.(*itemT)
-		keepon = iterator(iitm.id, iitm.obj, c.fieldValues.get(iitm.fieldValuesSlot))
+		keepon = iterator(item.id, item.obj, c.fieldValues.get(item.fieldValuesSlot))
 		return keepon
 	}
 	if desc {
-		c.items.Descend(nil, iter)
+		c.items.Reverse(iter)
 	} else {
-		c.items.Ascend(nil, iter)
+		c.items.Scan(iter)
 	}
 	return keepon
 }
@@ -425,8 +419,7 @@ func (c *Collection) ScanRange(
 		offset = cursor.Offset()
 		cursor.Step(offset)
 	}
-	iter := func(value interface{}) bool {
-		item := value.(*itemT)
+	iter := func(item *itemT) bool {
 		count++
 		if count <= offset {
 			return true
@@ -441,8 +434,7 @@ func (c *Collection) ScanRange(
 				return false
 			}
 		}
-		iitm := value.(*itemT)
-		keepon = iterator(iitm.id, iitm.obj, c.fieldValues.get(iitm.fieldValuesSlot))
+		keepon = iterator(item.id, item.obj, c.fieldValues.get(item.fieldValuesSlot))
 		return keepon
 	}
 
@@ -468,20 +460,19 @@ func (c *Collection) SearchValues(
 		offset = cursor.Offset()
 		cursor.Step(offset)
 	}
-	iter := func(item interface{}) bool {
+	iter := func(item *itemT) bool {
 		count++
 		if count <= offset {
 			return true
 		}
 		nextStep(count, cursor, deadline)
-		iitm := item.(*itemT)
-		keepon = iterator(iitm.id, iitm.obj, c.fieldValues.get(iitm.fieldValuesSlot))
+		keepon = iterator(item.id, item.obj, c.fieldValues.get(item.fieldValuesSlot))
 		return keepon
 	}
 	if desc {
-		c.values.Descend(nil, iter)
+		c.values.Reverse(iter)
 	} else {
-		c.values.Ascend(nil, iter)
+		c.values.Scan(iter)
 	}
 	return keepon
 }
@@ -499,33 +490,32 @@ func (c *Collection) SearchValuesRange(start, end string, desc bool,
 		offset = cursor.Offset()
 		cursor.Step(offset)
 	}
-	iter := func(item interface{}) bool {
+	iter := func(item *itemT) bool {
 		count++
 		if count <= offset {
 			return true
 		}
 		nextStep(count, cursor, deadline)
-		iitm := item.(*itemT)
-		keepon = iterator(iitm.id, iitm.obj, c.fieldValues.get(iitm.fieldValuesSlot))
+		keepon = iterator(item.id, item.obj, c.fieldValues.get(item.fieldValuesSlot))
 		return keepon
 	}
 	pstart := &itemT{obj: String(start)}
 	pend := &itemT{obj: String(end)}
 	if desc {
 		// descend range
-		c.values.Descend(pstart, func(item interface{}) bool {
+		c.values.Descend(pstart, func(item *itemT) bool {
 			return bGT(c.values, item, pend) && iter(item)
 		})
 	} else {
-		c.values.Ascend(pstart, func(item interface{}) bool {
+		c.values.Ascend(pstart, func(item *itemT) bool {
 			return bLT(c.values, item, pend) && iter(item)
 		})
 	}
 	return keepon
 }
 
-func bLT(tr *btree.BTree, a, b interface{}) bool { return tr.Less(a, b) }
-func bGT(tr *btree.BTree, a, b interface{}) bool { return tr.Less(b, a) }
+func bLT(tr *btree.BTreeG[*itemT], a, b *itemT) bool { return tr.Less(a, b) }
+func bGT(tr *btree.BTreeG[*itemT], a, b *itemT) bool { return tr.Less(b, a) }
 
 // ScanGreaterOrEqual iterates though the collection starting with specified id.
 func (c *Collection) ScanGreaterOrEqual(id string, desc bool,
@@ -540,13 +530,12 @@ func (c *Collection) ScanGreaterOrEqual(id string, desc bool,
 		offset = cursor.Offset()
 		cursor.Step(offset)
 	}
-	iter := func(v interface{}) bool {
+	iter := func(item *itemT) bool {
 		count++
 		if count <= offset {
 			return true
 		}
 		nextStep(count, cursor, deadline)
-		item := v.(*itemT)
 		keepon = iterator(item.id, item.obj, c.fieldValues.get(item.fieldValuesSlot), item.expires)
 		return keepon
 	}
@@ -563,11 +552,10 @@ func (c *Collection) geoSearch(
 	iter func(id string, obj geojson.Object, fields []float64) bool,
 ) bool {
 	alive := true
-	c.index.Search(
+	c.spatial.Search(
 		[2]float64{rect.Min.X, rect.Min.Y},
 		[2]float64{rect.Max.X, rect.Max.Y},
-		func(_, _ [2]float64, itemv interface{}) bool {
-			item := itemv.(*itemT)
+		func(_, _ [2]float64, item *itemT) bool {
 			alive = iter(item.id, item.obj, c.fieldValues.get(item.fieldValuesSlot))
 			return alive
 		},
@@ -753,10 +741,10 @@ func (c *Collection) Nearby(
 			minLat, minLon, maxLat, maxLon :=
 				geo.RectFromCenter(center.Y, center.X, meters)
 			var exists bool
-			c.index.Search(
+			c.spatial.Search(
 				[2]float64{minLon, minLat},
 				[2]float64{maxLon, maxLat},
-				func(_, _ [2]float64, itemv interface{}) bool {
+				func(_, _ [2]float64, item *itemT) bool {
 					exists = true
 					return false
 				},
@@ -776,15 +764,14 @@ func (c *Collection) Nearby(
 		offset = cursor.Offset()
 		cursor.Step(offset)
 	}
-	c.index.Nearby(
-		geodeticDistAlgo([2]float64{center.X, center.Y}),
-		func(_, _ [2]float64, itemv interface{}, dist float64) bool {
+	c.spatial.Nearby(
+		geodeticDistAlgo[*itemT]([2]float64{center.X, center.Y}),
+		func(_, _ [2]float64, item *itemT, dist float64) bool {
 			count++
 			if count <= offset {
 				return true
 			}
 			nextStep(count, cursor, deadline)
-			item := itemv.(*itemT)
 			alive = iter(item.id, item.obj, c.fieldValues.get(item.fieldValuesSlot), dist)
 			return alive
 		},
@@ -802,17 +789,10 @@ func nextStep(step uint64, cursor Cursor, deadline *deadline.Deadline) {
 	}
 }
 
-type Expired struct {
-	ID     string
-	Obj    geojson.Object
-	Fields []float64
-}
-
 // Expired returns a list of all objects that have expired.
 func (c *Collection) Expired(now int64, buffer []string) (ids []string) {
 	ids = buffer[:0]
-	c.expires.Ascend(nil, func(v interface{}) bool {
-		item := v.(*itemT)
+	c.expires.Scan(func(item *itemT) bool {
 		if now < item.expires {
 			return false
 		}

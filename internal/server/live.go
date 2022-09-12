@@ -14,7 +14,7 @@ import (
 
 type liveBuffer struct {
 	key     string
-	glob    string
+	globs   []string
 	fence   *liveFenceSwitches
 	details []*commandDetails
 	cond    *sync.Cond
@@ -101,12 +101,12 @@ func (s *Server) goLive(
 	var sw *scanWriter
 	var wr bytes.Buffer
 	lfs := inerr.(liveFenceSwitches)
-	lb.glob = lfs.glob
+	lb.globs = lfs.globs
 	lb.key = lfs.key
 	lb.fence = &lfs
 	s.mu.RLock()
 	sw, err = s.newScanWriter(
-		&wr, msg, lfs.key, lfs.output, lfs.precision, lfs.glob, false,
+		&wr, msg, lfs.key, lfs.output, lfs.precision, lfs.globs, false,
 		lfs.cursor, lfs.limit, lfs.wheres, lfs.whereins, lfs.whereevals,
 		lfs.nofields, lfs.mvt)
 	s.mu.RUnlock()

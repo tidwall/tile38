@@ -393,10 +393,11 @@ func keys_WHEREIN_test(mc *mockServer) error {
 		{"WITHIN", "mykey", "WHEREIN", "a", 3, 0, "a", 2, "BOUNDS", 32.8, -115.2, 33.2, -114.8}, {"ERR invalid argument 'a'"},
 		{"SET", "mykey", "myid_a2", "FIELD", "a", 2, "POINT", 32.99, -115}, {"OK"},
 		{"SET", "mykey", "myid_a3", "FIELD", "a", 3, "POINT", 33, -115.02}, {"OK"},
-		{"WITHIN", "mykey", "WHEREIN", "a", 3, 0, 1, 2, "BOUNDS", 32.8, -115.2, 33.2, -114.8}, {`[0 [[myid_a1 {"type":"Point","coordinates":[-115,33]} [a 1]] [myid_a2 {"type":"Point","coordinates":[-115,32.99]} [a 2]]]]`},
+		{"WITHIN", "mykey", "WHEREIN", "a", 3, 0, 1, 2, "BOUNDS", 32.8, -115.2, 33.2, -114.8}, {
+			`[0 [[myid_a2 {"type":"Point","coordinates":[-115,32.99]} [a 2]] [myid_a1 {"type":"Point","coordinates":[-115,33]} [a 1]]]]`},
 		// zero value should not match 1 and 2
 		{"SET", "mykey", "myid_a0", "FIELD", "a", 0, "POINT", 33, -115.02}, {"OK"},
-		{"WITHIN", "mykey", "WHEREIN", "a", 2, 1, 2, "BOUNDS", 32.8, -115.2, 33.2, -114.8}, {`[0 [[myid_a1 {"type":"Point","coordinates":[-115,33]} [a 1]] [myid_a2 {"type":"Point","coordinates":[-115,32.99]} [a 2]]]]`},
+		{"WITHIN", "mykey", "WHEREIN", "a", 2, 1, 2, "BOUNDS", 32.8, -115.2, 33.2, -114.8}, {`[0 [[myid_a2 {"type":"Point","coordinates":[-115,32.99]} [a 2]] [myid_a1 {"type":"Point","coordinates":[-115,33]} [a 1]]]]`},
 	})
 }
 
@@ -408,6 +409,6 @@ func keys_WHEREEVAL_test(mc *mockServer) error {
 		{"WITHIN", "mykey", "WHEREEVAL", "return FIELDS.a > tonumber(ARGV[1])", 1, 0.5, 4, "BOUNDS", 32.8, -115.2, 33.2, -114.8}, {"ERR invalid argument '4'"},
 		{"SET", "mykey", "myid_a2", "FIELD", "a", 2, "POINT", 32.99, -115}, {"OK"},
 		{"SET", "mykey", "myid_a3", "FIELD", "a", 3, "POINT", 33, -115.02}, {"OK"},
-		{"WITHIN", "mykey", "WHEREEVAL", "return FIELDS.a > tonumber(ARGV[1]) and FIELDS.a ~= tonumber(ARGV[2])", 2, 0.5, 3, "BOUNDS", 32.8, -115.2, 33.2, -114.8}, {`[0 [[myid_a1 {"type":"Point","coordinates":[-115,33]} [a 1]] [myid_a2 {"type":"Point","coordinates":[-115,32.99]} [a 2]]]]`},
+		{"WITHIN", "mykey", "WHEREEVAL", "return FIELDS.a > tonumber(ARGV[1]) and FIELDS.a ~= tonumber(ARGV[2])", 2, 0.5, 3, "BOUNDS", 32.8, -115.2, 33.2, -114.8}, {`[0 [[myid_a2 {"type":"Point","coordinates":[-115,32.99]} [a 2]] [myid_a1 {"type":"Point","coordinates":[-115,33]} [a 1]]]]`},
 	})
 }

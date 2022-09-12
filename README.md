@@ -318,6 +318,7 @@ Clients that support most Tile38 features are marked with a ⭐️.
 - ⭐️ Go: [xjem/t38c](https://github.com/xjem/t38c)
 - ⭐️ Node.js: [node-tile38](https://github.com/phulst/node-tile38) ([example code](https://github.com/tidwall/tile38/wiki/Node.js-example-(node-tile38)))
 - ⭐️ Python: [pyle38](https://github.com/iwpnd/pyle38)
+- ⭐️ TypeScript: [tile38-ts](https://github.com/tiermobility/tile38-ts)
 - Go: [cjkreklow/t38c](https://github.com/cjkreklow/t38c)
 - Python: [pytile38](https://github.com/mitghi/pytile38)
 - Rust: [nazar](https://github.com/younisshah/nazar)

@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tidwall/buntdb"
 	"github.com/tidwall/resp"
 	"github.com/tidwall/tile38/core"
 )
@@ -167,17 +168,17 @@ func (s *Server) basicStats(m map[string]interface{}) {
 	m["in_memory_size"] = sz
 	points := 0
 	objects := 0
-	strings := 0
+	nstrings := 0
 	s.cols.Ascend(nil, func(v interface{}) bool {
 		col := v.(*collectionKeyContainer).col
 		points += col.PointCount()
 		objects += col.Count()
-		strings += col.StringCount()
+		nstrings += col.StringCount()
 		return true
 	})
 	m["num_points"] = points
 	m["num_objects"] = objects
-	m["num_strings"] = strings
+	m["num_strings"] = nstrings
 	mem := readMemStats()
 	avgsz := 0
 	if points != 0 {
@@ -194,6 +195,18 @@ func (s *Server) basicStats(m map[string]interface{}) {
 	m["cpus"] = runtime.NumCPU()
 	n, _ := runtime.ThreadCreateProfile(nil)
 	m["threads"] = float64(n)
+	var nevents int
+	s.qdb.View(func(tx *buntdb.Tx) error {
+		// All entries in the buntdb log are events, except for one, which
+		// is "hook:idx".
+		nevents, _ = tx.Len()
+		nevents -= 1 // Ignore the "hook:idx"
+		if nevents < 0 {
+			nevents = 0
+		}
+		return nil
+	})
+	m["pending_events"] = nevents
 }
 
 // extStats populates the passed map with extended system/go/tile38 statistics
@@ -408,6 +421,9 @@ func (s *Server) writeInfoReplication(w *bytes.Buffer) {
 		fmt.Fprintf(w, "role:slave\r\n")
 		fmt.Fprintf(w, "master_host:%s\r\n", s.config.followHost())
 		fmt.Fprintf(w, "master_port:%v\r\n", s.config.followPort())
+		if s.config.replicaPriority() >= 0 {
+			fmt.Fprintf(w, "slave_priority:%v\r\n", s.config.replicaPriority())
+		}
 	} else {
 		fmt.Fprintf(w, "role:master\r\n")
 		var i int

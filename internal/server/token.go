@@ -200,7 +200,7 @@ type searchScanBaseTokens struct {
 	nodwell    bool
 	detect     map[string]bool
 	accept     map[string]bool
-	glob       string
+	globs      []string
 	wheres     []whereT
 	whereins   []whereinT
 	whereevals []whereevalT
@@ -544,14 +544,12 @@ func (s *Server) parseSearchScanBaseTokens(
 				continue
 			case "match":
 				vs = nvs
-				if t.glob != "" {
-					err = errDuplicateArgument(strings.ToUpper(wtok))
-					return
-				}
-				if vs, t.glob, ok = tokenval(vs); !ok || t.glob == "" {
+				var glob string
+				if vs, glob, ok = tokenval(vs); !ok || glob == "" {
 					err = errInvalidNumberOfArguments
 					return
 				}
+				t.globs = append(t.globs, glob)
 				continue
 			case "clip":
 				vs = nvs

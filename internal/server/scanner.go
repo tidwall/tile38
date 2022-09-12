@@ -35,6 +35,7 @@ type scanWriter struct {
 	mu             sync.Mutex
 	s              *Server
 	wr             *bytes.Buffer
+	key            string
 	msg            *Message
 	col            *collection.Collection
 	fmap           map[string]int
@@ -53,15 +54,16 @@ type scanWriter struct {
 	once           bool
 	count          uint64
 	precision      uint64
-	globPattern    string
+	globs          []string
 	globEverything bool
-	globSingle     bool
 	fullFields     bool
 	values         []resp.Value
 	mvtObjs        []geojson.Object
 	matchValues    bool
 	mvt            bool
 	respOut        resp.Value
+	orgWheres      []whereT
+	orgWhereins    []whereinT
 }
 
 // ScanWriterParams ...
@@ -72,6 +74,7 @@ type ScanWriterParams struct {
 	distance        float64
 	distOutput      bool // query or fence requested distance output
 	noLock          bool
+	noTest          bool
 	ignoreGlobMatch bool
 	clip            geojson.Object
 	skipTesting     bool
@@ -79,7 +82,7 @@ type ScanWriterParams struct {
 
 func (s *Server) newScanWriter(
 	wr *bytes.Buffer, msg *Message, key string, output outputT,
-	precision uint64, globPattern string, matchValues bool,
+	precision uint64, globs []string, matchValues bool,
 	cursor, limit uint64, wheres []whereT, whereins []whereinT,
 	whereevals []whereevalT, nofields, mvt bool,
 ) (
@@ -100,52 +103,64 @@ func (s *Server) newScanWriter(
 	sw := &scanWriter{
 		s:           s,
 		wr:          wr,
+		key:         key,
 		msg:         msg,
 		mvt:         mvt,
+		globs:       globs,
 		limit:       limit,
 		cursor:      cursor,
 		output:      output,
 		nofields:    nofields,
 		precision:   precision,
 		whereevals:  whereevals,
-		globPattern: globPattern,
 		matchValues: matchValues,
 	}
-	if globPattern == "*" || globPattern == "" {
+
+	if len(globs) == 0 || (len(globs) == 1 && globs[0] == "*") {
 		sw.globEverything = true
-	} else {
-		if !glob.IsGlob(globPattern) {
-			sw.globSingle = true
-		}
 	}
-	sw.col = s.getCol(key)
+	sw.orgWheres = wheres
+	sw.orgWhereins = whereins
+	sw.loadWheres()
+	return sw, nil
+}
+
+func (sw *scanWriter) loadWheres() {
+	sw.fmap = nil
+	sw.farr = nil
+	sw.wheres = nil
+	sw.whereins = nil
+	sw.fvals = nil
+	sw.col = sw.s.getCol(sw.key)
 	if sw.col != nil {
 		sw.fmap = sw.col.FieldMap()
 		sw.farr = sw.col.FieldArr()
 		// This fills index value in wheres/whereins
 		// so we don't have to map string field names for each tested object
 		var ok bool
-		if len(wheres) > 0 {
-			sw.wheres = make([]whereT, len(wheres))
-			for i, where := range wheres {
+		if len(sw.orgWheres) > 0 {
+			sw.wheres = make([]whereT, len(sw.orgWheres))
+			for i, where := range sw.orgWheres {
 				if where.index, ok = sw.fmap[where.field]; !ok {
 					where.index = math.MaxInt32
 				}
 				sw.wheres[i] = where
 			}
 		}
-		if len(whereins) > 0 {
-			sw.whereins = make([]whereinT, len(whereins))
-			for i, wherein := range whereins {
+		if len(sw.orgWhereins) > 0 {
+			sw.whereins = make([]whereinT, len(sw.orgWhereins))
+			for i, wherein := range sw.orgWhereins {
 				if wherein.index, ok = sw.fmap[wherein.field]; !ok {
 					wherein.index = math.MaxInt32
 				}
 				sw.whereins[i] = wherein
 			}
 		}
+		if len(sw.farr) > 0 {
+			sw.fvals = make([]float64, len(sw.farr))
+		}
 	}
-	sw.fvals = make([]float64, len(sw.farr))
-	return sw, nil
+
 }
 
 func (sw *scanWriter) hasFieldsOutput() bool {
@@ -365,25 +380,23 @@ func (sw *scanWriter) fieldMatch(fields []float64, o geojson.Object) (fvals []fl
 }
 
 func (sw *scanWriter) globMatch(id string, o geojson.Object) (ok, keepGoing bool) {
-	if !sw.globEverything {
-		if sw.globSingle {
-			if sw.globPattern != id {
-				return false, true
-			}
-			return true, false
-		}
-		var val string
-		if sw.matchValues {
-			val = o.String()
-		} else {
-			val = id
-		}
-		ok, _ := glob.Match(sw.globPattern, val)
-		if !ok {
-			return false, true
+	if sw.globEverything {
+		return true, true
+	}
+	var val string
+	if sw.matchValues {
+		val = o.String()
+	} else {
+		val = id
+	}
+	for _, pattern := range sw.globs {
+		ok, _ := glob.Match(pattern, val)
+		if ok {
+			return true, true
 		}
 	}
-	return true, true
+	return false, true
+
 }
 
 // Increment cursor
@@ -407,15 +420,20 @@ func (sw *scanWriter) testObject(id string, o geojson.Object, fields []float64) 
 	return ok, true, nf
 }
 
-//id string, o geojson.Object, fields []float64, noLock bool
+// id string, o geojson.Object, fields []float64, noLock bool
 func (sw *scanWriter) writeObject(opts ScanWriterParams) bool {
 	if !opts.noLock {
 		sw.mu.Lock()
 		defer sw.mu.Unlock()
 	}
-	ok, keepGoing, _ := sw.testObject(opts.id, opts.o, opts.fields)
-	if !ok {
-		return keepGoing
+
+	keepGoing := true
+	if !opts.noTest {
+		var ok bool
+		ok, keepGoing, _ = sw.testObject(opts.id, opts.o, opts.fields)
+		if !ok {
+			return keepGoing
+		}
 	}
 	sw.count++
 	if sw.output == outputCount {

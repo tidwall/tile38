@@ -21,6 +21,7 @@ require (
 	github.com/tidwall/geojson v1.3.4
 	github.com/tidwall/gjson v1.12.1
 	github.com/tidwall/match v1.1.1
+	github.com/tidwall/mvt v0.1.2
 	github.com/tidwall/pretty v1.2.0
 	github.com/tidwall/redbench v0.1.0
 	github.com/tidwall/redcon v1.4.4
@@ -89,8 +90,6 @@ require (
 	github.com/rcrowley/go-metrics v0.0.0-20201227073835-cf1acfcdf475 // indirect
 	github.com/tidwall/geoindex v1.7.0 // indirect
 	github.com/tidwall/grect v0.1.4 // indirect
-	github.com/tidwall/lotsa v1.0.2 // indirect
-	github.com/tidwall/mvt v0.1.2 // indirect
 	github.com/tidwall/rtred v0.1.2 // indirect
 	github.com/tidwall/tinyqueue v0.1.1 // indirect
 	github.com/xdg/stringprep v1.0.3 // indirect

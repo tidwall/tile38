@@ -184,7 +184,7 @@ func (s *Server) cmdJget(msg *Message) (resp.Value, error) {
 			}
 		}
 	}
-	col := s.getCol(key)
+	col, _ := s.cols.Get(key)
 	if col == nil {
 		if msg.OutputType == RESP {
 			return resp.NullValue(), nil
@@ -262,7 +262,7 @@ func (s *Server) cmdJset(msg *Message) (res resp.Value, d commandDetails, err er
 			raw = true
 		}
 	}
-	col := s.getCol(key)
+	col, _ := s.cols.Get(key)
 	var createcol bool
 	if col == nil {
 		col = collection.New()
@@ -293,7 +293,7 @@ func (s *Server) cmdJset(msg *Message) (res resp.Value, d commandDetails, err er
 		return s.cmdSet(&nmsg)
 	}
 	if createcol {
-		s.setCol(key, col)
+		s.cols.Set(key, col)
 	}
 
 	d.key = key
@@ -325,7 +325,7 @@ func (s *Server) cmdJdel(msg *Message) (res resp.Value, d commandDetails, err er
 	id := msg.Args[2]
 	path := msg.Args[3]
 
-	col := s.getCol(key)
+	col, _ := s.cols.Get(key)
 	if col == nil {
 		if msg.OutputType == RESP {
 			return resp.IntegerValue(0), d, nil

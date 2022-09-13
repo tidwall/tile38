@@ -789,15 +789,9 @@ func nextStep(step uint64, cursor Cursor, deadline *deadline.Deadline) {
 	}
 }
 
-// Expired returns a list of all objects that have expired.
-func (c *Collection) Expired(now int64, buffer []string) (ids []string) {
-	ids = buffer[:0]
+// ScanExpires returns a list of all objects that have expired.
+func (c *Collection) ScanExpires(iter func(id string, expires int64) bool) {
 	c.expires.Scan(func(item *itemT) bool {
-		if now < item.expires {
-			return false
-		}
-		ids = append(ids, item.id)
-		return true
+		return iter(item.id, item.expires)
 	})
-	return ids
 }

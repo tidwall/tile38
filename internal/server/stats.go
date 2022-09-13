@@ -16,6 +16,7 @@ import (
 	"github.com/tidwall/buntdb"
 	"github.com/tidwall/resp"
 	"github.com/tidwall/tile38/core"
+	"github.com/tidwall/tile38/internal/collection"
 )
 
 var memStats runtime.MemStats
@@ -60,7 +61,7 @@ func (s *Server) cmdStats(msg *Message) (res resp.Value, err error) {
 		if !ok {
 			break
 		}
-		col := s.getCol(key)
+		col, _ := s.cols.Get(key)
 		if col != nil {
 			m := make(map[string]interface{})
 			m["num_points"] = col.PointCount()
@@ -160,8 +161,7 @@ func (s *Server) basicStats(m map[string]interface{}) {
 	m["num_collections"] = s.cols.Len()
 	m["num_hooks"] = s.hooks.Len()
 	sz := 0
-	s.cols.Ascend(nil, func(v interface{}) bool {
-		col := v.(*collectionKeyContainer).col
+	s.cols.Scan(func(key string, col *collection.Collection) bool {
 		sz += col.TotalWeight()
 		return true
 	})
@@ -169,8 +169,7 @@ func (s *Server) basicStats(m map[string]interface{}) {
 	points := 0
 	objects := 0
 	nstrings := 0
-	s.cols.Ascend(nil, func(v interface{}) bool {
-		col := v.(*collectionKeyContainer).col
+	s.cols.Scan(func(key string, col *collection.Collection) bool {
 		points += col.PointCount()
 		objects += col.Count()
 		nstrings += col.StringCount()
@@ -333,8 +332,7 @@ func (s *Server) extStats(m map[string]interface{}) {
 	points := 0
 	objects := 0
 	strings := 0
-	s.cols.Ascend(nil, func(v interface{}) bool {
-		col := v.(*collectionKeyContainer).col
+	s.cols.Scan(func(key string, col *collection.Collection) bool {
 		points += col.PointCount()
 		objects += col.Count()
 		strings += col.StringCount()
@@ -365,8 +363,7 @@ func (s *Server) extStats(m map[string]interface{}) {
 	m["tile38_avg_point_size"] = avgsz
 
 	sz := 0
-	s.cols.Ascend(nil, func(v interface{}) bool {
-		col := v.(*collectionKeyContainer).col
+	s.cols.Scan(func(key string, col *collection.Collection) bool {
 		sz += col.TotalWeight()
 		return true
 	})

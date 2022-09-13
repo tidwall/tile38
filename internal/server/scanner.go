@@ -131,7 +131,7 @@ func (sw *scanWriter) loadWheres() {
 	sw.wheres = nil
 	sw.whereins = nil
 	sw.fvals = nil
-	sw.col = sw.s.getCol(sw.key)
+	sw.col, _ = sw.s.cols.Get(sw.key)
 	if sw.col != nil {
 		sw.fmap = sw.col.FieldMap()
 		sw.farr = sw.col.FieldArr()

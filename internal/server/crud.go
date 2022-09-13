@@ -7,11 +7,9 @@ import (
 	"time"
 
 	"github.com/mmcloughlin/geohash"
-	"github.com/tidwall/btree"
 	"github.com/tidwall/geojson"
 	"github.com/tidwall/geojson/geometry"
 	"github.com/tidwall/resp"
-	"github.com/tidwall/rtree"
 	"github.com/tidwall/tile38/internal/collection"
 	"github.com/tidwall/tile38/internal/glob"
 )
@@ -50,7 +48,7 @@ func (s *Server) cmdBounds(msg *Message) (resp.Value, error) {
 		return NOMessage, errInvalidNumberOfArguments
 	}
 
-	col := s.getCol(key)
+	col, _ := s.cols.Get(key)
 	if col == nil {
 		if msg.OutputType == RESP {
 			return resp.NullValue(), nil
@@ -104,7 +102,7 @@ func (s *Server) cmdType(msg *Message) (resp.Value, error) {
 		return NOMessage, errInvalidNumberOfArguments
 	}
 
-	col := s.getCol(key)
+	col, _ := s.cols.Get(key)
 	if col == nil {
 		if msg.OutputType == RESP {
 			return resp.SimpleStringValue("none"), nil
@@ -142,7 +140,7 @@ func (s *Server) cmdGet(msg *Message) (resp.Value, error) {
 		vs = vs[1:]
 	}
 
-	col := s.getCol(key)
+	col, _ := s.cols.Get(key)
 	if col == nil {
 		if msg.OutputType == RESP {
 			return resp.NullValue(), nil
@@ -306,12 +304,12 @@ func (s *Server) cmdDel(msg *Message) (res resp.Value, d commandDetails, err err
 		return
 	}
 	found := false
-	col := s.getCol(d.key)
+	col, _ := s.cols.Get(d.key)
 	if col != nil {
 		d.obj, d.fields, ok = col.Delete(d.id)
 		if ok {
 			if col.Count() == 0 {
-				s.deleteCol(d.key)
+				s.cols.Delete(d.key)
 			}
 			found = true
 		} else if erron404 {
@@ -370,7 +368,7 @@ func (s *Server) cmdPdel(msg *Message) (res resp.Value, d commandDetails, err er
 	}
 
 	var expired int
-	col := s.getCol(d.key)
+	col, _ := s.cols.Get(d.key)
 	if col != nil {
 		g := glob.Parse(d.pattern, false)
 		if g.Limits[0] == "" && g.Limits[1] == "" {
@@ -399,7 +397,7 @@ func (s *Server) cmdPdel(msg *Message) (res resp.Value, d commandDetails, err er
 			d.children = nchildren
 		}
 		if col.Count() == 0 {
-			s.deleteCol(d.key)
+			s.cols.Delete(d.key)
 		}
 	}
 	d.command = "pdel"
@@ -431,9 +429,9 @@ func (s *Server) cmdDrop(msg *Message) (res resp.Value, d commandDetails, err er
 		err = errInvalidNumberOfArguments
 		return
 	}
-	col := s.getCol(d.key)
+	col, _ := s.cols.Get(d.key)
 	if col != nil {
-		s.deleteCol(d.key)
+		s.cols.Delete(d.key)
 		d.updated = true
 	} else {
 		d.key = "" // ignore the details
@@ -472,7 +470,7 @@ func (s *Server) cmdRename(msg *Message) (res resp.Value, d commandDetails, err 
 		err = errInvalidNumberOfArguments
 		return
 	}
-	col := s.getCol(d.key)
+	col, _ := s.cols.Get(d.key)
 	if col == nil {
 		err = errKeyNotFound
 		return
@@ -486,18 +484,18 @@ func (s *Server) cmdRename(msg *Message) (res resp.Value, d commandDetails, err 
 		return true
 	})
 	d.command = "rename"
-	newCol := s.getCol(d.newKey)
+	newCol, _ := s.cols.Get(d.newKey)
 	if newCol == nil {
 		d.updated = true
 	} else if nx {
 		d.updated = false
 	} else {
-		s.deleteCol(d.newKey)
+		s.cols.Delete(d.newKey)
 		d.updated = true
 	}
 	if d.updated {
-		s.deleteCol(d.key)
-		s.setCol(d.newKey, col)
+		s.cols.Delete(d.key)
+		s.cols.Set(d.newKey, col)
 	}
 	d.timestamp = time.Now()
 	switch msg.OutputType {
@@ -524,14 +522,14 @@ func (s *Server) cmdFlushDB(msg *Message) (res resp.Value, d commandDetails, err
 	}
 
 	// clear the entire database
-	s.cols = btree.NewNonConcurrent(byCollectionKey)
-	s.groupHooks = btree.NewNonConcurrent(byGroupHook)
-	s.groupObjects = btree.NewNonConcurrent(byGroupObject)
-	s.hookExpires = btree.NewNonConcurrent(byHookExpires)
-	s.hooks = btree.NewNonConcurrent(byHookName)
-	s.hooksOut = btree.NewNonConcurrent(byHookName)
-	s.hookTree = &rtree.RTree{}
-	s.hookCross = &rtree.RTree{}
+	s.cols.Clear()
+	s.groupHooks.Clear()
+	s.groupObjects.Clear()
+	s.hookExpires.Clear()
+	s.hooks.Clear()
+	s.hooksOut.Clear()
+	s.hookTree.Clear()
+	s.hookCross.Clear()
 
 	d.command = "flushdb"
 	d.updated = true
@@ -781,13 +779,13 @@ func (s *Server) cmdSet(msg *Message) (res resp.Value, d commandDetails, err err
 	if err != nil {
 		return
 	}
-	col := s.getCol(d.key)
+	col, _ := s.cols.Get(d.key)
 	if col == nil {
 		if xx {
 			goto notok
 		}
 		col = collection.New()
-		s.setCol(d.key, col)
+		s.cols.Set(d.key, col)
 	}
 	if xx || nx {
 		_, _, _, ok := col.Get(d.id)
@@ -890,7 +888,7 @@ func (s *Server) cmdFset(msg *Message) (res resp.Value, d commandDetails, err er
 	var updateCount int
 	d, fields, values, xx, err = s.parseFSetArgs(vs)
 
-	col := s.getCol(d.key)
+	col, _ := s.cols.Get(d.key)
 	if col == nil {
 		err = errKeyNotFound
 		return
@@ -949,7 +947,7 @@ func (s *Server) cmdExpire(msg *Message) (res resp.Value, d commandDetails, err 
 		return
 	}
 	ok = false
-	col := s.getCol(key)
+	col, _ := s.cols.Get(key)
 	if col != nil {
 		ex := time.Now().Add(time.Duration(float64(time.Second) * value)).UnixNano()
 		ok = col.SetExpires(id, ex)
@@ -993,7 +991,7 @@ func (s *Server) cmdPersist(msg *Message) (res resp.Value, d commandDetails, err
 	}
 	var cleared bool
 	ok = false
-	col := s.getCol(key)
+	col, _ := s.cols.Get(key)
 	if col != nil {
 		var ex int64
 		_, _, ex, ok = col.Get(id)
@@ -1046,7 +1044,7 @@ func (s *Server) cmdTTL(msg *Message) (res resp.Value, err error) {
 	var v float64
 	ok = false
 	var ok2 bool
-	col := s.getCol(key)
+	col, _ := s.cols.Get(key)
 	if col != nil {
 		var ex int64
 		_, _, ex, ok = col.Get(id)

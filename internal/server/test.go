@@ -273,7 +273,7 @@ func (s *Server) parseArea(ovs []string, doClip bool) (vs []string, o geojson.Ob
 			err = errInvalidNumberOfArguments
 			return
 		}
-		col := s.getCol(key)
+		col, _ := s.cols.Get(key)
 		if col == nil {
 			err = errKeyNotFound
 			return

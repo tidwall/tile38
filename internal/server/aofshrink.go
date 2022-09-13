@@ -61,15 +61,17 @@ func (s *Server) aofshrink() {
 				func() {
 					s.mu.Lock()
 					defer s.mu.Unlock()
-					s.scanGreaterOrEqual(nextkey, func(key string, col *collection.Collection) bool {
-						if len(keys) == maxkeys {
-							keysdone = false
-							nextkey = key
-							return false
-						}
-						keys = append(keys, key)
-						return true
-					})
+					s.cols.Ascend(nextkey,
+						func(key string, col *collection.Collection) bool {
+							if len(keys) == maxkeys {
+								keysdone = false
+								nextkey = key
+								return false
+							}
+							keys = append(keys, key)
+							return true
+						},
+					)
 				}()
 				continue
 			}
@@ -87,8 +89,8 @@ func (s *Server) aofshrink() {
 					idsdone = true
 					s.mu.Lock()
 					defer s.mu.Unlock()
-					col := s.getCol(keys[0])
-					if col == nil {
+					col, ok := s.cols.Get(keys[0])
+					if !ok {
 						return
 					}
 					var fnames = col.FieldArr()     // reload an array of field names to match each object

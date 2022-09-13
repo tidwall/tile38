@@ -3,6 +3,7 @@ package server
 import (
 	"time"
 
+	"github.com/tidwall/tile38/internal/collection"
 	"github.com/tidwall/tile38/internal/log"
 )
 
@@ -28,16 +29,15 @@ func (s *Server) backgroundExpiring() {
 
 func (s *Server) backgroundExpireObjects(now time.Time) {
 	nano := now.UnixNano()
-	var ids []string
 	var msgs []*Message
-	s.cols.Ascend(nil, func(v interface{}) bool {
-		col := v.(*collectionKeyContainer)
-		ids = col.col.Expired(nano, ids[:0])
-		for _, id := range ids {
-			msgs = append(msgs, &Message{
-				Args: []string{"del", col.key, id},
-			})
-		}
+	s.cols.Scan(func(key string, col *collection.Collection) bool {
+		col.ScanExpires(func(id string, expires int64) bool {
+			if nano < expires {
+				return false
+			}
+			msgs = append(msgs, &Message{Args: []string{"del", key, id}})
+			return true
+		})
 		return true
 	})
 	for _, msg := range msgs {
@@ -52,7 +52,6 @@ func (s *Server) backgroundExpireObjects(now time.Time) {
 	if len(msgs) > 0 {
 		log.Debugf("Expired %d objects\n", len(msgs))
 	}
-
 }
 
 func (s *Server) backgroundExpireHooks(now time.Time) {

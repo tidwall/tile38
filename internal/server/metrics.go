@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/tidwall/tile38/core"
+	"github.com/tidwall/tile38/internal/collection"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
@@ -121,31 +122,30 @@ func (s *Server) Collect(ch chan<- prometheus.Metric) {
 	/*
 		add objects/points/strings stats for each collection
 	*/
-	s.cols.Ascend(nil, func(v interface{}) bool {
-		c := v.(*collectionKeyContainer)
+	s.cols.Scan(func(key string, col *collection.Collection) bool {
 		ch <- prometheus.MustNewConstMetric(
 			metricDescriptions["collection_objects"],
 			prometheus.GaugeValue,
-			float64(c.col.Count()),
-			c.key,
+			float64(col.Count()),
+			key,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			metricDescriptions["collection_points"],
 			prometheus.GaugeValue,
-			float64(c.col.PointCount()),
-			c.key,
+			float64(col.PointCount()),
+			key,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			metricDescriptions["collection_strings"],
 			prometheus.GaugeValue,
-			float64(c.col.StringCount()),
-			c.key,
+			float64(col.StringCount()),
+			key,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			metricDescriptions["collection_weight"],
 			prometheus.GaugeValue,
-			float64(c.col.TotalWeight()),
-			c.key,
+			float64(col.TotalWeight()),
+			key,
 		)
 		return true
 	})

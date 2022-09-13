@@ -288,7 +288,7 @@ func extendRoamMessage(
 		math.Floor(match.meters*1000)/1000, 'f', -1, 64)
 	if fence.roam.scan != "" {
 		nmsg = append(nmsg, `,"scan":[`...)
-		col := sw.s.getCol(fence.roam.key)
+		col, _ := sw.s.cols.Get(fence.roam.key)
 		if col != nil {
 			obj, _, _, ok := col.Get(match.id)
 			if ok {
@@ -375,7 +375,7 @@ func fenceMatchNearbys(
 	if obj == nil {
 		return nil
 	}
-	col := s.getCol(fence.roam.key)
+	col, _ := s.cols.Get(fence.roam.key)
 	if col == nil {
 		return nil
 	}

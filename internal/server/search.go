@@ -373,7 +373,7 @@ func (s *Server) cmdSearchArgs(
 			err = errInvalidNumberOfArguments
 			return
 		}
-		col := s.getCol(key)
+		col, _ := s.cols.Get(key)
 		if col == nil {
 			err = errKeyNotFound
 			return

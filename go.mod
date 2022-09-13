@@ -16,7 +16,7 @@ require (
 	github.com/peterh/liner v1.2.1
 	github.com/prometheus/client_golang v1.12.1
 	github.com/streadway/amqp v1.0.0
-	github.com/tidwall/btree v1.4.2
+	github.com/tidwall/btree v1.4.3
 	github.com/tidwall/buntdb v1.2.9
 	github.com/tidwall/geojson v1.3.4
 	github.com/tidwall/gjson v1.12.1
@@ -26,7 +26,7 @@ require (
 	github.com/tidwall/redbench v0.1.0
 	github.com/tidwall/redcon v1.4.4
 	github.com/tidwall/resp v0.1.0
-	github.com/tidwall/rtree v1.8.0
+	github.com/tidwall/rtree v1.8.1
 	github.com/tidwall/sjson v1.2.4
 	github.com/xdg/scram v1.0.5
 	github.com/yuin/gopher-lua v0.0.0-20200816102855-ee81675732da

@@ -7,6 +7,7 @@ import (
 	"github.com/tidwall/tile38/core"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -65,9 +66,9 @@ func (s *Server) MetricsHandler(w http.ResponseWriter, r *http.Request) {
 	reg := prometheus.NewRegistry()
 
 	reg.MustRegister(
-		prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}),
-		prometheus.NewGoCollector(),
-		prometheus.NewBuildInfoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+		collectors.NewGoCollector(),
+		collectors.NewBuildInfoCollector(),
 		cmdDurations,
 		s,
 	)

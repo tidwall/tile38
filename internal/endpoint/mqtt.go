@@ -4,8 +4,8 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"io/ioutil"
 	"math/rand"
+	"os"
 	"sync"
 	"time"
 
@@ -76,7 +76,7 @@ func (conn *MQTTConn) Send(msg string) error {
 			}
 			if conn.ep.MQTT.CACertFile != "" {
 				// Load CA cert
-				caCert, err := ioutil.ReadFile(conn.ep.MQTT.CACertFile)
+				caCert, err := os.ReadFile(conn.ep.MQTT.CACertFile)
 				if err != nil {
 					return err
 				}

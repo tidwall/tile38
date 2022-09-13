@@ -113,9 +113,7 @@ func (s *Server) cmdSetHook(msg *Message) (
 	cmsg := &Message{}
 	*cmsg = *msg
 	cmsg.Args = make([]string, len(commandvs))
-	for i := 0; i < len(commandvs); i++ {
-		cmsg.Args[i] = commandvs[i]
-	}
+	copy(cmsg.Args, commandvs)
 	metas := make([]FenceMeta, 0, len(metaMap))
 	for key, val := range metaMap {
 		metas = append(metas, FenceMeta{key, val})

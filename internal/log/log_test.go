@@ -2,7 +2,7 @@ package log
 
 import (
 	"bytes"
-	"io/ioutil"
+	"io"
 	"strings"
 	"testing"
 
@@ -189,7 +189,7 @@ func TestLogJSON(t *testing.T) {
 func BenchmarkLogPrintf(t *testing.B) {
 	LogJSON = false
 	Level = 1
-	SetOutput(ioutil.Discard)
+	SetOutput(io.Discard)
 	t.ResetTimer()
 	for i := 0; i < t.N; i++ {
 		Printf("X %s", "Y")
@@ -208,7 +208,7 @@ func BenchmarkLogJSONPrintf(t *testing.B) {
 	logger := zap.New(
 		zapcore.NewCore(
 			enc,
-			zapcore.AddSync(ioutil.Discard),
+			zapcore.AddSync(io.Discard),
 			zap.DebugLevel,
 		)).Sugar()
 

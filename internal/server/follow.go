@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"strconv"
 	"strings"
 	"time"
@@ -272,7 +271,7 @@ func (s *Server) followStep(host string, port int, followc int) error {
 		s.mu.Unlock()
 		log.Info("caught up")
 	}
-	nullw := ioutil.Discard
+	nullw := io.Discard
 	for {
 		v, telnet, _, err := conn.rd.ReadMultiBulk()
 		if err != nil {

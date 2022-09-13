@@ -5,7 +5,6 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"sync"
 	"time"
@@ -192,7 +191,7 @@ func loadClientTLSCert(KeyFile, CertFile string) ([]tls.Certificate, error) {
 
 func loadRootTLSCert(CACertFile string) (x509.CertPool, error) {
 	// Load CA cert
-	caCert, err := ioutil.ReadFile(CACertFile)
+	caCert, err := os.ReadFile(CACertFile)
 
 	if err != nil {
 		return x509.CertPool{}, err

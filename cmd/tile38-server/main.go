@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -108,7 +107,7 @@ Developer Options:
 			log.Fatal(err)
 		}
 		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			data, err := ioutil.ReadAll(r.Body)
+			data, err := io.ReadAll(r.Body)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -294,7 +293,7 @@ Developer Options:
 
 	var logw io.Writer = os.Stderr
 	if quiet {
-		logw = ioutil.Discard
+		logw = io.Discard
 	}
 
 	log.SetOutput(logw)
@@ -390,7 +389,7 @@ Developer Options:
 	}
 	defer pidcleanup()
 	if pidfile != "" {
-		ioutil.WriteFile(pidfile, []byte(fmt.Sprintf("%d\n", os.Getpid())), 0666)
+		os.WriteFile(pidfile, []byte(fmt.Sprintf("%d\n", os.Getpid())), 0666)
 	}
 
 	c := make(chan os.Signal, 1)

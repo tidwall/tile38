@@ -221,7 +221,7 @@ func main() {
 			}
 			subtract = true
 			for i := range testsArr {
-				if strings.ToLower(testsArr[i]) == strings.ToLower(test[1:]) {
+				if strings.EqualFold(testsArr[i], test[1:]) {
 					testsArr = append(testsArr[:i], testsArr[i+1:]...)
 					break
 				}

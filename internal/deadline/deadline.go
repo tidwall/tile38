@@ -14,6 +14,7 @@ func New(dl time.Time) *Deadline {
 }
 
 // Check the deadline and panic when reached
+//
 //go:noinline
 func (dl *Deadline) Check() {
 	if dl == nil || dl.unixNano == 0 {

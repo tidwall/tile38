@@ -2,7 +2,6 @@ package server
 
 import (
 	"encoding/json"
-	"io/ioutil"
 	"os"
 	"strconv"
 	"strings"
@@ -71,7 +70,7 @@ type Config struct {
 
 func loadConfig(path string) (*Config, error) {
 	var json string
-	data, err := ioutil.ReadFile(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return nil, err
@@ -217,7 +216,7 @@ func (config *Config) write(writeProperties bool) {
 		panic(err)
 	}
 	data = append(data, '\n')
-	err = ioutil.WriteFile(config.path, data, 0600)
+	err = os.WriteFile(config.path, data, 0600)
 	if err != nil {
 		panic(err)
 	}
@@ -327,11 +326,11 @@ func (config *Config) setProperty(name, value string, fromLoad bool) error {
 			config._logConfig = value
 		}
 	case ReplicaPriority:
-		replicaPriority, err := strconv.ParseUint(value, 10, 64)
+		replicaPriority, err := strconv.ParseInt(value, 10, 64)
 		if err != nil || replicaPriority < 0 {
 			invalid = true
 		} else {
-			config._replicaPriority = int64(replicaPriority)
+			config._replicaPriority = replicaPriority
 		}
 	}
 
@@ -521,10 +520,4 @@ func (config *Config) setReadOnly(v bool) {
 	config.mu.Lock()
 	config._readOnly = v
 	config.mu.Unlock()
-}
-func (config *Config) logConfig() string {
-	config.mu.RLock()
-	v := config._logConfig
-	config.mu.RUnlock()
-	return v
 }

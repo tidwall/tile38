@@ -90,6 +90,7 @@ Advanced Options:
   --http-transport yes/no : HTTP transport (default: yes)
   --protected-mode yes/no : protected mode (default: yes)
   --nohup                 : do not exit on SIGHUP
+  --metrics-addr addr     : The listening addr for Prometheus metrics.
 
 Developer Options:
   --dev                             : enable developer mode

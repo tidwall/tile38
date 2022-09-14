@@ -702,8 +702,40 @@ func rewriteTimeoutMsg(msg *Message) (err error) {
 	return
 }
 
+func mvtFilterHTTPArgs(msg *Message, query string) (modified bool) {
+	path := msg.Args[0]
+	parts := strings.Split(path, "/")
+	if len(parts) != 4 {
+		return false
+	}
+	parts[3] = parts[3][:len(parts[3])-4]
+	for i := 0; i < len(parts); i++ {
+		var err error
+		parts[i], err = url.PathUnescape(parts[i])
+		if err != nil {
+			return false
+		}
+	}
+	msg._command = ""
+	msg.Args = []string{"intersects", parts[0], "LIMIT", "1000000000",
+		"MVT", parts[2], parts[3], parts[1]}
+	log.HTTPf("%s", path)
+	return true
+}
+
 func (s *Server) handleInputCommand(client *Client, msg *Message) error {
 	start := time.Now()
+	var mvt bool
+	if msg.ConnType == HTTP && len(msg.Args) == 1 {
+		var query string
+		if i := strings.IndexByte(msg.Args[0], '?'); i != -1 {
+			query = msg.Args[0][i+1:]
+			msg.Args[0] = msg.Args[0][:i]
+		}
+		if strings.HasSuffix(msg.Args[0], ".mvt") {
+			mvt = mvtFilterHTTPArgs(msg, query)
+		}
+	}
 	serializeOutput := func(res resp.Value) (string, error) {
 		var resStr string
 		var err error
@@ -726,16 +758,37 @@ func (s *Server) handleInputCommand(client *Client, msg *Message) error {
 		case WebSocket:
 			return WriteWebSocketMessage(client, []byte(res))
 		case HTTP:
+			origin := ""
+			extraNL := 2
+			contentType := "application/json; charset=utf-8"
 			status := "200 OK"
 			if (s.http500Errors || msg._command == "healthz") &&
 				!gjson.Get(res, "ok").Bool() {
 				status = "500 Internal Server Error"
+			} else if mvt {
+				v := gjson.Get(res, "mvt")
+				if !v.Exists() {
+					status = "500 Internal Server Error"
+				} else {
+					res = v.String()
+					out, err := base64.RawStdEncoding.DecodeString(res)
+					if err != nil {
+						status = "500 Internal Server Error"
+					} else {
+						res = string(out)
+						origin = "Access-Control-Allow-Origin: *\r\n"
+						contentType = "application/vnd.mapbox-vector-tile"
+					}
+				}
 			}
-			_, err := fmt.Fprintf(client, "HTTP/1.1 %s\r\n"+
+
+			_, err := fmt.Fprintf(client, ""+
+				"HTTP/1.1 %s\r\n"+
 				"Connection: close\r\n"+
 				"Content-Length: %d\r\n"+
-				"Content-Type: application/json; charset=utf-8\r\n"+
-				"\r\n", status, len(res)+2)
+				"Content-Type: %s\r\n"+
+				"%s"+
+				"\r\n", status, len(res)+extraNL, contentType, origin)
 			if err != nil {
 				return err
 			}
@@ -743,8 +796,13 @@ func (s *Server) handleInputCommand(client *Client, msg *Message) error {
 			if err != nil {
 				return err
 			}
-			_, err = io.WriteString(client, "\r\n")
-			return err
+			if extraNL == 2 {
+				_, err = io.WriteString(client, "\r\n")
+				if err != nil {
+					return err
+				}
+			}
+			return nil
 		case RESP:
 			var err error
 			if msg.OutputType == JSON {

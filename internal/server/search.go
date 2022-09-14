@@ -57,7 +57,9 @@ func (lfs liveFenceSwitches) usingLua() bool {
 	return len(lfs.whereevals) > 0
 }
 
-func parseRectArea(ltyp string, vs []string) (nvs []string, rect *geojson.Rect, err error) {
+func parseRectArea(ltyp string, vs []string) (
+	nvs []string, rect *geojson.Rect, tileX, tileY, tileZ int, err error,
+) {
 
 	var ok bool
 
@@ -145,26 +147,29 @@ func parseRectArea(ltyp string, vs []string) (nvs []string, rect *geojson.Rect, 
 			err = errInvalidNumberOfArguments
 			return
 		}
-		var x, y int64
-		var z uint64
-		if x, err = strconv.ParseInt(sx, 10, 64); err != nil {
+		var x, y, z int
+		if x, err = strconv.Atoi(sx); err != nil || x < 0 {
 			err = errInvalidArgument(sx)
 			return
 		}
-		if y, err = strconv.ParseInt(sy, 10, 64); err != nil {
+		if y, err = strconv.Atoi(sy); err != nil || y < 0 {
 			err = errInvalidArgument(sy)
 			return
 		}
-		if z, err = strconv.ParseUint(sz, 10, 64); err != nil {
+		if z, err = strconv.Atoi(sz); err != nil || z < 0 || z > 23 {
 			err = errInvalidArgument(sz)
 			return
 		}
 		var minLat, minLon, maxLat, maxLon float64
-		minLat, minLon, maxLat, maxLon = bing.TileXYToBounds(x, y, z)
+		minLat, minLon, maxLat, maxLon =
+			bing.TileXYToBounds(int64(x), int64(y), uint64(z))
 		rect = geojson.NewRect(geometry.Rect{
 			Min: geometry.Point{X: minLon, Y: minLat},
 			Max: geometry.Point{X: maxLon, Y: maxLat},
 		})
+		tileX = x
+		tileY = y
+		tileZ = z
 	}
 	nvs = vs
 	return
@@ -355,7 +360,8 @@ func (s *Server) cmdSearchArgs(
 			return
 		}
 	case "bounds", "hash", "tile", "mvt", "quadkey":
-		vs, lfs.obj, err = parseRectArea(ltyp, vs)
+		vs, lfs.obj, lfs.tileX, lfs.tileY, lfs.tileZ, err =
+			parseRectArea(ltyp, vs)
 		if err != nil {
 			return
 		}
@@ -435,7 +441,8 @@ func (s *Server) cmdSearchArgs(
 		ltok = strings.ToLower(tok)
 		switch ltok {
 		case "bounds", "hash", "tile", "quadkey":
-			vs, clip_rect, err = parseRectArea(ltok, vs)
+			vs, clip_rect, lfs.tileX, lfs.tileY, lfs.tileZ, err =
+				parseRectArea(ltok, vs)
 			if err == errNotRectangle {
 				err = errInvalidArgument("cannot clipby " + ltok)
 				return
@@ -494,7 +501,8 @@ func (s *Server) cmdNearby(msg *Message) (res resp.Value, err error) {
 	sw, err := s.newScanWriter(
 		wr, msg, sargs.key, sargs.output, sargs.precision, sargs.globs, false,
 		sargs.cursor, sargs.limit, sargs.wheres, sargs.whereins,
-		sargs.whereevals, sargs.nofields, sargs.mvt)
+		sargs.whereevals, sargs.nofields,
+		sargs.mvt, sargs.tileX, sargs.tileY, sargs.tileZ)
 	if err != nil {
 		return NOMessage, err
 	}
@@ -587,7 +595,8 @@ func (s *Server) cmdWithinOrIntersects(cmd string, msg *Message) (res resp.Value
 	sw, err := s.newScanWriter(
 		wr, msg, sargs.key, sargs.output, sargs.precision, sargs.globs, false,
 		sargs.cursor, sargs.limit, sargs.wheres, sargs.whereins,
-		sargs.whereevals, sargs.nofields, sargs.mvt)
+		sargs.whereevals, sargs.nofields,
+		sargs.mvt, sargs.tileX, sargs.tileY, sargs.tileZ)
 	if err != nil {
 		return NOMessage, err
 	}
@@ -701,7 +710,8 @@ func (s *Server) cmdSearch(msg *Message) (res resp.Value, err error) {
 	sw, err := s.newScanWriter(
 		wr, msg, sargs.key, sargs.output, sargs.precision, sargs.globs, true,
 		sargs.cursor, sargs.limit, sargs.wheres, sargs.whereins,
-		sargs.whereevals, sargs.nofields, sargs.mvt)
+		sargs.whereevals, sargs.nofields,
+		sargs.mvt, sargs.tileX, sargs.tileY, sargs.tileZ)
 	if err != nil {
 		return NOMessage, err
 	}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/mmcloughlin/geohash"
 	"github.com/tidwall/geojson"
+	"github.com/tidwall/geojson/geometry"
 	"github.com/tidwall/mvt"
 	"github.com/tidwall/resp"
 	"github.com/tidwall/tile38/internal/clip"
@@ -58,12 +59,15 @@ type scanWriter struct {
 	globEverything bool
 	fullFields     bool
 	values         []resp.Value
-	mvtObjs        []geojson.Object
+	mvtObjs        []objPair
 	matchValues    bool
-	mvt            bool
 	respOut        resp.Value
 	orgWheres      []whereT
 	orgWhereins    []whereinT
+	mvt            bool
+	tileX          int
+	tileY          int
+	tileZ          int
 }
 
 // ScanWriterParams ...
@@ -84,7 +88,7 @@ func (s *Server) newScanWriter(
 	wr *bytes.Buffer, msg *Message, key string, output outputT,
 	precision uint64, globs []string, matchValues bool,
 	cursor, limit uint64, wheres []whereT, whereins []whereinT,
-	whereevals []whereevalT, nofields, mvt bool,
+	whereevals []whereevalT, nofields, mvt bool, tileX, tileY, tileZ int,
 ) (
 	*scanWriter, error,
 ) {
@@ -105,7 +109,6 @@ func (s *Server) newScanWriter(
 		wr:          wr,
 		key:         key,
 		msg:         msg,
-		mvt:         mvt,
 		globs:       globs,
 		limit:       limit,
 		cursor:      cursor,
@@ -115,6 +118,11 @@ func (s *Server) newScanWriter(
 		whereevals:  whereevals,
 		matchValues: matchValues,
 	}
+
+	sw.mvt = mvt
+	sw.tileX = tileX
+	sw.tileY = tileY
+	sw.tileZ = tileZ
 
 	if len(globs) == 0 || (len(globs) == 1 && globs[0] == "*") {
 		sw.globEverything = true
@@ -209,23 +217,87 @@ func (sw *scanWriter) writeHead() {
 	}
 }
 
-func (sw *scanWriter) compileMVT() []byte {
-	var tile mvt.Tile
-	l := tile.AddLayer("default")
-	l.SetExtent(4096)
-
-	for _, g := range sw.mvtObjs {
-		_ = g
-		f := l.AddFeature(mvt.Polygon)
-		// f.MoveTo(128, 96)
-		// f.LineTo(148, 128)
-		// f.LineTo(108, 128)
-		// f.LineTo(128, 96)
-		f.ClosePath()
+func mvtDrawRing(f *mvt.Feature, tileX, tileY, tileZ int, ring geometry.Series, hole bool) {
+	npoints := ring.NumPoints()
+	if npoints < 3 {
+		return
 	}
+	cw := ring.Clockwise()
+	reverse := (cw && hole) || (!cw && !hole)
+	if reverse {
+		p := ring.PointAt(npoints - 1)
+		f.MoveTo(mvt.LatLonXY(p.Y, p.X, tileX, tileY, tileZ))
+		for i := npoints - 2; i >= 0; i-- {
+			p := ring.PointAt(i)
+			f.LineTo(mvt.LatLonXY(p.Y, p.X, tileX, tileY, tileZ))
+		}
+	} else {
+		p := ring.PointAt(0)
+		f.MoveTo(mvt.LatLonXY(p.Y, p.X, tileX, tileY, tileZ))
+		for i := 1; i < npoints; i++ {
+			p := ring.PointAt(i)
+			f.LineTo(mvt.LatLonXY(p.Y, p.X, tileX, tileY, tileZ))
+		}
+	}
+	f.ClosePath()
+}
 
-	// println(sw.mvtObjs)
+func mvtAddFeature(l *mvt.Layer, tileX, tileY, tileZ int, p objPair) {
+	var f *mvt.Feature
+	switch g := p.obj.(type) {
+	case *geojson.Point:
+		f = l.AddFeature(mvt.Point)
+		p := g.Base()
+		f.MoveTo(mvt.LatLonXY(p.Y, p.X, tileX, tileY, tileZ))
+	case *geojson.SimplePoint:
+		f = l.AddFeature(mvt.Point)
+		p := g
+		f.MoveTo(mvt.LatLonXY(p.Y, p.X, tileX, tileY, tileZ))
+	case *geojson.LineString:
+		f = l.AddFeature(mvt.LineString)
+		line := g.Base()
+		npoints := line.NumPoints()
+		if npoints > 0 {
+			p := line.PointAt(0)
+			f.MoveTo(mvt.LatLonXY(p.Y, p.X, tileX, tileY, tileZ))
+			for i := 1; i < npoints; i++ {
+				p := line.PointAt(0)
+				f.LineTo(mvt.LatLonXY(p.Y, p.X, tileX, tileY, tileZ))
+			}
+		}
+	case *geojson.Polygon:
+		f = l.AddFeature(mvt.Polygon)
+		poly := g.Base()
+		mvtDrawRing(f, tileX, tileY, tileZ, poly.Exterior, false)
+		for _, hole := range poly.Holes {
+			mvtDrawRing(f, tileX, tileY, tileZ, hole, true)
+		}
+	case *geojson.Feature:
+		mvtAddFeature(l, tileX, tileY, tileZ, objPair{p.id, g.Base()})
+		return
+	default:
+		if g, ok := g.(geojson.Collection); ok {
+			for _, g := range g.Children() {
+				mvtAddFeature(l, tileX, tileY, tileZ, objPair{p.id, g})
+			}
+		}
+		return
+	}
+	f.AddTag("id", p.id)
+}
 
+type objPair struct {
+	id  string
+	obj geojson.Object
+}
+
+func objsToMVT(tileX, tileY, tileZ int, pairs []objPair) []byte {
+	var tile mvt.Tile
+	l := tile.AddLayer("tile38")
+	l.SetExtent(4096)
+	for _, p := range pairs {
+		mvtAddFeature(l, tileX, tileY, tileZ, p)
+	}
 	return tile.Render()
 }
 
@@ -239,7 +311,7 @@ func (sw *scanWriter) writeFoot() {
 
 	var mvtTile []byte
 	if sw.mvt {
-		mvtTile = sw.compileMVT()
+		mvtTile = objsToMVT(sw.tileX, sw.tileY, sw.tileZ, sw.mvtObjs)
 	}
 	switch sw.msg.OutputType {
 	case JSON:
@@ -443,7 +515,7 @@ func (sw *scanWriter) writeObject(opts ScanWriterParams) bool {
 		opts.o = clip.Clip(opts.o, opts.clip, &sw.s.geomIndexOpts)
 	}
 	if sw.mvt {
-		sw.mvtObjs = append(sw.mvtObjs, opts.o)
+		sw.mvtObjs = append(sw.mvtObjs, objPair{opts.id, opts.o})
 	} else {
 		switch sw.msg.OutputType {
 		case JSON:

@@ -214,6 +214,9 @@ type searchScanBaseTokens struct {
 	buffer     float64
 	hasbuffer  bool
 	mvt        bool
+	tileX      int
+	tileY      int
+	tileZ      int
 }
 
 func (s *Server) parseSearchScanBaseTokens(

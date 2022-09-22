@@ -2,6 +2,11 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.29.1] = 2022-09-21
+
+### Fixed
+- fe180dc: Fix follower not authenticating after aofshink
+
 ## [1.29.0] = 2022-07-14
 
 ### Added

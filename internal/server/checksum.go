@@ -138,7 +138,8 @@ func getEndOfLastValuePositionInFile(fname string, startPos int64) (int64, error
 
 // followCheckSome is not a full checksum. It just "checks some" data.
 // We will do some various checksums on the leader until we find the correct position to start at.
-func (s *Server) followCheckSome(addr string, followc int) (pos int64, err error) {
+func (s *Server) followCheckSome(addr string, followc int, auth string,
+) (pos int64, err error) {
 	if core.ShowDebugMessages {
 		log.Debug("follow:", addr, ":check some")
 	}
@@ -156,6 +157,12 @@ func (s *Server) followCheckSome(addr string, followc int) (pos int64, err error
 		return 0, err
 	}
 	defer conn.Close()
+
+	if auth != "" {
+		if err := s.followDoLeaderAuth(conn, auth); err != nil {
+			return 0, err
+		}
+	}
 
 	min := int64(0)
 	max := int64(s.aofsz) - checksumsz

@@ -225,7 +225,7 @@ func (s *Server) followStep(host string, port int, followc int) error {
 	}
 
 	// verify checksum
-	pos, err := s.followCheckSome(addr, followc)
+	pos, err := s.followCheckSome(addr, followc, auth)
 	if err != nil {
 		return err
 	}

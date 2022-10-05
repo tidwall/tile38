@@ -203,6 +203,9 @@ func TestCollectionSet(t *testing.T) {
 		expect(t, v == nil)
 		expect(t, !ok)
 		expect(t, c.Count() == 0)
+
+		fmt.Printf("Bounds %v", bounds(c))
+
 		expect(t, bounds(c) == geometry.Rect{})
 		v, _, ok = c.Get("3")
 		expect(t, v == nil)

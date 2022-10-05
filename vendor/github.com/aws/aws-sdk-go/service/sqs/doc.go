@@ -3,53 +3,44 @@
 // Package sqs provides the client and types for making API
 // requests to Amazon Simple Queue Service.
 //
-// Welcome to the Amazon Simple Queue Service API Reference.
+// Welcome to the Amazon SQS API Reference.
 //
-// Amazon Simple Queue Service (Amazon SQS) is a reliable, highly-scalable hosted
-// queue for storing messages as they travel between applications or microservices.
-// Amazon SQS moves data between distributed application components and helps
-// you decouple these components.
+// Amazon SQS is a reliable, highly-scalable hosted queue for storing messages
+// as they travel between applications or microservices. Amazon SQS moves data
+// between distributed application components and helps you decouple these components.
 //
-// Standard queues (http://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/standard-queues.html)
-// are available in all regions. FIFO queues (http://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/FIFO-queues.html)
-// are available in the US East (N. Virginia), US East (Ohio), US West (Oregon),
-// and EU (Ireland) regions.
+// For information on the permissions you need to use this API, see Identity
+// and access management (https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-authentication-and-access-control.html)
+// in the Amazon SQS Developer Guide.
 //
-// You can use AWS SDKs (http://aws.amazon.com/tools/#sdk) to access Amazon
-// SQS using your favorite programming language. The SDKs perform tasks such
-// as the following automatically:
+// You can use Amazon Web Services SDKs (http://aws.amazon.com/tools/#sdk) to
+// access Amazon SQS using your favorite programming language. The SDKs perform
+// tasks such as the following automatically:
 //
-//    * Cryptographically sign your service requests
+//   - Cryptographically sign your service requests
 //
-//    * Retry requests
+//   - Retry requests
 //
-//    * Handle error responses
+//   - Handle error responses
 //
-// Additional Information
+// Additional information
 //
-//    * Amazon SQS Product Page (http://aws.amazon.com/sqs/)
+//   - Amazon SQS Product Page (http://aws.amazon.com/sqs/)
 //
-//    * Amazon Simple Queue Service Developer Guide
+//   - Amazon SQS Developer Guide Making API Requests (https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-making-api-requests.html)
+//     Amazon SQS Message Attributes (https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-message-metadata.html#sqs-message-attributes)
+//     Amazon SQS Dead-Letter Queues (https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-dead-letter-queues.html)
 //
-// Making API Requests (http://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-making-api-requests.html)
+//   - Amazon SQS in the Command Line Interface (http://docs.aws.amazon.com/cli/latest/reference/sqs/index.html)
 //
-// Amazon SQS Message Attributes (http://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-message-attributes.html)
-//
-// Amazon SQS Dead-Letter Queues (http://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-dead-letter-queues.html)
-//
-//    * Amazon SQS in the  (http://docs.aws.amazon.com/cli/latest/reference/sqs/index.html)AWS
-//    CLI Command Reference
-//
-//    * Amazon Web Services General Reference
-//
-// Regions and Endpoints (http://docs.aws.amazon.com/general/latest/gr/rande.html#sqs_region)
+//   - Amazon Web Services General Reference Regions and Endpoints (https://docs.aws.amazon.com/general/latest/gr/rande.html#sqs_region)
 //
 // See https://docs.aws.amazon.com/goto/WebAPI/sqs-2012-11-05 for more information on this service.
 //
 // See sqs package documentation for more information.
 // https://docs.aws.amazon.com/sdk-for-go/api/service/sqs/
 //
-// Using the Client
+// # Using the Client
 //
 // To contact Amazon Simple Queue Service with the SDK use the New function to create
 // a new service client. With that client you can make API requests to the service.

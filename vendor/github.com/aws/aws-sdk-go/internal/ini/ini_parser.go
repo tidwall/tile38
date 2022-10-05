@@ -5,9 +5,12 @@ import (
 	"io"
 )
 
+// ParseState represents the current state of the parser.
+type ParseState uint
+
 // State enums for the parse table
 const (
-	InvalidState = iota
+	InvalidState ParseState = iota
 	// stmt -> value stmt'
 	StatementState
 	// stmt' -> MarkComplete | op stmt
@@ -36,8 +39,8 @@ const (
 )
 
 // parseTable is a state machine to dictate the grammar above.
-var parseTable = map[ASTKind]map[TokenType]int{
-	ASTKindStart: map[TokenType]int{
+var parseTable = map[ASTKind]map[TokenType]ParseState{
+	ASTKindStart: {
 		TokenLit:     StatementState,
 		TokenSep:     OpenScopeState,
 		TokenWS:      SkipTokenState,
@@ -45,7 +48,7 @@ var parseTable = map[ASTKind]map[TokenType]int{
 		TokenComment: CommentState,
 		TokenNone:    TerminalState,
 	},
-	ASTKindCommentStatement: map[TokenType]int{
+	ASTKindCommentStatement: {
 		TokenLit:     StatementState,
 		TokenSep:     OpenScopeState,
 		TokenWS:      SkipTokenState,
@@ -53,7 +56,7 @@ var parseTable = map[ASTKind]map[TokenType]int{
 		TokenComment: CommentState,
 		TokenNone:    MarkCompleteState,
 	},
-	ASTKindExpr: map[TokenType]int{
+	ASTKindExpr: {
 		TokenOp:      StatementPrimeState,
 		TokenLit:     ValueState,
 		TokenSep:     OpenScopeState,
@@ -62,12 +65,15 @@ var parseTable = map[ASTKind]map[TokenType]int{
 		TokenComment: CommentState,
 		TokenNone:    MarkCompleteState,
 	},
-	ASTKindEqualExpr: map[TokenType]int{
-		TokenLit: ValueState,
-		TokenWS:  SkipTokenState,
-		TokenNL:  SkipState,
+	ASTKindEqualExpr: {
+		TokenLit:  ValueState,
+		TokenSep:  ValueState,
+		TokenOp:   ValueState,
+		TokenWS:   SkipTokenState,
+		TokenNL:   SkipState,
+		TokenNone: SkipState,
 	},
-	ASTKindStatement: map[TokenType]int{
+	ASTKindStatement: {
 		TokenLit:     SectionState,
 		TokenSep:     CloseScopeState,
 		TokenWS:      SkipTokenState,
@@ -75,9 +81,9 @@ var parseTable = map[ASTKind]map[TokenType]int{
 		TokenComment: CommentState,
 		TokenNone:    MarkCompleteState,
 	},
-	ASTKindExprStatement: map[TokenType]int{
+	ASTKindExprStatement: {
 		TokenLit:     ValueState,
-		TokenSep:     OpenScopeState,
+		TokenSep:     ValueState,
 		TokenOp:      ValueState,
 		TokenWS:      ValueState,
 		TokenNL:      MarkCompleteState,
@@ -85,14 +91,14 @@ var parseTable = map[ASTKind]map[TokenType]int{
 		TokenNone:    TerminalState,
 		TokenComma:   SkipState,
 	},
-	ASTKindSectionStatement: map[TokenType]int{
+	ASTKindSectionStatement: {
 		TokenLit: SectionState,
 		TokenOp:  SectionState,
 		TokenSep: CloseScopeState,
 		TokenWS:  SectionState,
 		TokenNL:  SkipTokenState,
 	},
-	ASTKindCompletedSectionStatement: map[TokenType]int{
+	ASTKindCompletedSectionStatement: {
 		TokenWS:      SkipTokenState,
 		TokenNL:      SkipTokenState,
 		TokenLit:     StatementState,
@@ -100,7 +106,7 @@ var parseTable = map[ASTKind]map[TokenType]int{
 		TokenComment: CommentState,
 		TokenNone:    MarkCompleteState,
 	},
-	ASTKindSkipStatement: map[TokenType]int{
+	ASTKindSkipStatement: {
 		TokenLit:     StatementState,
 		TokenSep:     OpenScopeState,
 		TokenWS:      SkipTokenState,
@@ -162,7 +168,7 @@ loop:
 			if len(tokens) == 0 {
 				break loop
 			}
-
+			// if should skip is true, we skip the tokens until should skip is set to false.
 			step = SkipTokenState
 		}
 
@@ -204,21 +210,9 @@ loop:
 		case ValueState:
 			// ValueState requires the previous state to either be an equal expression
 			// or an expression statement.
-			//
-			// This grammar occurs when the RHS is a number, word, or quoted string.
-			// equal_expr -> lit op equal_expr'
-			// equal_expr' -> number | string | quoted_string
-			// quoted_string -> " quoted_string'
-			// quoted_string' -> string quoted_string_end
-			// quoted_string_end -> "
-			//
-			// otherwise
-			// expr_stmt -> equal_expr (expr_stmt')*
-			// expr_stmt' -> ws S | op S | MarkComplete
-			// S -> equal_expr' expr_stmt'
 			switch k.Kind {
 			case ASTKindEqualExpr:
-				// assiging a value to some key
+				// assigning a value to some key
 				k.AppendChild(newExpression(tok))
 				stack.Push(newExprStatement(k))
 			case ASTKindExpr:
@@ -242,13 +236,20 @@ loop:
 				}
 
 				children[len(children)-1] = rhs
-				k.SetChildren(children)
+				root.SetChildren(children)
 
 				stack.Push(k)
 			}
 		case OpenScopeState:
 			if !runeCompare(tok.Raw(), openBrace) {
 				return nil, NewParseError("expected '['")
+			}
+			// If OpenScopeState is not at the start, we must mark the previous ast as complete
+			//
+			// for example: if previous ast was a skip statement;
+			// we should mark it as complete before we create a new statement
+			if k.Kind != ASTKindStart {
+				stack.MarkComplete(k)
 			}
 
 			stmt := newStatement()
@@ -304,7 +305,9 @@ loop:
 			stmt := newCommentStatement(tok)
 			stack.Push(stmt)
 		default:
-			return nil, NewParseError(fmt.Sprintf("invalid state with ASTKind %v and TokenType %v", k, tok))
+			return nil, NewParseError(
+				fmt.Sprintf("invalid state with ASTKind %v and TokenType %v",
+					k, tok.Type()))
 		}
 
 		if len(tokens) > 0 {
@@ -314,7 +317,7 @@ loop:
 
 	// this occurs when a statement has not been completed
 	if stack.top > 1 {
-		return nil, NewParseError(fmt.Sprintf("incomplete expression: %v", stack.container))
+		return nil, NewParseError(fmt.Sprintf("incomplete ini expression"))
 	}
 
 	// returns a sublist which excludes the start symbol

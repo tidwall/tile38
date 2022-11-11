@@ -2,6 +2,11 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.29.2] = 2022-11-11
+
+### Fixed
+- #664: Fix bad line in inner ring response
+
 ## [1.29.1] = 2022-09-21
 
 ### Fixed

@@ -19,7 +19,7 @@ require (
 	github.com/tidwall/btree v1.1.0
 	github.com/tidwall/buntdb v1.2.9
 	github.com/tidwall/geoindex v1.4.4
-	github.com/tidwall/geojson v1.3.4
+	github.com/tidwall/geojson v1.4.2
 	github.com/tidwall/gjson v1.12.1
 	github.com/tidwall/match v1.1.1
 	github.com/tidwall/pretty v1.2.0

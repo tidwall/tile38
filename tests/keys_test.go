@@ -197,7 +197,7 @@ func keys_SET_test(mc *mockServer) error {
 			{"SET", "mykey", "myid", "BOUNDS", 33, -115, 33, -115}, {"OK"},
 			{"GET", "mykey", "myid", "POINT"}, {"[33 -115]"},
 			{"GET", "mykey", "myid", "BOUNDS"}, {"[[33 -115] [33 -115]]"},
-			{"GET", "mykey", "myid", "OBJECT"}, {`{"type":"Polygon","coordinates":[[[-115,33],[-115,33],[-115,33],[-115,33],[-115,33]]]}`},
+			{"GET", "mykey", "myid", "OBJECT"}, {`{"type":"Point","coordinates":[-115,33]}`},
 			{"GET", "mykey", "myid", "HASH", 7}, {"9my5xp7"},
 			{"DEL", "mykey", "myid"}, {"1"},
 			{"GET", "mykey", "myid"}, {nil},

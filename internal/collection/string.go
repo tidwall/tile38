@@ -87,3 +87,7 @@ func (s String) NumPoints() int {
 func (s String) Distance(obj geojson.Object) float64 {
 	return 0
 }
+
+func (s String) Members() string {
+	return ""
+}

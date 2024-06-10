@@ -299,7 +299,7 @@ func (s *Server) cmdJset(msg *Message) (res resp.Value, d commandDetails, err er
 	if createcol {
 		s.cols.Set(key, col)
 	}
-	var oobj geojson.Object = collection.String(json)
+	var oobj geojson.Object = object.String(json)
 	obj := object.New(id, oobj, 0, fields)
 	col.Set(obj)
 
@@ -368,7 +368,7 @@ func (s *Server) cmdJdel(msg *Message) (res resp.Value, d commandDetails, err er
 		return s.cmdSET(&nmsg)
 	}
 
-	var oobj geojson.Object = collection.String(json)
+	var oobj geojson.Object = object.String(json)
 	obj := object.New(id, oobj, 0, fields)
 	col.Set(obj)
 

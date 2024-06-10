@@ -100,8 +100,8 @@ func (o *Object) String() string {
 }
 
 func (o *Object) IsSpatial() bool {
-	_, ok := o.geo().(geojson.Spatial)
-	return ok
+	_, ok := o.geo().(String)
+	return !ok
 }
 
 func (o *Object) Weight() int {

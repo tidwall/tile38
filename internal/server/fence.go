@@ -50,8 +50,8 @@ func appendHookDetails(b []byte, hookName string, metas []FenceMeta) []byte {
 }
 
 func objIsSpatial(obj geojson.Object) bool {
-	_, ok := obj.(geojson.Spatial)
-	return ok
+	_, ok := obj.(object.String)
+	return !ok
 }
 
 func hookJSONString(hookName string, metas []FenceMeta) string {

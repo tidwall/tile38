@@ -671,7 +671,7 @@ func (s *Server) cmdSET(msg *Message) (resp.Value, commandDetails, error) {
 			}
 			str := args[i+1]
 			i += 1
-			oobj = collection.String(str)
+			oobj = object.String(str)
 		case "point":
 			if i+2 >= len(args) {
 				return retwerr(errInvalidNumberOfArguments)

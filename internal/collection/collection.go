@@ -353,8 +353,8 @@ func (c *Collection) SearchValuesRange(start, end string, desc bool,
 		return keepon
 	}
 
-	pstart := object.New("", String(start), 0, field.List{})
-	pend := object.New("", String(end), 0, field.List{})
+	pstart := object.New("", object.String(start), 0, field.List{})
+	pend := object.New("", object.String(end), 0, field.List{})
 	if desc {
 		// descend range
 		c.values.Descend(pstart, func(item *object.Object) bool {

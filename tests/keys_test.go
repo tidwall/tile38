@@ -377,6 +377,7 @@ func keys_SET_CIRCLE_test(mc *mockServer) error {
 		Do("GET", "mykey", "myid", "HASH", 7).Str("9my5xp7"),
 		Do("DEL", "mykey", "myid").Str("1"),
 		Do("GET", "mykey", "myid").Str("<nil>"),
+		Do("SET", "mykey", "myid", "CIRCLE", 33, -115).Err("wrong number of arguments for 'set' command"),
 	)
 }
 

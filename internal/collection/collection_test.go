@@ -80,14 +80,14 @@ func toFields(fNames, fValues []string) field.List {
 func TestCollectionSet(t *testing.T) {
 	t.Run("AddString", func(t *testing.T) {
 		c := New()
-		str1 := String("hello")
+		str1 := object.String("hello")
 		old := c.Set(object.New("str", str1, 0, field.List{}))
 		expect(t, old == nil)
 	})
 	t.Run("UpdateString", func(t *testing.T) {
 		c := New()
-		str1 := String("hello")
-		str2 := String("world")
+		str1 := object.String("hello")
+		str2 := object.String("world")
 		old := c.Set(object.New("str", str1, 0, field.List{}))
 		expect(t, old == nil)
 		old = c.Set(object.New("str", str2, 0, field.List{}))
@@ -110,7 +110,7 @@ func TestCollectionSet(t *testing.T) {
 	})
 	t.Run("Fields", func(t *testing.T) {
 		c := New()
-		str1 := String("hello")
+		str1 := object.String("hello")
 
 		fNames := []string{"a", "b", "c"}
 		fValues := []string{"1", "2", "3"}
@@ -118,7 +118,7 @@ func TestCollectionSet(t *testing.T) {
 		old := c.Set(object.New("str", str1, 0, fields1))
 		expect(t, old == nil)
 
-		str2 := String("hello")
+		str2 := object.String("hello")
 
 		fNames = []string{"d", "e", "f"}
 		fValues = []string{"4", "5", "6"}
@@ -138,8 +138,8 @@ func TestCollectionSet(t *testing.T) {
 	t.Run("Delete", func(t *testing.T) {
 		c := New()
 
-		c.Set(object.New("1", String("1"), 0, field.List{}))
-		c.Set(object.New("2", String("2"), 0, field.List{}))
+		c.Set(object.New("1", object.String("1"), 0, field.List{}))
+		c.Set(object.New("2", object.String("2"), 0, field.List{}))
 		c.Set(object.New("3", PO(1, 2), 0, field.List{}))
 
 		expect(t, c.Count() == 3)
@@ -196,7 +196,7 @@ func TestCollectionScan(t *testing.T) {
 	c := New()
 	for _, i := range rand.Perm(N) {
 		id := fmt.Sprintf("%04d", i)
-		c.Set(object.New(id, String(id), 0, makeFields(
+		c.Set(object.New(id, object.String(id), 0, makeFields(
 			field.Make("ex", id),
 		)))
 	}
@@ -292,7 +292,7 @@ func TestCollectionSearch(t *testing.T) {
 	for i, j := range rand.Perm(N) {
 		id := fmt.Sprintf("%04d", j)
 		ex := fmt.Sprintf("%04d", i)
-		c.Set(object.New(id, String(ex),
+		c.Set(object.New(id, object.String(ex),
 			0, makeFields(
 				field.Make("i", ex),
 				field.Make("j", id),
@@ -351,11 +351,11 @@ func TestCollectionSearch(t *testing.T) {
 
 func TestCollectionWeight(t *testing.T) {
 	c := New()
-	c.Set(object.New("1", String("1"), 0, field.List{}))
+	c.Set(object.New("1", object.String("1"), 0, field.List{}))
 	expect(t, c.TotalWeight() > 0)
 	c.Delete("1")
 	expect(t, c.TotalWeight() == 0)
-	c.Set(object.New("1", String("1"), 0,
+	c.Set(object.New("1", object.String("1"), 0,
 		toFields(
 			[]string{"a", "b", "c"},
 			[]string{"1", "2", "3"},
@@ -364,19 +364,19 @@ func TestCollectionWeight(t *testing.T) {
 	expect(t, c.TotalWeight() > 0)
 	c.Delete("1")
 	expect(t, c.TotalWeight() == 0)
-	c.Set(object.New("1", String("1"), 0,
+	c.Set(object.New("1", object.String("1"), 0,
 		toFields(
 			[]string{"a", "b", "c"},
 			[]string{"1", "2", "3"},
 		),
 	))
-	c.Set(object.New("2", String("2"), 0,
+	c.Set(object.New("2", object.String("2"), 0,
 		toFields(
 			[]string{"d", "e", "f"},
 			[]string{"4", "5", "6"},
 		),
 	))
-	c.Set(object.New("1", String("1"), 0,
+	c.Set(object.New("1", object.String("1"), 0,
 		toFields(
 			[]string{"d", "e", "f"},
 			[]string{"4", "5", "6"},

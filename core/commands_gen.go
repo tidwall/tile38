@@ -271,6 +271,23 @@ var commandsJSON = `{
                 "type": "string"
               }
             ]
+          },
+          {
+            "name": "CIRCLE",
+            "arguments": [
+              {
+                "name": "lat",
+                "type": "double"
+              },
+              {
+                "name": "lon",
+                "type": "double"
+              },
+              {
+                "name": "meters",
+                "type": "double"
+              }
+            ]
           }
         ]
       }

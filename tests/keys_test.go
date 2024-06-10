@@ -23,6 +23,7 @@ func subTestKeys(g *testGroup) {
 	g.regSubTest("KEYS", keys_KEYS_test)
 	g.regSubTest("PERSIST", keys_PERSIST_test)
 	g.regSubTest("SET", keys_SET_test)
+	g.regSubTest("SET CIRCLE", keys_SET_CIRCLE_test)
 	g.regSubTest("STATS", keys_STATS_test)
 	g.regSubTest("TTL", keys_TTL_test)
 	g.regSubTest("SET EX", keys_SET_EX_test)
@@ -364,6 +365,18 @@ func keys_SET_test(mc *mockServer) error {
 		Do("SET", "mykey", "myid", "XX", "HASH", "9my5xp7").OK(),
 		Do("SET", "mykey", "myid", "NX", "HASH", "9my5xp7").Err("<nil>"),
 		Do("SET", "mykey", "myid", "NX", "HASH", "9my5xp7").JSON().Err("id already exists"),
+	)
+}
+
+func keys_SET_CIRCLE_test(mc *mockServer) error {
+	return mc.DoBatch(
+		Do("SET", "mykey", "myid", "CIRCLE", 33, -115, 100000).OK(),
+		Do("GET", "mykey", "myid", "POINT").Str("[33 -115]"),
+		Do("GET", "mykey", "myid", "OBJECT").Str(`{"type":"Feature","geometry":{"type":"Point","coordinates":[-115,33]},"properties":{"type":"Circle","radius":100000,"radius_units":"m"}}`),
+		Do("GET", "mykey", "myid", "BOUNDS").Str("[[32.10067839408127 -116.072280937208] [33.89932160591873 -113.927719062792]]"),
+		Do("GET", "mykey", "myid", "HASH", 7).Str("9my5xp7"),
+		Do("DEL", "mykey", "myid").Str("1"),
+		Do("GET", "mykey", "myid").Str("<nil>"),
 	)
 }
 

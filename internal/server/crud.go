@@ -739,6 +739,25 @@ func (s *Server) cmdSET(msg *Message) (resp.Value, commandDetails, error) {
 			if err != nil {
 				return retwerr(err)
 			}
+		case "circle":
+			if i+3 >= len(args) {
+				return retwerr(errInvalidNumberOfArguments)
+			}
+			slat, slon, smeters := args[i+1], args[i+2], args[i+3]
+			i += 3
+			lat, err := strconv.ParseFloat(slat, 64)
+			if err != nil {
+				return retwerr(errInvalidArgument(slat))
+			}
+			lon, err := strconv.ParseFloat(slon, 64)
+			if err != nil {
+				return retwerr(errInvalidArgument(slon))
+			}
+			meters, err := strconv.ParseFloat(smeters, 64)
+			if err != nil || meters < 0 {
+				return retwerr(errInvalidArgument(smeters))
+			}
+			oobj = geojson.NewCircle(geometry.Point{X: lon, Y: lat}, meters, defaultCircleSteps)
 		default:
 			return retwerr(errInvalidArgument(args[i]))
 		}

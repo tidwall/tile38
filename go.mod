@@ -36,7 +36,7 @@ require (
 	github.com/yuin/gopher-lua v1.1.0
 	go.uber.org/atomic v1.11.0
 	go.uber.org/zap v1.26.0
-	golang.org/x/net v0.23.0
+	golang.org/x/net v0.33.0
 	golang.org/x/term v0.27.0
 	google.golang.org/api v0.151.0
 	google.golang.org/grpc v1.59.0

@@ -126,6 +126,10 @@ type Endpoint struct {
 		TLS     bool
 		TLSCert string
 		TLSKey  string
+		Secure  bool
+		// Jetstream indicates publishing via jetstream acknowledgements.
+		Jetstream          bool
+		UserCredentialPath string
 	}
 	EventHub struct {
 		ConnectionString string
@@ -772,6 +776,12 @@ func parseEndpoint(s string) (Endpoint, error) {
 					endpoint.NATS.Pass = val[0]
 				case "token":
 					endpoint.NATS.Token = val[0]
+				case "secure":
+					endpoint.NATS.Secure = queryBool(val[0])
+				case "credential":
+					endpoint.NATS.UserCredentialPath = val[0]
+				case "jetstream":
+					endpoint.NATS.Jetstream = queryBool(val[0])
 				case "tls":
 					endpoint.NATS.TLS = queryBool(val[0])
 				case "tlscert":

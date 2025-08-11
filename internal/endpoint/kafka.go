@@ -11,7 +11,7 @@ import (
 
 	lg "log"
 
-	"github.com/Shopify/sarama"
+	"github.com/IBM/sarama"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/tile38/internal/log"
 )

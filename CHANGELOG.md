@@ -2,6 +2,16 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.36.0] = 2025-07-14
+### Added
+- 35bde95: Support for Cloudflare Queues endpoint #773 (@tobilg)
+- a2afb21: Vector tile support (Mapbox vector tiles) #775
+
+### Updated
+- 56c70a1: Bumped github.com/golang-jwt/jwt/v4
+- 86b698d: Updated Go dependencies
+- f95fcab: Go 1.25
+
 ## [1.35.0] = 2025-06-16
 ### Added
 - 4638279: Added NATS Jetstream acks, user credentials, and tls #770 (@VeryStrongFingers)

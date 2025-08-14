@@ -224,6 +224,10 @@ type searchScanBaseTokens struct {
 	clip       bool
 	buffer     float64
 	hasbuffer  bool
+	mvt        bool
+	tileX      int
+	tileY      int
+	tileZ      int
 }
 
 func (s *Server) parseSearchScanBaseTokens(
@@ -678,7 +682,8 @@ func (s *Server) parseSearchScanBaseTokens(
 	if ssparse != "" {
 		t.usparse = true
 		var sparse uint64
-		if sparse, err = strconv.ParseUint(ssparse, 10, 8); err != nil || sparse == 0 || sparse > 8 {
+		if sparse, err = strconv.ParseUint(ssparse, 10, 8); err != nil ||
+			sparse == 0 || sparse > 16 {
 			err = errInvalidArgument(ssparse)
 			return
 		}

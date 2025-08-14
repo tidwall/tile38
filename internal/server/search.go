@@ -58,10 +58,11 @@ func (lfs liveFenceSwitches) usingLua() bool {
 	return len(lfs.whereevals) > 0
 }
 
-func parseRectArea(ltyp string, vs []string) (nvs []string, rect *geojson.Rect, err error) {
-
+func parseRectArea(ltyp string, vs []string) (nvs []string,
+	grect geojson.Object, tileX, tileY, tileZ int, err error,
+) {
+	var rect geometry.Rect
 	var ok bool
-
 	switch ltyp {
 	default:
 		err = errNotRectangle
@@ -101,10 +102,10 @@ func parseRectArea(ltyp string, vs []string) (nvs []string, rect *geojson.Rect, 
 			err = errInvalidArgument(smaxlon)
 			return
 		}
-		rect = geojson.NewRect(geometry.Rect{
+		rect = geometry.Rect{
 			Min: geometry.Point{X: minLon, Y: minLat},
 			Max: geometry.Point{X: maxLon, Y: maxLat},
-		})
+		}
 	case "hash":
 		var hash string
 		if vs, hash, ok = tokenval(vs); !ok || hash == "" {
@@ -112,10 +113,10 @@ func parseRectArea(ltyp string, vs []string) (nvs []string, rect *geojson.Rect, 
 			return
 		}
 		box := geohash.BoundingBox(hash)
-		rect = geojson.NewRect(geometry.Rect{
+		rect = geometry.Rect{
 			Min: geometry.Point{X: box.MinLng, Y: box.MinLat},
 			Max: geometry.Point{X: box.MaxLng, Y: box.MaxLat},
-		})
+		}
 	case "quadkey":
 		var key string
 		if vs, key, ok = tokenval(vs); !ok || key == "" {
@@ -128,11 +129,11 @@ func parseRectArea(ltyp string, vs []string) (nvs []string, rect *geojson.Rect, 
 			err = errInvalidArgument(key)
 			return
 		}
-		rect = geojson.NewRect(geometry.Rect{
+		rect = geometry.Rect{
 			Min: geometry.Point{X: minLon, Y: minLat},
 			Max: geometry.Point{X: maxLon, Y: maxLat},
-		})
-	case "tile":
+		}
+	case "tile", "mvt":
 		var sx, sy, sz string
 		if vs, sx, ok = tokenval(vs); !ok || sx == "" {
 			err = errInvalidNumberOfArguments
@@ -146,28 +147,52 @@ func parseRectArea(ltyp string, vs []string) (nvs []string, rect *geojson.Rect, 
 			err = errInvalidNumberOfArguments
 			return
 		}
-		var x, y int64
-		var z uint64
-		if x, err = strconv.ParseInt(sx, 10, 64); err != nil {
+		var x, y, z int
+		if x, err = strconv.Atoi(sx); err != nil || x < 0 {
 			err = errInvalidArgument(sx)
 			return
 		}
-		if y, err = strconv.ParseInt(sy, 10, 64); err != nil {
+		if y, err = strconv.Atoi(sy); err != nil || y < 0 {
 			err = errInvalidArgument(sy)
 			return
 		}
-		if z, err = strconv.ParseUint(sz, 10, 64); err != nil {
+		if z, err = strconv.Atoi(sz); err != nil || z < 0 || z > 23 {
 			err = errInvalidArgument(sz)
 			return
 		}
 		var minLat, minLon, maxLat, maxLon float64
-		minLat, minLon, maxLat, maxLon = bing.TileXYToBounds(x, y, z)
-		rect = geojson.NewRect(geometry.Rect{
+		minLat, minLon, maxLat, maxLon =
+			bing.TileXYToBounds(int64(x), int64(y), uint64(z))
+		rect = geometry.Rect{
 			Min: geometry.Point{X: minLon, Y: minLat},
 			Max: geometry.Point{X: maxLon, Y: maxLat},
-		})
+		}
+		tileX = x
+		tileY = y
+		tileZ = z
 	}
 	nvs = vs
+	if ltyp == "mvt" {
+		// expand rectangle by 10%
+
+		rect.Min.Y -= (rect.Max.Y - rect.Min.Y) * 0.1
+		rect.Max.Y += (rect.Max.Y - rect.Min.Y) * 0.1
+		rect.Min.X -= (rect.Max.X - rect.Min.X) * 0.1
+		rect.Max.X += (rect.Max.X - rect.Min.X) * 0.1
+		if rect.Min.Y < bing.MinLatitude {
+			rect.Min.Y = bing.MinLatitude
+		}
+		if rect.Max.Y > bing.MaxLatitude {
+			rect.Max.Y = bing.MaxLatitude
+		}
+		if rect.Min.X < bing.MinLongitude {
+			rect.Min.X = bing.MinLongitude
+		}
+		if rect.Max.X > bing.MaxLongitude {
+			rect.Max.X = bing.MaxLongitude
+		}
+	}
+	grect = geojson.NewRect(rect)
 	return
 }
 
@@ -353,10 +378,14 @@ func (s *Server) cmdSearchArgs(
 		if err != nil {
 			return
 		}
-	case "bounds", "hash", "tile", "quadkey":
-		vs, lfs.obj, err = parseRectArea(ltyp, vs)
+	case "bounds", "hash", "tile", "mvt", "quadkey":
+		vs, lfs.obj, lfs.tileX, lfs.tileY, lfs.tileZ, err =
+			parseRectArea(ltyp, vs)
 		if err != nil {
 			return
+		}
+		if ltyp == "mvt" {
+			lfs.mvt = true
 		}
 	case "get":
 		if lfs.clip {
@@ -416,7 +445,7 @@ func (s *Server) cmdSearchArgs(
 		}
 	}
 
-	var clip_rect *geojson.Rect
+	var clipRect geojson.Object
 	var tok, ltok string
 	for len(vs) > 0 {
 		if vs, tok, ok = tokenval(vs); !ok || tok == "" {
@@ -434,7 +463,8 @@ func (s *Server) cmdSearchArgs(
 		ltok = strings.ToLower(tok)
 		switch ltok {
 		case "bounds", "hash", "tile", "quadkey":
-			vs, clip_rect, err = parseRectArea(ltok, vs)
+			vs, clipRect, lfs.tileX, lfs.tileY, lfs.tileZ, err =
+				parseRectArea(ltok, vs)
 			if err == errNotRectangle {
 				err = errInvalidArgument("cannot clipby " + ltok)
 				return
@@ -442,7 +472,7 @@ func (s *Server) cmdSearchArgs(
 			if err != nil {
 				return
 			}
-			lfs.obj = clip.Clip(lfs.obj, clip_rect, &s.geomIndexOpts)
+			lfs.obj = clip.Clip(lfs.obj, clipRect, &s.geomIndexOpts)
 		default:
 			err = errInvalidArgument("cannot clipby " + ltok)
 			return
@@ -465,6 +495,7 @@ var nearbyTypes = map[string]bool{
 var withinOrIntersectsTypes = map[string]bool{
 	"geo": true, "bounds": true, "hash": true, "tile": true, "quadkey": true,
 	"get": true, "object": true, "circle": true, "point": true, "sector": true,
+	"mvt": true,
 }
 
 func (s *Server) cmdNearby(msg *Message) (res resp.Value, err error) {
@@ -491,7 +522,9 @@ func (s *Server) cmdNearby(msg *Message) (res resp.Value, err error) {
 	}
 	sw, err := s.newScanWriter(
 		wr, msg, sargs.key, sargs.output, sargs.precision, sargs.globs, false,
-		sargs.cursor, sargs.limit, sargs.wheres, sargs.whereins, sargs.whereevals, sargs.nofields)
+		sargs.cursor, sargs.limit, sargs.wheres, sargs.whereins,
+		sargs.whereevals, sargs.nofields,
+		sargs.mvt, sargs.tileX, sargs.tileY, sargs.tileZ)
 	if err != nil {
 		return NOMessage, err
 	}
@@ -588,7 +621,9 @@ func (s *Server) cmdWITHINorINTERSECTS(cmd string, msg *Message) (res resp.Value
 	}
 	sw, err := s.newScanWriter(
 		wr, msg, sargs.key, sargs.output, sargs.precision, sargs.globs, false,
-		sargs.cursor, sargs.limit, sargs.wheres, sargs.whereins, sargs.whereevals, sargs.nofields)
+		sargs.cursor, sargs.limit, sargs.wheres, sargs.whereins,
+		sargs.whereevals, sargs.nofields,
+		sargs.mvt, sargs.tileX, sargs.tileY, sargs.tileZ)
 	if err != nil {
 		return NOMessage, err
 	}
@@ -597,7 +632,8 @@ func (s *Server) cmdWITHINorINTERSECTS(cmd string, msg *Message) (res resp.Value
 	}
 	var ierr error
 	if sw.col != nil {
-		if cmd == "within" {
+		switch cmd {
+		case "within":
 			sw.col.Within(sargs.obj, sargs.sparse, sw, msg.Deadline,
 				func(o *object.Object) bool {
 					keepGoing, err := sw.pushObject(ScanWriterParams{obj: o})
@@ -608,7 +644,7 @@ func (s *Server) cmdWITHINorINTERSECTS(cmd string, msg *Message) (res resp.Value
 					return keepGoing
 				},
 			)
-		} else if cmd == "intersects" {
+		case "intersects":
 			sw.col.Intersects(sargs.obj, sargs.sparse, sw, msg.Deadline,
 				func(o *object.Object) bool {
 					params := ScanWriterParams{obj: o}
@@ -684,7 +720,6 @@ func multiGlobParse(globs []string, desc bool) [2]string {
 func (s *Server) cmdSearch(msg *Message) (res resp.Value, err error) {
 	start := time.Now()
 	vs := msg.Args[1:]
-
 	wr := &bytes.Buffer{}
 	sargs, err := s.cmdSeachValuesArgs(vs)
 	if sargs.usingLua() {
@@ -702,7 +737,9 @@ func (s *Server) cmdSearch(msg *Message) (res resp.Value, err error) {
 	}
 	sw, err := s.newScanWriter(
 		wr, msg, sargs.key, sargs.output, sargs.precision, sargs.globs, true,
-		sargs.cursor, sargs.limit, sargs.wheres, sargs.whereins, sargs.whereevals, sargs.nofields)
+		sargs.cursor, sargs.limit, sargs.wheres, sargs.whereins,
+		sargs.whereevals, sargs.nofields,
+		sargs.mvt, sargs.tileX, sargs.tileY, sargs.tileZ)
 	if err != nil {
 		return NOMessage, err
 	}

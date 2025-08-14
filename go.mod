@@ -106,6 +106,7 @@ require (
 	github.com/tidwall/conv v0.1.0 // indirect
 	github.com/tidwall/geoindex v1.7.0 // indirect
 	github.com/tidwall/grect v0.1.4 // indirect
+	github.com/tidwall/mvt v0.1.3 // indirect
 	github.com/tidwall/rtred v0.1.2 // indirect
 	github.com/tidwall/tinyqueue v0.1.1 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect

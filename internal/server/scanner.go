@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"encoding/base64"
 	"errors"
 	"math"
 	"strconv"
@@ -60,6 +61,11 @@ type scanWriter struct {
 	matchValues    bool
 	respOut        resp.Value
 	filled         []ScanWriterParams
+	mvtObjs        []mvtObj
+	mvt            bool
+	tileX          int
+	tileY          int
+	tileZ          int
 }
 
 type ScanWriterParams struct {
@@ -76,14 +82,15 @@ func (s *Server) newScanWriter(
 	wr *bytes.Buffer, msg *Message, name string, output outputT,
 	precision uint64, globs []string, matchValues bool,
 	cursor, limit uint64, wheres []whereT, whereins []whereinT,
-	whereevals []whereevalT, nofields bool,
+	whereevals []whereevalT, nofields, mvt bool, tileX, tileY, tileZ int,
 ) (
 	*scanWriter, error,
 ) {
 	switch output {
 	default:
 		return nil, errors.New("invalid output type")
-	case outputIDs, outputObjects, outputCount, outputBounds, outputPoints, outputHashes:
+	case outputIDs, outputObjects, outputCount, outputBounds, outputPoints,
+		outputHashes:
 	}
 	if limit == 0 {
 		if output == outputCount {
@@ -107,6 +114,11 @@ func (s *Server) newScanWriter(
 		matchValues: matchValues,
 	}
 
+	sw.mvt = mvt
+	sw.tileX = tileX
+	sw.tileY = tileY
+	sw.tileZ = tileZ
+
 	if len(globs) == 0 || (len(globs) == 1 && globs[0] == "*") {
 		sw.globEverything = true
 	}
@@ -126,53 +138,64 @@ func (sw *scanWriter) hasFieldsOutput() bool {
 }
 
 func (sw *scanWriter) writeFoot() {
-	switch sw.msg.OutputType {
-	case JSON:
-		if sw.fkeys.Len() > 0 && sw.hasFieldsOutput() {
-			sw.wr.WriteString(`,"fields":[`)
-			var i int
-			sw.fkeys.Scan(func(name string) bool {
-				if i > 0 {
-					sw.wr.WriteByte(',')
-				}
-				sw.wr.WriteString(jsonString(name))
-				i++
-				return true
-			})
-			sw.wr.WriteByte(']')
+	if sw.mvt {
+		sw.wr.WriteString(`,"mvt":"`)
+	} else {
+		switch sw.msg.OutputType {
+		case JSON:
+			if sw.fkeys.Len() > 0 && sw.hasFieldsOutput() {
+				sw.wr.WriteString(`,"fields":[`)
+				var i int
+				sw.fkeys.Scan(func(name string) bool {
+					if i > 0 {
+						sw.wr.WriteByte(',')
+					}
+					sw.wr.WriteString(jsonString(name))
+					i++
+					return true
+				})
+				sw.wr.WriteByte(']')
+			}
+			switch sw.output {
+			case outputIDs:
+				sw.wr.WriteString(`,"ids":[`)
+			case outputObjects:
+				sw.wr.WriteString(`,"objects":[`)
+			case outputPoints:
+				sw.wr.WriteString(`,"points":[`)
+			case outputBounds:
+				sw.wr.WriteString(`,"bounds":[`)
+			case outputHashes:
+				sw.wr.WriteString(`,"hashes":[`)
+			case outputCount:
+
+			}
+		case RESP:
 		}
-		switch sw.output {
-		case outputIDs:
-			sw.wr.WriteString(`,"ids":[`)
-		case outputObjects:
-			sw.wr.WriteString(`,"objects":[`)
-		case outputPoints:
-			sw.wr.WriteString(`,"points":[`)
-		case outputBounds:
-			sw.wr.WriteString(`,"bounds":[`)
-		case outputHashes:
-			sw.wr.WriteString(`,"hashes":[`)
-		case outputCount:
-
+	}
+	var mvtTile []byte
+	if sw.mvt {
+		mvtTile = mvtRender(sw.tileX, sw.tileY, sw.tileZ, sw.mvtObjs)
+	} else {
+		for _, opts := range sw.filled {
+			sw.writeFilled(opts)
 		}
-	case RESP:
 	}
-
-	for _, opts := range sw.filled {
-		sw.writeFilled(opts)
-	}
-
 	cursor := sw.numberIters
 	if !sw.hitLimit {
 		cursor = 0
 	}
 	switch sw.msg.OutputType {
 	case JSON:
-		switch sw.output {
-		default:
-			sw.wr.WriteByte(']')
-		case outputCount:
-
+		if sw.mvt {
+			sw.wr.WriteString(base64.RawStdEncoding.EncodeToString(mvtTile))
+			sw.wr.WriteByte('"')
+		} else {
+			switch sw.output {
+			default:
+				sw.wr.WriteByte(']')
+			case outputCount:
+			}
 		}
 		sw.wr.WriteString(`,"count":` + strconv.FormatUint(sw.count, 10))
 		sw.wr.WriteString(`,"cursor":` + strconv.FormatUint(cursor, 10))
@@ -180,9 +203,11 @@ func (sw *scanWriter) writeFoot() {
 		if sw.output == outputCount {
 			sw.respOut = resp.IntegerValue(int(sw.count))
 		} else {
-			values := []resp.Value{
-				resp.IntegerValue(int(cursor)),
-				resp.ArrayValue(sw.values),
+			values := []resp.Value{resp.IntegerValue(int(cursor))}
+			if sw.mvt {
+				values = append(values, resp.BytesValue(mvtTile))
+			} else {
+				values = append(values, resp.ArrayValue(sw.values))
 			}
 			sw.respOut = resp.ArrayValue(values)
 		}
@@ -310,7 +335,9 @@ func (sw *scanWriter) testObject(o *object.Object,
 	return ok, true, nil
 }
 
-func (sw *scanWriter) pushObject(opts ScanWriterParams) (keepGoing bool, err error) {
+func (sw *scanWriter) pushObject(opts ScanWriterParams) (keepGoing bool,
+	err error,
+) {
 	keepGoing = true
 	if !opts.noTest {
 		var ok bool
@@ -336,7 +363,9 @@ func (sw *scanWriter) pushObject(opts ScanWriterParams) (keepGoing bool, err err
 			opts.obj.Fields(),
 		)
 	}
-
+	if sw.mvt {
+		sw.mvtObjs = append(sw.mvtObjs, mvtObj{opts.obj.ID(), opts.obj.Geo()})
+	}
 	if !sw.fullFields {
 		opts.obj.Fields().Scan(func(f field.Field) bool {
 			sw.fkeys.Insert(f.Name())

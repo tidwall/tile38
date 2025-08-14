@@ -38,6 +38,7 @@ import (
 	"github.com/tidwall/tile38/internal/endpoint"
 	"github.com/tidwall/tile38/internal/log"
 	"github.com/tidwall/tile38/internal/object"
+	"github.com/tidwall/tile38/internal/viewer"
 )
 
 var errOOM = errors.New("OOM command not allowed when used memory > 'maxmemory'")
@@ -839,6 +840,22 @@ func rewriteTimeoutMsg(msg *Message) (err error) {
 
 func (s *Server) handleInputCommand(client *Client, msg *Message) error {
 	start := time.Now()
+	var mvt bool
+	if msg.ConnType == HTTP && len(msg.Args) == 1 {
+		var query string
+		if i := strings.IndexByte(msg.Args[0], '?'); i != -1 {
+			query = msg.Args[0][i+1:]
+			msg.Args[0] = msg.Args[0][:i]
+		}
+		if strings.HasSuffix(msg.Args[0], ".mvt") ||
+			strings.HasSuffix(msg.Args[0], ".pbf") {
+			mvt = mvtFilterHTTPArgs(msg, query)
+		} else if strings.HasPrefix(msg.Args[0], "viewer/") ||
+			msg.Args[0] == "viewer" {
+			return viewer.HandleHTTP(client, "/"+strings.Join(msg.Args, "/"),
+				s.opts.DevMode)
+		}
+	}
 	serializeOutput := func(res resp.Value) (string, error) {
 		var resStr string
 		var err error
@@ -861,17 +878,34 @@ func (s *Server) handleInputCommand(client *Client, msg *Message) error {
 		case WebSocket:
 			return WriteWebSocketMessage(client, []byte(res))
 		case HTTP:
+			extraNL := 2
+			contentType := "application/json; charset=utf-8"
 			status := "200 OK"
 			if (s.http500Errors || msg._command == "healthz") &&
 				!gjson.Get(res, "ok").Bool() {
 				status = "500 Internal Server Error"
+			} else if mvt {
+				v := gjson.Get(res, "mvt")
+				if !v.Exists() {
+					status = "500 Internal Server Error"
+				} else {
+					res = v.String()
+					out, err := base64.RawStdEncoding.DecodeString(res)
+					if err != nil {
+						status = "500 Internal Server Error"
+					} else {
+						res = string(out)
+						contentType = "application/vnd.mapbox-vector-tile"
+					}
+				}
 			}
-			_, err := fmt.Fprintf(client, "HTTP/1.1 %s\r\n"+
+			_, err := fmt.Fprintf(client, ""+
+				"HTTP/1.1 %s\r\n"+
 				"Connection: close\r\n"+
+				"Content-Type: %s\r\n"+
 				"Content-Length: %d\r\n"+
-				"Content-Type: application/json; charset=utf-8\r\n"+
 				"Access-Control-Allow-Origin: *\r\n"+
-				"\r\n", status, len(res)+2)
+				"\r\n", status, contentType, len(res)+extraNL)
 			if err != nil {
 				return err
 			}
@@ -879,8 +913,13 @@ func (s *Server) handleInputCommand(client *Client, msg *Message) error {
 			if err != nil {
 				return err
 			}
-			_, err = io.WriteString(client, "\r\n")
-			return err
+			if extraNL == 2 {
+				_, err = io.WriteString(client, "\r\n")
+				if err != nil {
+					return err
+				}
+			}
+			return nil
 		case RESP:
 			var err error
 			if msg.OutputType == JSON {
@@ -1382,12 +1421,13 @@ const (
 
 // Message is a resp message
 type Message struct {
-	_command   string
-	Args       []string
-	ConnType   Type
-	OutputType Type
-	Auth       string
-	Deadline   *deadline.Deadline
+	_command       string
+	Args           []string
+	ConnType       Type
+	OutputType     Type
+	Auth           string
+	AcceptEncoding string
+	Deadline       *deadline.Deadline
 }
 
 // Command returns the first argument as a lowercase string
@@ -1420,6 +1460,33 @@ func readcrlfline(packet []byte) (line string, leftover []byte, ok bool) {
 		}
 	}
 	return "", packet, false
+}
+
+func headerValue(header, name string) int {
+	i := 0
+	for ; i < len(name) && i < len(header); i++ {
+		a := header[i]
+		if a >= 'A' && a <= 'Z' {
+			a += 32
+		}
+		b := name[i]
+		if b >= 'A' && b <= 'Z' {
+			b += 32
+		}
+		if a != b {
+			return -1
+		}
+	}
+	if i != len(name) || i == len(header) || header[i] != ':' {
+		return -1
+	}
+	i++
+	for ; i < len(header); i++ {
+		if header[i] != ' ' && header[i] != '\t' {
+			break
+		}
+	}
+	return i
 }
 
 func readNextHTTPCommand(packet []byte, argsIn [][]byte, msg *Message, wr io.Writer) (
@@ -1482,35 +1549,34 @@ func readNextHTTPCommand(packet []byte, argsIn [][]byte, msg *Message, wr io.Wri
 		websocket := false
 		websocketVersion := 0
 		websocketKey := ""
-		for _, header := range headers[1:] {
-			if header[0] == 'a' || header[0] == 'A' {
-				if strings.HasPrefix(strings.ToLower(header), "authorization:") {
-					msg.Auth = strings.TrimSpace(header[len("authorization:"):])
-				}
-			} else if header[0] == 'u' || header[0] == 'U' {
-				if strings.HasPrefix(strings.ToLower(header), "upgrade:") && strings.ToLower(strings.TrimSpace(header[len("upgrade:"):])) == "websocket" {
+		acceptEncoding := ""
+		for _, hdr := range headers[1:] {
+			var i int
+			if i = headerValue(hdr, "Accept-Encoding"); i != -1 {
+				acceptEncoding = strings.TrimSpace(hdr[i:])
+			} else if i = headerValue(hdr, "Authorization"); i != -1 {
+				msg.Auth = strings.TrimSpace(hdr[i:])
+			} else if i = headerValue(hdr, "Upgrade"); i != -1 {
+				val := strings.TrimSpace(hdr[i:])
+				if strings.ToLower(val) == "websocket" {
 					websocket = true
 				}
-			} else if header[0] == 's' || header[0] == 'S' {
-				if strings.HasPrefix(strings.ToLower(header), "sec-websocket-version:") {
-					var n uint64
-					n, err = strconv.ParseUint(strings.TrimSpace(header[len("sec-websocket-version:"):]), 10, 64)
-					if err != nil {
-						return false, err
-					}
-					websocketVersion = int(n)
-				} else if strings.HasPrefix(strings.ToLower(header), "sec-websocket-key:") {
-					websocketKey = strings.TrimSpace(header[len("sec-websocket-key:"):])
+			} else if i = headerValue(hdr, "Sec-Websocket-Version"); i != -1 {
+				val := strings.TrimSpace(hdr[i:])
+				n, err := strconv.ParseUint(strings.TrimSpace(val), 10, 64)
+				if err != nil {
+					return false, err
 				}
-			} else if header[0] == 'c' || header[0] == 'C' {
-				if strings.HasPrefix(strings.ToLower(header), "content-length:") {
-					var n uint64
-					n, err = strconv.ParseUint(strings.TrimSpace(header[len("content-length:"):]), 10, 64)
-					if err != nil {
-						return false, err
-					}
-					contentLength = int(n)
+				websocketVersion = int(n)
+			} else if i = headerValue(hdr, "Sec-Websocket-Key"); i != -1 {
+				websocketKey = strings.TrimSpace(hdr[i:])
+			} else if i = headerValue(hdr, "Content-Length"); i != -1 {
+				val := strings.TrimSpace(hdr[i:])
+				n, err := strconv.ParseUint(strings.TrimSpace(val), 10, 64)
+				if err != nil {
+					return false, err
 				}
+				contentLength = int(n)
 			}
 		}
 		if websocket && websocketVersion >= 13 && websocketKey != "" {
@@ -1539,7 +1605,7 @@ func readNextHTTPCommand(packet []byte, argsIn [][]byte, msg *Message, wr io.Wri
 		if err != nil {
 			return false, err
 		}
-
+		msg.AcceptEncoding = acceptEncoding
 		msg.OutputType = JSON
 		msg.Args = nmsg.Args
 		return true, nil

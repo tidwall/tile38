@@ -28,6 +28,7 @@ require (
 	github.com/tidwall/hashmap v1.8.1
 	github.com/tidwall/limiter v0.4.0
 	github.com/tidwall/match v1.1.1
+	github.com/tidwall/mvt v0.1.3
 	github.com/tidwall/pretty v1.2.1
 	github.com/tidwall/redbench v0.1.0
 	github.com/tidwall/redcon v1.6.2
@@ -106,7 +107,6 @@ require (
 	github.com/tidwall/conv v0.1.0 // indirect
 	github.com/tidwall/geoindex v1.7.0 // indirect
 	github.com/tidwall/grect v0.1.4 // indirect
-	github.com/tidwall/mvt v0.1.3 // indirect
 	github.com/tidwall/rtred v0.1.2 // indirect
 	github.com/tidwall/tinyqueue v0.1.1 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect

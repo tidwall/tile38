@@ -14,7 +14,7 @@ jobs:
       - name: Set up Go 1.x
         uses: actions/setup-go@v2
         with:
-          go-version: ^1.24
+          go-version: ^1.25
 
       - name: Check out code
         uses: actions/checkout@v2

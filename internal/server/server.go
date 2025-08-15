@@ -498,10 +498,13 @@ func (s *Server) netServe() error {
 	switch os.Getenv("WRITECHSTATE") {
 	case "AUTO":
 		writeChState = writeChAuto
+		println("AUTO")
 	case "ON":
 		writeChState = writeChOn
+		println("ON")
 	case "OFF":
 		writeChState = writeChOff
+		println("OFF")
 	}
 	var writech chan *writectx
 	if writeChState != writeChOff {

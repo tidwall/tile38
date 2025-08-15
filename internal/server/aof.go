@@ -137,8 +137,8 @@ func (s *Server) flushAOF(sync bool) {
 				panic(err)
 			}
 		}
-		if cap(s.aofbuf) > 1024*1024*32 {
-			s.aofbuf = make([]byte, 0, 1024*1024*32)
+		if cap(s.aofbuf) > 65536 {
+			s.aofbuf = nil
 		} else {
 			s.aofbuf = s.aofbuf[:0]
 		}
@@ -158,7 +158,6 @@ func (s *Server) writeAOF(args []string, d *commandDetails) error {
 	}
 
 	if s.aof != nil {
-		s.aofdirty.Store(true) // prewrite optimization flag
 		n := len(s.aofbuf)
 		s.aofbuf = redcon.AppendArray(s.aofbuf, len(args))
 		for _, arg := range args {

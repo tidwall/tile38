@@ -110,12 +110,11 @@ type Server struct {
 	mu sync.RWMutex
 
 	// aof
-	aof       *os.File    // active aof file
-	aofdirty  atomic.Bool // mark the aofbuf as having data
-	aofbuf    []byte      // prewrite buffer
-	aofsz     int         // active size of the aof file
-	shrinking bool        // aof shrinking flag
-	shrinklog [][]string  // aof shrinking log
+	aof       *os.File   // active aof file
+	aofbuf    []byte     // prewrite buffer
+	aofsz     int        // active size of the aof file
+	shrinking bool       // aof shrinking flag
+	shrinklog [][]string // aof shrinking log
 
 	// database
 	qdb  *buntdb.DB // hook queue log
@@ -456,7 +455,59 @@ func (s *Server) isProtected() bool {
 	return is
 }
 
+type writectx struct {
+	out  []byte
+	conn net.Conn
+	err  error
+	done chan struct{}
+}
+
+const (
+	writeChAuto = 0
+	writeChOff  = 1
+	writeChOn   = 2
+)
+
+func bgWriteRoutine(s *Server, writech chan *writectx) {
+	var ctxs [128]*writectx
+	for ctxs[0] = range writech {
+		nctxs := 1
+		for nctxs < len(ctxs) {
+			select {
+			case ctxs[nctxs] = <-writech:
+				nctxs++
+			default:
+				goto done
+			}
+		}
+	done:
+		s.mu.Lock()
+		s.flushAOF(false)
+		s.mu.Unlock()
+		for i := 0; i < nctxs; i++ {
+			_, ctxs[i].err = ctxs[i].conn.Write(ctxs[i].out)
+		}
+		for i := 0; i < nctxs; i++ {
+			ctxs[i].done <- struct{}{}
+		}
+	}
+}
+
 func (s *Server) netServe() error {
+	var writeChState = writeChAuto
+	switch os.Getenv("WRITECHSTATE") {
+	case "AUTO":
+		writeChState = writeChAuto
+	case "ON":
+		writeChState = writeChOn
+	case "OFF":
+		writeChState = writeChOff
+	}
+	var writech chan *writectx
+	if writeChState != writeChOff {
+		writech = make(chan *writectx)
+		go bgWriteRoutine(s, writech)
+	}
 	var ln net.Listener
 	var err error
 	if s.unix != "" {
@@ -487,6 +538,7 @@ func (s *Server) netServe() error {
 	}()
 
 	log.Infof("Ready to accept connections at %s", ln.Addr())
+	var nclients atomic.Int32 // num clients
 	var clientID int64
 	for {
 		conn, err := ln.Accept()
@@ -499,9 +551,16 @@ func (s *Server) netServe() error {
 			continue
 		}
 		wg.Add(1)
+		nclients.Add(1)
 		go func(conn net.Conn) {
-			defer wg.Done()
-
+			defer func() {
+				nclients.Add(-1)
+				wg.Done()
+			}()
+			writectx := &writectx{
+				conn: conn,
+				done: make(chan struct{}),
+			}
 			// open connection
 			// create the client
 			client := new(Client)
@@ -653,17 +712,31 @@ func (s *Server) netServe() error {
 
 				// write to client
 				if len(client.out) > 0 {
-					if s.aofdirty.Load() {
-						func() {
-							// prewrite
-							s.mu.Lock()
-							defer s.mu.Unlock()
-							s.flushAOF(false)
-						}()
-						s.aofdirty.Store(false)
+					var err error
+					if writeChState == writeChOn ||
+						(writeChState == writeChAuto &&
+							int(nclients.Load()) > runtime.NumCPU()) {
+						writectx.out = client.out
+						writech <- writectx
+						<-writectx.done
+						err = writectx.err
+						writectx.out = nil
+					} else {
+						s.mu.Lock()
+						s.flushAOF(false)
+						s.mu.Unlock()
+						_, err = conn.Write(client.out)
 					}
-					conn.Write(client.out)
-					client.out = nil
+					if len(client.out) > 65536 {
+						client.out = nil
+					} else {
+						client.out = client.out[:0]
+					}
+					if err != nil {
+						// error, close connection
+						break
+					}
+
 				}
 				if close {
 					break

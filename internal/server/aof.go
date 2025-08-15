@@ -125,7 +125,6 @@ func commandErrIsFatal(err error) bool {
 // flushAOF flushes all aof buffer data to disk. Set sync to true to sync the
 // fsync the file.
 func (s *Server) flushAOF(sync bool) {
-	return
 	if len(s.aofbuf) > 0 {
 		_, err := s.aof.Write(s.aofbuf)
 		if err != nil {

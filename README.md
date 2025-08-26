@@ -8,7 +8,6 @@
 <p align="center">
 <a href="https://tile38.com/slack/"><img src="https://img.shields.io/badge/Slack-4A154B?logo=slack&logoColor=fff" alt="Slack"></a>
 <a href="https://discord.gg/esq8ESgzms"><img src="https://img.shields.io/badge/Discord-%235865F2.svg?&logo=discord&logoColor=white" alt="Discord"></a>
-<a href="https://hub.docker.com/r/tile38/tile38"><img src="https://img.shields.io/docker/pulls/tile38/tile38.svg" alt="Docker Pulls"></a>
 </p>
 
 

@@ -7,7 +7,6 @@ import (
 	"github.com/tidwall/geojson"
 	"github.com/tidwall/geojson/geometry"
 	"github.com/tidwall/mvt"
-	"github.com/tidwall/tile38/internal/log"
 )
 
 type mvtObj struct {
@@ -135,6 +134,5 @@ func mvtFilterHTTPArgs(msg *Message, query string) (modified bool) {
 		msg.Args = append(msg.Args, "LIMIT", "100000000")
 	}
 	msg.Args = append(msg.Args, "MVT", parts[2], parts[3], parts[1])
-	log.HTTPf("%s", path)
 	return true
 }

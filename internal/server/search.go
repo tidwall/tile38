@@ -173,12 +173,11 @@ func parseRectArea(ltyp string, vs []string) (nvs []string,
 	}
 	nvs = vs
 	if ltyp == "mvt" {
-		// expand rectangle by 10%
-
-		rect.Min.Y -= (rect.Max.Y - rect.Min.Y) * 0.1
-		rect.Max.Y += (rect.Max.Y - rect.Min.Y) * 0.1
-		rect.Min.X -= (rect.Max.X - rect.Min.X) * 0.1
-		rect.Max.X += (rect.Max.X - rect.Min.X) * 0.1
+		// Expand rectangle by 0.0625%
+		rect.Min.Y -= (rect.Max.Y - rect.Min.Y) * 0.0625
+		rect.Max.Y += (rect.Max.Y - rect.Min.Y) * 0.0625
+		rect.Min.X -= (rect.Max.X - rect.Min.X) * 0.0625
+		rect.Max.X += (rect.Max.X - rect.Min.X) * 0.0625
 		if rect.Min.Y < bing.MinLatitude {
 			rect.Min.Y = bing.MinLatitude
 		}
@@ -386,6 +385,7 @@ func (s *Server) cmdSearchArgs(
 		}
 		if ltyp == "mvt" {
 			lfs.mvt = true
+			lfs.clip = true
 		}
 	case "get":
 		if lfs.clip {

@@ -2,7 +2,25 @@ module github.com/tidwall/tile38
 
 go 1.23.0
 
-toolchain go1.23.4
+require (
+	github.com/tidwall/assert v0.1.0
+	github.com/tidwall/btree v1.8.1
+	github.com/tidwall/buntdb v1.3.2
+	github.com/tidwall/expr v0.13.0
+	github.com/tidwall/geojson v1.4.5
+	github.com/tidwall/gjson v1.18.0
+	github.com/tidwall/hashmap v1.8.1
+	github.com/tidwall/limiter v0.4.0
+	github.com/tidwall/match v1.1.1
+	github.com/tidwall/mvt v0.2.1
+	github.com/tidwall/pretty v1.2.1
+	github.com/tidwall/redbench v0.1.0
+	github.com/tidwall/redcon v1.6.2
+	github.com/tidwall/resp v0.1.1
+	github.com/tidwall/rtree v1.10.0
+	github.com/tidwall/sjson v1.2.5
+	github.com/tidwall/tinylru v1.2.1
+)
 
 require (
 	cloud.google.com/go/pubsub v1.50.0
@@ -19,23 +37,6 @@ require (
 	github.com/peterh/liner v1.2.2
 	github.com/prometheus/client_golang v1.23.0
 	github.com/streadway/amqp v1.1.0
-	github.com/tidwall/assert v0.1.0
-	github.com/tidwall/btree v1.8.1
-	github.com/tidwall/buntdb v1.3.2
-	github.com/tidwall/expr v0.13.0
-	github.com/tidwall/geojson v1.4.5
-	github.com/tidwall/gjson v1.18.0
-	github.com/tidwall/hashmap v1.8.1
-	github.com/tidwall/limiter v0.4.0
-	github.com/tidwall/match v1.1.1
-	github.com/tidwall/mvt v0.1.3
-	github.com/tidwall/pretty v1.2.1
-	github.com/tidwall/redbench v0.1.0
-	github.com/tidwall/redcon v1.6.2
-	github.com/tidwall/resp v0.1.1
-	github.com/tidwall/rtree v1.10.0
-	github.com/tidwall/sjson v1.2.5
-	github.com/tidwall/tinylru v1.2.1
 	github.com/xdg-go/scram v1.1.2
 	github.com/yuin/gopher-lua v1.1.1
 	go.uber.org/atomic v1.11.0

@@ -81,7 +81,9 @@ func (conn *KafkaConn) Send(msg string) error {
 		cfg.Net.WriteTimeout = time.Second * 5
 		// Fix #333 : fix backward incompatibility introduced by sarama library
 		cfg.Producer.Return.Successes = true
-		cfg.Version = sarama.V0_10_0_0
+		// Sarama now sets the version based on the broker version in the release 1.46.0 as of August 25 2025.
+		// There is no need to force this anymore as it is breaking the version check in Kafka 4.0 and above.
+		// cfg.Version = sarama.V0_10_0_0
 
 		switch conn.ep.Kafka.Auth {
 		case "sasl":

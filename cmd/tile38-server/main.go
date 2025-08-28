@@ -90,6 +90,7 @@ Advanced Options:
   --http-transport yes/no : HTTP transport (default: yes)
   --protected-mode yes/no : protected mode (default: yes)
   --nohup                 : do not exit on SIGHUP
+  --spinlock              : use a spinlock. For very write-heavy workloads
 
 Developer Options:
   --dev                             : enable developer mode
@@ -144,6 +145,7 @@ Developer Options:
 		nohup               bool
 		showEvioDisabled    bool
 		showThreadsDisabled bool
+		spinlock            bool
 	)
 
 	var (
@@ -198,6 +200,9 @@ Developer Options:
 			continue
 		case "--nohup", "-nohup":
 			nohup = true
+			continue
+		case "--spinlock", "-spinlock":
+			spinlock = true
 			continue
 		case "--appendonly", "-appendonly":
 			i++
@@ -414,7 +419,7 @@ Developer Options:
 	}
 
 	c := make(chan os.Signal, 1)
-	shutdown := make (chan bool, 1)
+	shutdown := make(chan bool, 1)
 
 	signal.Notify(c, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	go func() {
@@ -484,6 +489,7 @@ Developer Options:
 		AppendFileName:    appendFileName,
 		QueueFileName:     queueFileName,
 		Shutdown:          shutdown,
+		Spinlock:          spinlock,
 	}
 	if err := server.Serve(opts); err != nil {
 		log.Fatal(err)

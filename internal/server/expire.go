@@ -16,7 +16,7 @@ const bgExpireDelay = time.Second / 10
 func (s *Server) backgroundExpiring(wg *sync.WaitGroup) {
 	defer wg.Done()
 	s.loopUntilServerStops(bgExpireDelay, func() {
-		s.mu.Lock()
+		s.mu.LockLowPriority()
 		defer s.mu.Unlock()
 		now := time.Now()
 		s.backgroundExpireObjects(now)

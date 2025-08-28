@@ -70,44 +70,85 @@ type commandDetails struct {
 }
 
 type rwlocker interface {
+	LockLowPriority()
 	Lock()
 	Unlock()
 	RLock()
 	RUnlock()
 }
 
-// rwlock is the same as a RWLock, but the Lock functions are spinlocks.
-type rwlock struct {
+// rwspinlock is the same as a RWLock, but uses spinlocks instead of mutexes
+type rwspinlock struct {
 	state atomic.Int32
 }
 
-func (l *rwlock) Lock() {
+func (l *rwspinlock) Lock() {
 	for {
 		state := l.state.Load()
 		if state == 0 && l.state.CompareAndSwap(state, -1) {
-			break
+			return
 		}
 		runtime.Gosched()
 	}
 }
-func (l *rwlock) Unlock() {
+func (l *rwspinlock) LockLowPriority() {
+	l.Lock()
+}
+func (l *rwspinlock) Unlock() {
 	if l.state.Add(1) > 0 {
-		panic("Unlock of unlocked rwlock")
+		panic("Unlock of unlocked rwspinlock")
 	}
 }
-func (l *rwlock) RLock() {
+func (l *rwspinlock) RLock() {
 	for {
 		state := l.state.Load()
 		if state >= 0 && l.state.CompareAndSwap(state, state+1) {
-			break
+			return
 		}
 		runtime.Gosched()
 	}
 }
-func (l *rwlock) RUnlock() {
+func (l *rwspinlock) RUnlock() {
 	if l.state.Add(-1) < 0 {
-		panic("RUnlock of unlocked rwlock")
+		panic("RUnlock of unlocked rwspinlock")
 	}
+}
+
+// rwmutex is the same as a RWLock but includes a LockLowPriority for
+// performing write locks that do not block the queue for readers.
+type rwmutex struct {
+	mu sync.RWMutex
+}
+
+func (l *rwmutex) Lock() {
+	for i := 0; i < 1000; i++ {
+		if l.mu.TryLock() {
+			return
+		}
+		runtime.Gosched()
+	}
+	start := time.Now()
+	for time.Since(start) < time.Second {
+		if l.mu.TryLock() {
+			return
+		}
+		runtime.Gosched()
+	}
+	l.mu.Lock()
+}
+func (l *rwmutex) LockLowPriority() {
+	for !l.mu.TryLock() {
+		runtime.Gosched()
+	}
+}
+func (l *rwmutex) Unlock() {
+	l.mu.Unlock()
+}
+func (l *rwmutex) RLock() {
+	l.mu.RLock()
+}
+func (l *rwmutex) RUnlock() {
+	l.mu.RUnlock()
 }
 
 // Server is a tile38 controller
@@ -224,6 +265,9 @@ type Options struct {
 
 	// Shutdown allows for shutting down the server.
 	Shutdown <-chan bool
+
+	// Spinlock uses a spinlock instead of a mutex
+	Spinlock bool
 }
 
 // Serve starts a new tile38 server
@@ -249,7 +293,13 @@ func Serve(opts Options) error {
 		}
 	}()
 
-	lock := new(rwlock) // use new(RWMutex) for non-spinlock
+	var lock rwlocker
+
+	if opts.Spinlock {
+		lock = new(rwspinlock)
+	} else {
+		lock = new(rwmutex)
+	}
 
 	// Initialize the s
 	s := &Server{
@@ -848,7 +898,7 @@ func (s *Server) watchLuaStatePool(wg *sync.WaitGroup) {
 func (s *Server) backgroundSyncAOF(wg *sync.WaitGroup) {
 	defer wg.Done()
 	s.loopUntilServerStops(time.Second, func() {
-		s.mu.Lock()
+		s.mu.LockLowPriority()
 		defer s.mu.Unlock()
 		s.flushAOF(true)
 	})

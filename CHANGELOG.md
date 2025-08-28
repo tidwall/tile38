@@ -2,6 +2,13 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.36.1] = 2025-08-28
+### Updated
+- 53bed30: Update lock strategy for faster writes 
+- 40f58b0: Kafka Endpoint Improvement #778 (@ifiok)
+- 82f4d24: Smaller vector tile sizes for polygons
+- 5b21c24: Auto clip geometries at low zoom levels
+
 ## [1.36.0] = 2025-07-14
 ### Added
 - 35bde95: Support for Cloudflare Queues endpoint #773 (@tobilg)

@@ -37,5 +37,9 @@ export CGO_ENABLED=0
 # 	go mod vendor
 # fi
 
+if [[ "$GORACE" == "1" ]]; then
+goflags="$goflags -race"
+fi
+
 # Build and store objects into original directory.
-go build -ldflags "$LDFLAGS" -o $1 cmd/$1/*.go
+go build -ldflags "$LDFLAGS" $goflags -o $1 cmd/$1/*.go

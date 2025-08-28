@@ -69,6 +69,40 @@ type commandDetails struct {
 	children  []*commandDetails // for multi actions such as "PDEL"
 }
 
+// rwlock is the same as a RWLock, but the Lock functions are spinlocks.
+type rwlock struct {
+	state atomic.Int32
+}
+
+func (l *rwlock) Lock() {
+	for {
+		state := l.state.Load()
+		if state == 0 && l.state.CompareAndSwap(state, -1) {
+			break
+		}
+		runtime.Gosched()
+	}
+}
+func (l *rwlock) Unlock() {
+	if l.state.Add(1) > 0 {
+		panic("Unlock of unlocked rwlock")
+	}
+}
+func (l *rwlock) RLock() {
+	for {
+		state := l.state.Load()
+		if state >= 0 && l.state.CompareAndSwap(state, state+1) {
+			break
+		}
+		runtime.Gosched()
+	}
+}
+func (l *rwlock) RUnlock() {
+	if l.state.Add(-1) < 0 {
+		panic("RUnlock of unlocked rwlock")
+	}
+}
+
 // Server is a tile38 controller
 type Server struct {
 	// user defined options
@@ -107,7 +141,7 @@ type Server struct {
 	connsmu sync.RWMutex
 	conns   map[int]*Client
 
-	mu sync.RWMutex
+	mu rwlock // sync.RWMutex
 
 	// aof
 	aof       *os.File    // active aof file

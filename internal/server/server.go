@@ -123,7 +123,7 @@ type rwmutex struct {
 func (l *rwmutex) Lock() {
 	start := time.Now()
 	for {
-		for range 1000 {
+		for range 100 {
 			if l.mu.TryLock() {
 				return
 			}

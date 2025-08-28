@@ -121,7 +121,7 @@ type rwmutex struct {
 }
 
 func (l *rwmutex) Lock() {
-	for i := 0; i < 1000; i++ {
+	for range 100 {
 		if l.mu.TryLock() {
 			return
 		}

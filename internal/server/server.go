@@ -69,6 +69,13 @@ type commandDetails struct {
 	children  []*commandDetails // for multi actions such as "PDEL"
 }
 
+type rwlocker interface {
+	Lock()
+	Unlock()
+	RLock()
+	RUnlock()
+}
+
 // rwlock is the same as a RWLock, but the Lock functions are spinlocks.
 type rwlock struct {
 	state atomic.Int32
@@ -141,7 +148,7 @@ type Server struct {
 	connsmu sync.RWMutex
 	conns   map[int]*Client
 
-	mu rwlock // sync.RWMutex
+	mu rwlocker // sync.RWMutex
 
 	// aof
 	aof       *os.File    // active aof file
@@ -242,8 +249,11 @@ func Serve(opts Options) error {
 		}
 	}()
 
+	lock := new(rwlock) // use new(RWMutex) for non-spinlock
+
 	// Initialize the s
 	s := &Server{
+		mu:        lock,
 		unix:      opts.UnixSocketPath,
 		host:      opts.Host,
 		port:      opts.Port,

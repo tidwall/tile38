@@ -121,18 +121,17 @@ type rwmutex struct {
 }
 
 func (l *rwmutex) Lock() {
-	for range 100 {
-		if l.mu.TryLock() {
-			return
-		}
-		runtime.Gosched()
-	}
 	start := time.Now()
-	for time.Since(start) < time.Second {
-		if l.mu.TryLock() {
-			return
+	for {
+		for range 1000 {
+			if l.mu.TryLock() {
+				return
+			}
+			runtime.Gosched()
 		}
-		runtime.Gosched()
+		if time.Since(start) > time.Millisecond*50 {
+			break
+		}
 	}
 	l.mu.Lock()
 }

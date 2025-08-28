@@ -31,14 +31,9 @@ core/gen.sh
 LDFLAGS="$LDFLAGS -extldflags '-static'"
 export CGO_ENABLED=0
 
-# if [ "$NOMODULES" != "1" ]; then
-# 	export GO111MODULE=on
-# 	export GOFLAGS=-mod=vendor
-# 	go mod vendor
-# fi
-
 if [[ "$GORACE" == "1" ]]; then
-goflags="$goflags -race"
+	export CGO_ENABLED=1
+	goflags="$goflags -race"
 fi
 
 # Build and store objects into original directory.

@@ -77,7 +77,7 @@ type rwlocker interface {
 	RUnlock()
 }
 
-// rwspinlock is the same as a RWLock, but uses spinlocks instead of mutexes
+// rwspinlock is the same as a RWLock, but uses spinlocks instead of mutexes.
 type rwspinlock struct {
 	state atomic.Int32
 }
@@ -92,6 +92,7 @@ func (l *rwspinlock) Lock() {
 	}
 }
 func (l *rwspinlock) LockLowPriority() {
+	// All write locks are low priority and unfair. First come first serve.
 	l.Lock()
 }
 func (l *rwspinlock) Unlock() {

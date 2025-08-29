@@ -52,7 +52,7 @@ func byExpires(a, b *object.Object) bool {
 // Collection represents a collection of geojson objects.
 type Collection struct {
 	objs     btree.Map[string, *object.Object]      // sorted by id
-	spatial  rtree.RTreeGN[float32, *object.Object] // geospatially indexed
+	spatial  rtree.RTreeGN[float64, *object.Object] // geospatially indexed
 	values   *btree.BTreeG[*object.Object]          // sorted by value+id
 	expires  *btree.BTreeG[*object.Object]          // sorted by ex+id
 	weight   int
@@ -117,44 +117,18 @@ func (c *Collection) indexInsert(item *object.Object) {
 	}
 }
 
-const dRNDTOWARDS = (1.0 - 1.0/8388608.0) /* Round towards zero */
-const dRNDAWAY = (1.0 + 1.0/8388608.0)    /* Round away from zero */
-
-func rtreeValueDown(d float64) float32 {
-	f := float32(d)
-	if float64(f) > d {
-		if d < 0 {
-			f = float32(d * dRNDAWAY)
-		} else {
-			f = float32(d * dRNDTOWARDS)
-		}
-	}
-	return f
-}
-func rtreeValueUp(d float64) float32 {
-	f := float32(d)
-	if float64(f) < d {
-		if d < 0 {
-			f = float32(d * dRNDTOWARDS)
-		} else {
-			f = float32(d * dRNDAWAY)
-		}
-	}
-	return f
-}
-
-func rtreeItem(item *object.Object) (min, max [2]float32, data *object.Object) {
+func rtreeItem(item *object.Object) (min, max [2]float64, data *object.Object) {
 	min, max = rtreeRect(item.Rect())
 	return min, max, item
 }
 
-func rtreeRect(rect geometry.Rect) (min, max [2]float32) {
-	return [2]float32{
-			rtreeValueDown(rect.Min.X),
-			rtreeValueDown(rect.Min.Y),
-		}, [2]float32{
-			rtreeValueUp(rect.Max.X),
-			rtreeValueUp(rect.Max.Y),
+func rtreeRect(rect geometry.Rect) (min, max [2]float64) {
+	return [2]float64{
+			rect.Min.X,
+			rect.Min.Y,
+		}, [2]float64{
+			rect.Max.X,
+			rect.Max.Y,
 		}
 }
 
@@ -409,7 +383,7 @@ func (c *Collection) geoSearch(
 	min, max := rtreeRect(rect)
 	c.spatial.Search(
 		min, max,
-		func(_, _ [2]float32, o *object.Object) bool {
+		func(_, _ [2]float64, o *object.Object) bool {
 			alive = iter(o)
 			return alive
 		},
@@ -579,14 +553,14 @@ func (c *Collection) Nearby(
 	}
 	distFn := geodeticDistAlgo([2]float64{center.X, center.Y})
 	c.spatial.Nearby(
-		func(min, max [2]float32, data *object.Object, item bool) float64 {
+		func(min, max [2]float64, data *object.Object, item bool) float64 {
 			return distFn(
 				[2]float64{float64(min[0]), float64(min[1])},
 				[2]float64{float64(max[0]), float64(max[1])},
 				data, item,
 			)
 		},
-		func(_, _ [2]float32, o *object.Object, dist float64) bool {
+		func(_, _ [2]float64, o *object.Object, dist float64) bool {
 			count++
 			if count <= offset {
 				return true

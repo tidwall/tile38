@@ -9,9 +9,10 @@ import (
 	"sync"
 	"time"
 
+	"sync/atomic"
+
 	"github.com/tidwall/redcon"
 	"github.com/tidwall/tile38/internal/log"
-	"go.uber.org/atomic"
 )
 
 type liveBuffer struct {
@@ -78,7 +79,8 @@ func writeLiveMessage(
 	switch connType {
 	case RESP:
 		if wrapRESP {
-			_, err = fmt.Fprintf(conn, "$%d\r\n%s\r\n", len(message), string(message))
+			_, err = fmt.Fprintf(conn, "$%d\r\n%s\r\n", len(message),
+				string(message))
 		} else {
 			_, err = conn.Write(message)
 		}
@@ -88,8 +90,8 @@ func writeLiveMessage(
 	return err
 }
 
-func (s *Server) goLive(
-	inerr error, conn net.Conn, rd *PipelineReader, msg *Message, websocket bool,
+func (s *Server) goLive(inerr error, conn net.Conn, rd *PipelineReader,
+	msg *Message, websocket bool,
 ) error {
 	addr := conn.RemoteAddr().String()
 	log.Info("live " + addr)
@@ -100,7 +102,7 @@ func (s *Server) goLive(
 	default:
 		return errors.New("invalid live type switches")
 	case liveAOFSwitches:
-		return s.liveAOF(lfs.pos, conn, rd, msg)
+		return s.liveAOF(lfs.pos, conn, rd)
 	case liveSubscriptionSwitches:
 		return s.liveSubscription(conn, rd, msg, websocket)
 	case liveMonitorSwitches:
@@ -184,7 +186,8 @@ func (s *Server) goLive(
 	case RESP:
 		livemsg = redcon.AppendOK(nil)
 	}
-	if err := writeLiveMessage(conn, livemsg, false, connType, websocket); err != nil {
+	err = writeLiveMessage(conn, livemsg, false, connType, websocket)
+	if err != nil {
 		return nil // nil return is fine here
 	}
 	for {
@@ -209,7 +212,9 @@ func (s *Server) goLive(
 				msgs = FenceMatch("", sw, fence, nil, details)
 			}()
 			for _, msg := range msgs {
-				if err := writeLiveMessage(conn, []byte(msg), true, connType, websocket); err != nil {
+				err := writeLiveMessage(conn, []byte(msg), true, connType,
+					websocket)
+				if err != nil {
 					return nil // nil return is fine here
 				}
 			}

@@ -86,7 +86,8 @@ func (s *Server) loadAOF() (err error) {
 				data = data[1:]
 				continue
 			}
-			complete, args, _, data, err = redcon.ReadNextCommand(data, args[:0])
+			complete, args, _, data, err = redcon.ReadNextCommand(data,
+				args[:0])
 			if err != nil {
 				return err
 			}
@@ -117,8 +118,8 @@ func (s *Server) loadAOF() (err error) {
 
 func commandErrIsFatal(err error) bool {
 	// FSET (and other writable commands) may return errors that we need
-	// to ignore during the loading process. These errors may occur (though unlikely)
-	// due to the aof rewrite operation.
+	// to ignore during the loading process. These errors may occur (though
+	// unlikely) due to the aof rewrite operation.
 	return !(err == errKeyNotFound || err == errIDNotFound)
 }
 
@@ -152,9 +153,11 @@ func (s *Server) writeAOF(args []string, d *commandDetails) error {
 	}
 
 	if s.shrinking {
+		// A copy is required because the args array may be reused by the
+		// caller.
 		nargs := make([]string, len(args))
 		copy(nargs, args)
-		s.shrinklog = append(s.shrinklog, nargs)
+		s.shrinklog = append(s.shrinklog, args)
 	}
 
 	if s.aof != nil {
@@ -283,7 +286,8 @@ func (s *Server) queueHooks(d *commandDetails) error {
 	for _, hook := range candidates {
 		// Calculate all matching fence messages for all candidates and append
 		// them to the appropriate message slice
-		msgs := FenceMatch(hook.Name, hook.ScanWriter, hook.Fence, hook.Metas, d)
+		msgs := FenceMatch(hook.Name, hook.ScanWriter, hook.Fence, hook.Metas,
+			d)
 		if len(msgs) > 0 {
 			if hook.channel {
 				cmsgs = append(cmsgs, msgs...)
@@ -474,7 +478,7 @@ func (s *Server) cmdAOF(msg *Message) (resp.Value, error) {
 	return NOMessage, ls
 }
 
-func (s *Server) liveAOF(pos int64, conn net.Conn, rd *PipelineReader, msg *Message) error {
+func (s *Server) liveAOF(pos int64, conn net.Conn, rd *PipelineReader) error {
 	s.mu.RLock()
 	f, err := os.Open(s.aof.Name())
 	s.mu.RUnlock()

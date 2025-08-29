@@ -12,9 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"sync/atomic"
+
 	"github.com/gomodule/redigo/redis"
 	"github.com/tidwall/limiter"
-	"go.uber.org/atomic"
 )
 
 const (

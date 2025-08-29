@@ -44,7 +44,8 @@ func (rd *LegacyAOFReader) ReadCommand() ([]byte, error) {
 	// need more data
 	if rd.rerr != nil {
 		if rd.rerr == io.EOF {
-			rd.rerr = nil // we want to return EOF, but we want to be able to try again
+			// we want to return EOF, but we want to be able to try again
+			rd.rerr = nil
 			if rd.l != 0 {
 				return nil, io.ErrUnexpectedEOF
 			}
@@ -154,6 +155,8 @@ func (s *Server) migrateAOF() error {
 	}
 	oldf.Close()
 	newf.Close()
-	log.Debugf("%d items: %.0f/sec", count, float64(count)/(float64(time.Since(start))/float64(time.Second)))
-	return os.Rename(path.Join(s.dir, "migrate.aof"), path.Join(s.dir, "appendonly.aof"))
+	log.Debugf("%d items: %.0f/sec", count,
+		float64(count)/(float64(time.Since(start))/float64(time.Second)))
+	return os.Rename(path.Join(s.dir, "migrate.aof"),
+		path.Join(s.dir, "appendonly.aof"))
 }

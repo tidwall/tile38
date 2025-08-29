@@ -126,23 +126,24 @@ func commandErrIsFatal(err error) bool {
 // flushAOF flushes all aof buffer data to disk. Set sync to true to sync the
 // fsync the file.
 func (s *Server) flushAOF(sync bool) {
-	if len(s.aofbuf) > 0 {
-		_, err := s.aof.Write(s.aofbuf)
-		if err != nil {
+	if len(s.aofbuf) == 0 {
+		return
+	}
+	_, err := s.aof.Write(s.aofbuf)
+	if err != nil {
+		panic(err)
+	}
+	// send a broadcast to all sleeping followers
+	s.fcond.Broadcast()
+	if sync {
+		if err := s.aof.Sync(); err != nil {
 			panic(err)
 		}
-		// send a broadcast to all sleeping followers
-		s.fcond.Broadcast()
-		if sync {
-			if err := s.aof.Sync(); err != nil {
-				panic(err)
-			}
-		}
-		if cap(s.aofbuf) > 1024*1024*32 {
-			s.aofbuf = make([]byte, 0, 1024*1024*32)
-		} else {
-			s.aofbuf = s.aofbuf[:0]
-		}
+	}
+	if cap(s.aofbuf) > 1024*1024*32 {
+		s.aofbuf = make([]byte, 0, 1024*1024*32)
+	} else {
+		s.aofbuf = s.aofbuf[:0]
 	}
 }
 

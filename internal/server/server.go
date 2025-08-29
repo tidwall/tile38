@@ -716,9 +716,9 @@ func (s *Server) handleClient(conn net.Conn, wg *sync.WaitGroup,
 			if s.aofdirty.Load() {
 				func() {
 					// prewrite
-					s.mu.Lock()
-					defer s.mu.Unlock()
+					s.mu.LockLowPriority()
 					s.flushAOF(false)
+					s.mu.Unlock()
 				}()
 				s.aofdirty.Store(false)
 			}

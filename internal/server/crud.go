@@ -782,20 +782,6 @@ func (s *Server) cmdSET(msg *Message) (resp.Value, commandDetails, error) {
 		}
 	}
 
-	if true {
-		var d commandDetails
-		var res resp.Value
-		switch msg.OutputType {
-		default:
-		case JSON:
-			res = resp.StringValue(`{"ok":true,"elapsed":"` +
-				time.Since(start).String() + "\"}")
-		case RESP:
-			res = resp.SimpleStringValue("OK")
-		}
-		return res, d, nil
-	}
-
 	var flist field.List
 	if old := col.Get(id); old != nil {
 		flist = old.Fields()

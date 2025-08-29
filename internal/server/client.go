@@ -14,9 +14,9 @@ import (
 
 // Client is an remote connection into to Tile38
 type Client struct {
-	id         int            // unique id
-	replPort   int            // the known replication port for follower connections
-	replAddr   string         // the known replication addr for follower connections
+	id         int64          // unique id
+	replPort   int            // known replication port for follower connections
+	replAddr   string         // known replication addr for follower connections
 	authd      bool           // client has been authenticated
 	outputType Type           // Null, JSON, or RESP
 	remoteAddr string         // original remote address
@@ -124,9 +124,8 @@ func (s *Server) cmdCLIENT(msg *Message, client *Client) (resp.Value, error) {
 		name := msg.Args[2]
 		for i := 0; i < len(name); i++ {
 			if name[i] < '!' || name[i] > '~' {
-				return retrerr(clientErrorf(
-					"Client names cannot contain spaces, newlines or special characters.",
-				))
+				return retrerr(clientErrorf("Client names cannot contain " +
+					"spaces, newlines or special characters."))
 			}
 		}
 		client.mu.Lock()

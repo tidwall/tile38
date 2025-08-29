@@ -41,7 +41,8 @@ import (
 	"github.com/tidwall/tile38/internal/viewer"
 )
 
-var errOOM = errors.New("OOM command not allowed when used memory > 'maxmemory'")
+var errOOM = errors.New("OOM command not allowed when used " +
+	"memory > 'maxmemory'")
 
 func errTimeoutOnCmd(cmd string) error {
 	return fmt.Errorf("timeout not supported for '%s'", cmd)
@@ -187,7 +188,7 @@ type Server struct {
 	loadedAndReady     atomic.Bool // server is loaded and ready for commands
 
 	connsmu sync.RWMutex
-	conns   map[int]*Client
+	conns   map[int64]*Client
 
 	mu rwlocker // sync.RWMutex
 
@@ -282,7 +283,8 @@ func Serve(opts Options) error {
 		opts.ProtectedMode = "no"
 	}
 
-	log.Infof("Server started, Tile38 version %s, git %s", core.Version, core.GitSHA)
+	log.Infof("Server started, Tile38 version %s, git %s", core.Version,
+		core.GitSHA)
 	defer func() {
 		log.Warn("Server has shutdown, bye now")
 		if false {
@@ -318,7 +320,7 @@ func Serve(opts Options) error {
 		hookTree:  &rtree.RTree{},
 		aofconnM:  make(map[net.Conn]io.Closer),
 		started:   time.Now(),
-		conns:     make(map[int]*Client),
+		conns:     make(map[int64]*Client),
 		http:      opts.UseHTTP,
 		pubsub:    newPubsub(),
 		monconns:  make(map[net.Conn]bool),
@@ -393,7 +395,8 @@ func Serve(opts Options) error {
 			s.geomParseOpts.IndexGeometry,
 		)
 	}
-	log.Debugf("Multi indexing: RTree (%d points)", s.geomParseOpts.IndexChildren)
+	log.Debugf("Multi indexing: RTree (%d points)",
+		s.geomParseOpts.IndexChildren)
 
 	nerr := make(chan error)
 	go func() {
@@ -446,7 +449,8 @@ func Serve(opts Options) error {
 	}); err != nil {
 		return err
 	}
-	err = qdb.CreateIndex("hooks", hookLogPrefix+"*", buntdb.IndexJSONCaseSensitive("hook"))
+	err = qdb.CreateIndex("hooks", hookLogPrefix+"*",
+		buntdb.IndexJSONCaseSensitive("hook"))
 	if err != nil {
 		return err
 	}
@@ -550,6 +554,199 @@ func (s *Server) isProtected() bool {
 	return is
 }
 
+func (s *Server) handleClient(conn net.Conn, wg *sync.WaitGroup,
+	clientID *atomic.Int64,
+) {
+	defer wg.Done()
+
+	// open connection
+	// create the client
+	client := new(Client)
+	client.id = clientID.Add(1)
+	client.opened = time.Now()
+	client.remoteAddr = conn.RemoteAddr().String()
+	client.closer = conn
+
+	// add client to server map
+	s.connsmu.Lock()
+	s.conns[client.id] = client
+	s.connsmu.Unlock()
+	s.statsTotalConns.Add(1)
+
+	// set the client keep-alive, if needed
+	if s.config.keepAlive() > 0 {
+		if conn, ok := conn.(*net.TCPConn); ok {
+			conn.SetKeepAlive(true)
+			conn.SetKeepAlivePeriod(
+				time.Duration(s.config.keepAlive()) * time.Second,
+			)
+		}
+	}
+	log.Debugf("Opened connection: %s", client.remoteAddr)
+
+	defer func() {
+		// close connection
+		// delete from server map
+		s.connsmu.Lock()
+		delete(s.conns, client.id)
+		s.connsmu.Unlock()
+		log.Debugf("Closed connection: %s", client.remoteAddr)
+		conn.Close()
+	}()
+
+	var lastConnType Type
+	var lastOutputType Type
+
+	// check if the connection is protected
+	if !strings.HasPrefix(client.remoteAddr, "127.0.0.1:") &&
+		!strings.HasPrefix(client.remoteAddr, "[::1]:") {
+		if s.isProtected() {
+			// This is a protected server. Only loopback is allowed.
+			conn.Write(deniedMessage)
+			return // close connection
+		}
+	}
+	packet := make([]byte, 0xFFFF)
+	for {
+		var close bool
+		n, err := conn.Read(packet)
+		if err != nil {
+			return
+		}
+		in := packet[:n]
+
+		// read the payload packet from the client input stream.
+		packet := client.in.Begin(in)
+
+		// load the pipeline reader
+		pr := &client.pr
+		rdbuf := bytes.NewBuffer(packet)
+		pr.rd = rdbuf
+		pr.wr = client
+		msgs, err := pr.ReadMessages()
+		for _, msg := range msgs {
+			// Just closing connection if we have deprecated HTTP or WS
+			// connection, and --http-transport = false
+			if !s.http && (msg.ConnType == WebSocket ||
+				msg.ConnType == HTTP) {
+				close = true // close connection
+				break
+			}
+			if msg != nil && msg.Command() != "" {
+				if client.outputType != Null {
+					msg.OutputType = client.outputType
+				}
+				if msg.Command() == "quit" {
+					if msg.OutputType == RESP {
+						io.WriteString(client, "+OK\r\n")
+					}
+					close = true // close connection
+					break
+				}
+
+				// increment last used
+				client.mu.Lock()
+				client.last = time.Now()
+				client.mu.Unlock()
+
+				// update total command count
+				s.statsTotalCommands.Add(1)
+
+				// handle the command
+				err := s.handleInputCommand(client, msg)
+				if err != nil {
+					if err.Error() == goingLive {
+						client.goLiveErr = err
+						client.goLiveMsg = msg
+						// detach
+						var rwc io.ReadWriteCloser = conn
+						client.conn = rwc
+						if len(client.out) > 0 {
+							client.conn.Write(client.out)
+							client.out = nil
+						}
+						client.in = InputStream{}
+						client.pr.rd = rwc
+						client.pr.wr = rwc
+						log.Debugf("Detached connection: %s", client.remoteAddr)
+
+						var wg sync.WaitGroup
+						wg.Add(1)
+						go func() {
+							defer wg.Done()
+							err := s.goLive(
+								client.goLiveErr,
+								&liveConn{conn.RemoteAddr(), rwc},
+								&client.pr,
+								client.goLiveMsg,
+								client.goLiveMsg.ConnType == WebSocket,
+							)
+							if err != nil {
+								log.Error(err)
+							}
+						}()
+						wg.Wait()
+						return // close connection
+					}
+					log.Error(err)
+					return // close connection, NOW
+				}
+
+				client.outputType = msg.OutputType
+			} else {
+				client.Write([]byte("" +
+					"HTTP/1.1 500 Bad Request\r\n" +
+					"Connection: close\r\n" +
+					"\r\n"))
+				break
+			}
+			if msg.ConnType == HTTP || msg.ConnType == WebSocket {
+				close = true // close connection
+				break
+			}
+			lastOutputType = msg.OutputType
+			lastConnType = msg.ConnType
+		}
+
+		packet = packet[len(packet)-rdbuf.Len():]
+		client.in.End(packet)
+
+		// write to client
+		if len(client.out) > 0 {
+			if s.aofdirty.Load() {
+				func() {
+					// prewrite
+					s.mu.Lock()
+					defer s.mu.Unlock()
+					s.flushAOF(false)
+				}()
+				s.aofdirty.Store(false)
+			}
+			conn.Write(client.out)
+			client.out = nil
+		}
+		if close {
+			break
+		}
+		if err != nil {
+			log.Error(err)
+			if lastConnType == RESP {
+				var value resp.Value
+				switch lastOutputType {
+				case JSON:
+					value = resp.StringValue(`{"ok":false,"err":` +
+						jsonString(err.Error()) + "}")
+				case RESP:
+					value = resp.ErrorValue(err)
+				}
+				bytes, _ := value.MarshalRESP()
+				conn.Write(bytes)
+			}
+			break // close connection
+		}
+	}
+}
+
 func (s *Server) netServe() error {
 	var ln net.Listener
 	var err error
@@ -581,7 +778,7 @@ func (s *Server) netServe() error {
 	}()
 
 	log.Infof("Ready to accept connections at %s", ln.Addr())
-	var clientID int64
+	var clientID atomic.Int64
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -593,193 +790,7 @@ func (s *Server) netServe() error {
 			continue
 		}
 		wg.Add(1)
-		go func(conn net.Conn) {
-			defer wg.Done()
-
-			// open connection
-			// create the client
-			client := new(Client)
-			client.id = int(atomic.AddInt64(&clientID, 1))
-			client.opened = time.Now()
-			client.remoteAddr = conn.RemoteAddr().String()
-			client.closer = conn
-
-			// add client to server map
-			s.connsmu.Lock()
-			s.conns[client.id] = client
-			s.connsmu.Unlock()
-			s.statsTotalConns.Add(1)
-
-			// set the client keep-alive, if needed
-			if s.config.keepAlive() > 0 {
-				if conn, ok := conn.(*net.TCPConn); ok {
-					conn.SetKeepAlive(true)
-					conn.SetKeepAlivePeriod(
-						time.Duration(s.config.keepAlive()) * time.Second,
-					)
-				}
-			}
-			log.Debugf("Opened connection: %s", client.remoteAddr)
-
-			defer func() {
-				// close connection
-				// delete from server map
-				s.connsmu.Lock()
-				delete(s.conns, client.id)
-				s.connsmu.Unlock()
-				log.Debugf("Closed connection: %s", client.remoteAddr)
-				conn.Close()
-			}()
-
-			var lastConnType Type
-			var lastOutputType Type
-
-			// check if the connection is protected
-			if !strings.HasPrefix(client.remoteAddr, "127.0.0.1:") &&
-				!strings.HasPrefix(client.remoteAddr, "[::1]:") {
-				if s.isProtected() {
-					// This is a protected server. Only loopback is allowed.
-					conn.Write(deniedMessage)
-					return // close connection
-				}
-			}
-			packet := make([]byte, 0xFFFF)
-			for {
-				var close bool
-				n, err := conn.Read(packet)
-				if err != nil {
-					return
-				}
-				in := packet[:n]
-
-				// read the payload packet from the client input stream.
-				packet := client.in.Begin(in)
-
-				// load the pipeline reader
-				pr := &client.pr
-				rdbuf := bytes.NewBuffer(packet)
-				pr.rd = rdbuf
-				pr.wr = client
-				msgs, err := pr.ReadMessages()
-				for _, msg := range msgs {
-					// Just closing connection if we have deprecated HTTP or WS connection,
-					// And --http-transport = false
-					if !s.http && (msg.ConnType == WebSocket ||
-						msg.ConnType == HTTP) {
-						close = true // close connection
-						break
-					}
-					if msg != nil && msg.Command() != "" {
-						if client.outputType != Null {
-							msg.OutputType = client.outputType
-						}
-						if msg.Command() == "quit" {
-							if msg.OutputType == RESP {
-								io.WriteString(client, "+OK\r\n")
-							}
-							close = true // close connection
-							break
-						}
-
-						// increment last used
-						client.mu.Lock()
-						client.last = time.Now()
-						client.mu.Unlock()
-
-						// update total command count
-						s.statsTotalCommands.Add(1)
-
-						// handle the command
-						err := s.handleInputCommand(client, msg)
-						if err != nil {
-							if err.Error() == goingLive {
-								client.goLiveErr = err
-								client.goLiveMsg = msg
-								// detach
-								var rwc io.ReadWriteCloser = conn
-								client.conn = rwc
-								if len(client.out) > 0 {
-									client.conn.Write(client.out)
-									client.out = nil
-								}
-								client.in = InputStream{}
-								client.pr.rd = rwc
-								client.pr.wr = rwc
-								log.Debugf("Detached connection: %s", client.remoteAddr)
-
-								var wg sync.WaitGroup
-								wg.Add(1)
-								go func() {
-									defer wg.Done()
-									err := s.goLive(
-										client.goLiveErr,
-										&liveConn{conn.RemoteAddr(), rwc},
-										&client.pr,
-										client.goLiveMsg,
-										client.goLiveMsg.ConnType == WebSocket,
-									)
-									if err != nil {
-										log.Error(err)
-									}
-								}()
-								wg.Wait()
-								return // close connection
-							}
-							log.Error(err)
-							return // close connection, NOW
-						}
-
-						client.outputType = msg.OutputType
-					} else {
-						client.Write([]byte("HTTP/1.1 500 Bad Request\r\nConnection: close\r\n\r\n"))
-						break
-					}
-					if msg.ConnType == HTTP || msg.ConnType == WebSocket {
-						close = true // close connection
-						break
-					}
-					lastOutputType = msg.OutputType
-					lastConnType = msg.ConnType
-				}
-
-				packet = packet[len(packet)-rdbuf.Len():]
-				client.in.End(packet)
-
-				// write to client
-				if len(client.out) > 0 {
-					if s.aofdirty.Load() {
-						func() {
-							// prewrite
-							s.mu.Lock()
-							defer s.mu.Unlock()
-							s.flushAOF(false)
-						}()
-						s.aofdirty.Store(false)
-					}
-					conn.Write(client.out)
-					client.out = nil
-				}
-				if close {
-					break
-				}
-				if err != nil {
-					log.Error(err)
-					if lastConnType == RESP {
-						var value resp.Value
-						switch lastOutputType {
-						case JSON:
-							value = resp.StringValue(`{"ok":false,"err":` +
-								jsonString(err.Error()) + "}")
-						case RESP:
-							value = resp.ErrorValue(err)
-						}
-						bytes, _ := value.MarshalRESP()
-						conn.Write(bytes)
-					}
-					break // close connection
-				}
-			}
-		}(conn)
+		go s.handleClient(conn, &wg, &clientID)
 	}
 }
 
@@ -1039,9 +1050,12 @@ func (s *Server) handleInputCommand(client *Client, msg *Message) error {
 		switch msg.OutputType {
 		case JSON:
 			if len(msg.Args) > 1 {
-				return writeOutput(`{"ok":true,"` + cmd + `":` + jsonString(msg.Args[1]) + `,"elapsed":"` + time.Since(start).String() + `"}`)
+				return writeOutput(`{"ok":true,"` + cmd + `":` +
+					jsonString(msg.Args[1]) + `,"elapsed":"` +
+					time.Since(start).String() + `"}`)
 			}
-			return writeOutput(`{"ok":true,"` + cmd + `":"pong","elapsed":"` + time.Since(start).String() + `"}`)
+			return writeOutput(`{"ok":true,"` + cmd + `":"pong","elapsed":"` +
+				time.Since(start).String() + `"}`)
 		case RESP:
 			if len(msg.Args) > 1 {
 				data := redcon.AppendBulkString(nil, msg.Args[1])
@@ -1056,10 +1070,12 @@ func (s *Server) handleInputCommand(client *Client, msg *Message) error {
 	writeErr := func(errMsg string) error {
 		switch msg.OutputType {
 		case JSON:
-			return writeOutput(`{"ok":false,"err":` + jsonString(errMsg) + `,"elapsed":"` + time.Since(start).String() + "\"}")
+			return writeOutput(`{"ok":false,"err":` + jsonString(errMsg) +
+				`,"elapsed":"` + time.Since(start).String() + "\"}")
 		case RESP:
 			if errMsg == errInvalidNumberOfArguments.Error() {
-				return writeOutput("-ERR wrong number of arguments for '" + cmd + "' command\r\n")
+				return writeOutput("-ERR wrong number of arguments for '" +
+					cmd + "' command\r\n")
 			}
 			var ucprefix bool
 			word := strings.Split(errMsg, " ")[0]
@@ -1105,9 +1121,11 @@ func (s *Server) handleInputCommand(client *Client, msg *Message) error {
 	if (!client.authd || cmd == "auth") && cmd != "output" && cmd != "healthz" {
 		if s.config.requirePass() != "" {
 			password := ""
-			// This better be an AUTH command or the Message should contain an Auth
+			// This better be an AUTH command or the Message should contain an
+			// Auth
 			if cmd != "auth" && msg.Auth == "" {
-				// Just shut down the pipeline now. The less the client connection knows the better.
+				// Just shut down the pipeline now. The less the client
+				// connection knows the better.
 				return writeErr("authentication required")
 			}
 			if msg.Auth != "" {
@@ -1150,7 +1168,8 @@ func (s *Server) handleInputCommand(client *Client, msg *Message) error {
 			return writeErr("read only")
 		}
 	case "eval", "evalsha":
-		// write operations (potentially) but no AOF for the script command itself
+		// write operations (potentially) but no AOF for the script command
+		// itself
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if s.config.followHost() != "" {
@@ -1487,7 +1506,8 @@ func WriteWebSocketMessage(w io.Writer, data []byte) error {
 func OKMessage(msg *Message, start time.Time) resp.Value {
 	switch msg.OutputType {
 	case JSON:
-		return resp.StringValue(`{"ok":true,"elapsed":"` + time.Since(start).String() + "\"}")
+		return resp.StringValue(`{"ok":true,"elapsed":"` +
+			time.Since(start).String() + "\"}")
 	case RESP:
 		return resp.SimpleStringValue("OK")
 	}
@@ -1583,8 +1603,9 @@ func headerValue(header, name string) int {
 	return i
 }
 
-func readNextHTTPCommand(packet []byte, argsIn [][]byte, msg *Message, wr io.Writer) (
-	complete bool, args [][]byte, kind redcon.Kind, leftover []byte, err error,
+func readNextHTTPCommand(packet []byte, argsIn [][]byte, msg *Message,
+	wr io.Writer) (complete bool, args [][]byte, kind redcon.Kind,
+	leftover []byte, err error,
 ) {
 	args = argsIn[:0]
 	msg.ConnType = HTTP
@@ -1678,9 +1699,15 @@ func readNextHTTPCommand(packet []byte, argsIn [][]byte, msg *Message, wr io.Wri
 			if wr == nil {
 				return false, errors.New("connection is nil")
 			}
-			sum := sha1.Sum([]byte(websocketKey + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))
+			sum := sha1.Sum([]byte(websocketKey +
+				"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))
 			accept := base64.StdEncoding.EncodeToString(sum[:])
-			wshead := "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " + accept + "\r\n\r\n"
+			wshead := "" +
+				"HTTP/1.1 101 Switching Protocols\r\n" +
+				"Upgrade: websocket\r\n" +
+				"Connection: Upgrade\r\n" +
+				"Sec-WebSocket-Accept: " + accept + "\r\n" +
+				"\r\n"
 			if _, err = wr.Write([]byte(wshead)); err != nil {
 				return false, err
 			}
@@ -1709,8 +1736,9 @@ func readNextHTTPCommand(packet []byte, argsIn [][]byte, msg *Message, wr io.Wri
 	}
 	return true, args[:0], kindHTTP, packet, nil
 }
-func readNextCommand(packet []byte, argsIn [][]byte, msg *Message, wr io.Writer) (
-	complete bool, args [][]byte, kind redcon.Kind, leftover []byte, err error,
+func readNextCommand(packet []byte, argsIn [][]byte, msg *Message,
+	wr io.Writer) (complete bool, args [][]byte, kind redcon.Kind,
+	leftover []byte, err error,
 ) {
 	if packet[0] == 'G' || packet[0] == 'P' || packet[0] == 'O' {
 		// could be an HTTP request
@@ -1726,7 +1754,8 @@ func readNextCommand(packet []byte, argsIn [][]byte, msg *Message, wr io.Writer)
 		if len(line) == 0 {
 			return false, argsIn[:0], redcon.Redis, packet, nil
 		}
-		if len(line) > 11 && string(line[len(line)-11:len(line)-5]) == " HTTP/" {
+		if len(line) > 11 && string(line[len(line)-11:len(line)-5]) ==
+			" HTTP/" {
 			return readNextHTTPCommand(packet, argsIn, msg, wr)
 		}
 	}
@@ -1797,8 +1826,8 @@ func readNativeMessageLine(line []byte) (*Message, error) {
 reading:
 	for len(line) != 0 {
 		if line[0] == '{' {
-			// The native protocol cannot understand json boundaries so it assumes that
-			// a json element must be at the end of the line.
+			// The native protocol cannot understand json boundaries so it
+			// assumes that a json element must be at the end of the line.
 			args = append(args, string(line))
 			break
 		}
@@ -1806,8 +1835,9 @@ reading:
 			if len(args) > 0 &&
 				strings.ToLower(args[0]) == "set" &&
 				strings.ToLower(args[len(args)-1]) == "string" {
-				// Setting a string value that is contained inside double quotes.
-				// This is only because of the boundary issues of the native protocol.
+				// Setting a string value that is contained inside double
+				// quotes. This is only because of the boundary issues of the
+				// native protocol.
 				args = append(args, string(line[1:len(line)-1]))
 				break
 			}

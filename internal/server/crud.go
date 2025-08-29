@@ -614,6 +614,9 @@ func (s *Server) cmdSET(msg *Message) (resp.Value, commandDetails, error) {
 		return retwerr(errOOM)
 	}
 
+	s.mu.Unlock()
+	defer s.mu.Lock()
+
 	// >> Args
 
 	var key string
@@ -746,6 +749,9 @@ func (s *Server) cmdSET(msg *Message) (resp.Value, commandDetails, error) {
 	if oobj == nil {
 		return retwerr(errInvalidNumberOfArguments)
 	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	// >> Operation
 

@@ -783,12 +783,13 @@ func (s *Server) cmdSET(msg *Message) (resp.Value, commandDetails, error) {
 	}
 
 	var flist field.List
-	if old := col.Get(id); old != nil {
-		flist = old.Fields()
-	}
-	for _, f := range fields {
-		flist = flist.Set(f)
-	}
+
+	// if old := col.Get(id); old != nil {
+	// 	flist = old.Fields()
+	// }
+	// for _, f := range fields {
+	// 	flist = flist.Set(f)
+	// }
 	obj := object.New(id, oobj, ex, flist)
 	old := col.Set(obj)
 

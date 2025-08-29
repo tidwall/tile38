@@ -1159,7 +1159,7 @@ func (s *Server) handleInputCommand(client *Client, msg *Message) error {
 		"expire", "persist", "jset", "pdel", "rename", "renamenx":
 		// write operations
 		write = true
-		s.mu.Lock()
+		s.mu.LockLowPriority()
 		defer s.mu.Unlock()
 		if s.config.followHost() != "" {
 			return writeErr("not the leader")

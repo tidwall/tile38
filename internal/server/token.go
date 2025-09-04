@@ -9,6 +9,7 @@ import (
 
 	"github.com/tidwall/tile38/internal/field"
 	lua "github.com/yuin/gopher-lua"
+	luajson "layeh.com/gopher-json"
 )
 
 const defaultSearchOutput = outputObjects
@@ -158,18 +159,33 @@ func luaSetField(tbl *lua.LTable, name string, val field.Value) {
 	tbl.RawSetString(name, lval)
 }
 
-func (whereeval whereevalT) match(fieldsWithNames map[string]field.Value) (bool, error) {
+func (whereeval whereevalT) match(fieldsWithNames map[string]field.Value,
+	id string, props string) (bool, error,
+) {
 	fieldsTbl := whereeval.luaState.CreateTable(0, len(fieldsWithNames))
 	for name, val := range fieldsWithNames {
 		luaSetField(fieldsTbl, name, val)
 	}
+	var lprops lua.LValue
+	if props != "" {
+		var err error
+		lprops, err = luajson.Decode(whereeval.luaState, []byte(props))
+		if err != nil {
+			lprops = lua.LNil
+		}
+	}
+	// lua.LTString
 	luaSetRawGlobals(
 		whereeval.luaState, map[string]lua.LValue{
-			"FIELDS": fieldsTbl,
+			"ID":         lua.LString(id),
+			"FIELDS":     fieldsTbl,
+			"PROPERTIES": lprops,
 		})
 	defer luaSetRawGlobals(
 		whereeval.luaState, map[string]lua.LValue{
-			"FIELDS": lua.LNil,
+			"ID":         lua.LNil,
+			"FIELDS":     lua.LNil,
+			"PROPERTIES": lua.LNil,
 		})
 
 	whereeval.luaState.Push(whereeval.fn)

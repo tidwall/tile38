@@ -271,16 +271,18 @@ func (sw *scanWriter) fieldMatch(o *object.Object) (bool, error) {
 	}
 	if len(sw.whereevals) > 0 {
 		fieldNames := make(map[string]field.Value)
+		var props string
 		if objIsSpatial(o.Geo()) {
 			z := extractZCoordinate(o.Geo())
 			fieldNames["z"] = field.ValueOf(strconv.FormatFloat(z, 'f', -1, 64))
+			props = gjson.Get(o.Geo().Members(), "properties").Raw
 		}
 		o.Fields().Scan(func(f field.Field) bool {
 			fieldNames[f.Name()] = f.Value()
 			return true
 		})
 		for _, whereval := range sw.whereevals {
-			match, err := whereval.match(fieldNames)
+			match, err := whereval.match(fieldNames, o.ID(), props)
 			if err != nil {
 				return false, err
 			}

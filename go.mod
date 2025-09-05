@@ -11,7 +11,7 @@ require (
 	github.com/tidwall/gjson v1.18.0
 	github.com/tidwall/hashmap v1.8.1
 	github.com/tidwall/limiter v0.4.0
-	github.com/tidwall/match v1.1.1
+	github.com/tidwall/match v1.2.0
 	github.com/tidwall/mvt v0.2.1
 	github.com/tidwall/pretty v1.2.1
 	github.com/tidwall/redbench v0.1.0

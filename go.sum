@@ -246,8 +246,9 @@ github.com/tidwall/limiter v0.4.0 h1:nj+7mS6aMDRzp15QTVDrgkun0def5/PfB4ogs5NlIVQ
 github.com/tidwall/limiter v0.4.0/go.mod h1:n+qBGuSOgAvgcq1xUvo+mXWg8oBLQC8wkkheN9KZou0=
 github.com/tidwall/lotsa v1.0.2 h1:dNVBH5MErdaQ/xd9s769R31/n2dXavsQ0Yf4TMEHHw8=
 github.com/tidwall/lotsa v1.0.2/go.mod h1:X6NiU+4yHA3fE3Puvpnn1XMDrFZrE9JO2/w+UMuqgR8=
-github.com/tidwall/match v1.1.1 h1:+Ho715JplO36QYgwN9PGYNhgZvoUSc9X2c80KVTi+GA=
 github.com/tidwall/match v1.1.1/go.mod h1:eRSPERbgtNPcGhD8UCthc6PmLEQXEWd3PRB5JTxsfmM=
+github.com/tidwall/match v1.2.0 h1:0pt8FlkOwjN2fPt4bIl4BoNxb98gGHN2ObFEDkrfZnM=
+github.com/tidwall/match v1.2.0/go.mod h1:eRSPERbgtNPcGhD8UCthc6PmLEQXEWd3PRB5JTxsfmM=
 github.com/tidwall/mvt v0.2.1 h1:pVoD4/INMeXk8VF8yfMOzn534W4u/0vhSnqyi+/FfG4=
 github.com/tidwall/mvt v0.2.1/go.mod h1:RLOVf5y8yfDR4vyA636MiY0kBJeP/i7RxxpZzygREI8=
 github.com/tidwall/pretty v1.2.0/go.mod h1:ITEVvHYasfjBbM0u2Pg8T2nJnzm8xPwvNhhsoaGGjNU=

@@ -123,8 +123,7 @@ func newExprPool(s *Server) *exprPool {
 					if info.Args.Len() < 0 {
 						return expr.Undefined, nil
 					}
-
-					t := match.Match(info.Value.String(),
+					t := match.MatchNoCase(info.Value.String(),
 						info.Args.At(0).String())
 					return expr.Bool(t), nil
 				}

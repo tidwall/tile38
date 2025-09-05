@@ -2,6 +2,11 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.36.2] = 2025-09-04
+### Fixed
+- 653aea6: Add GeoJSON "properties" member for Lua filtering
+- 70c244f: Make the String.match() function case insensitive
+
 ## [1.36.1] = 2025-08-28
 ### Updated
 - 53bed30: Update lock strategy for faster writes 

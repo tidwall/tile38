@@ -2,7 +2,6 @@ package server
 
 import (
 	"bytes"
-	"errors"
 	"time"
 
 	"github.com/tidwall/resp"
@@ -33,11 +32,11 @@ func (s *Server) cmdScan(msg *Message) (res resp.Value, err error) {
 	if args.usingLua() {
 		defer args.Close()
 		defer func() {
-			if r := recover(); r != nil {
-				res = NOMessage
-				err = errors.New(r.(string))
-				return
-			}
+			// if r := recover(); r != nil {
+			// 	res = NOMessage
+			// 	err = fmt.Errorf("%v", r)
+			// 	return
+			// }
 		}()
 	}
 	if err != nil {

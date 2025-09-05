@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/tidwall/tile38/internal/field"
+	"github.com/tidwall/tile38/internal/log"
 	lua "github.com/yuin/gopher-lua"
 	luajson "layeh.com/gopher-json"
 )
@@ -160,41 +161,50 @@ func luaSetField(tbl *lua.LTable, name string, val field.Value) {
 }
 
 func (whereeval whereevalT) match(fieldsWithNames map[string]field.Value,
-	id string, props string) (bool, error,
+	id string, props string) (ok bool, err error,
 ) {
 	fieldsTbl := whereeval.luaState.CreateTable(0, len(fieldsWithNames))
 	for name, val := range fieldsWithNames {
 		luaSetField(fieldsTbl, name, val)
 	}
-	var lprops lua.LValue
+	propsTbl := lua.LValue(whereeval.luaState.CreateTable(0, 0))
 	if props != "" {
 		var err error
-		lprops, err = luajson.Decode(whereeval.luaState, []byte(props))
-		if err != nil {
-			lprops = lua.LNil
+		tbl, err := luajson.Decode(whereeval.luaState, []byte(props))
+		if err == nil {
+			propsTbl = tbl
 		}
 	}
-	// lua.LTString
 	luaSetRawGlobals(
 		whereeval.luaState, map[string]lua.LValue{
 			"ID":         lua.LString(id),
 			"FIELDS":     fieldsTbl,
-			"PROPERTIES": lprops,
+			"PROPERTIES": propsTbl,
 		})
-	defer luaSetRawGlobals(
-		whereeval.luaState, map[string]lua.LValue{
-			"ID":         lua.LNil,
-			"FIELDS":     lua.LNil,
-			"PROPERTIES": lua.LNil,
-		})
+	defer func() {
+		luaSetRawGlobals(
+			whereeval.luaState, map[string]lua.LValue{
+				"ID":         lua.LNil,
+				"FIELDS":     lua.LNil,
+				"PROPERTIES": lua.LNil,
+			})
+	}()
 
 	whereeval.luaState.Push(whereeval.fn)
 	if err := whereeval.luaState.PCall(0, 1, nil); err != nil {
+		emsg := err.Error()
+		if strings.Contains(emsg, "attempt to index a non-table") {
+			log.Debugf("Lua error: %v", emsg)
+			return false, nil
+		}
 		return false, err
 	}
 	ret := whereeval.luaState.Get(-1)
 	whereeval.luaState.Pop(1)
 
+	if ret == nil {
+		return false, nil
+	}
 	// Make bool out of returned lua value
 	switch ret.Type() {
 	case lua.LTNil:

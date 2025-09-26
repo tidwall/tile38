@@ -22,7 +22,6 @@ func (s *Server) startPublishQueue(wg *sync.WaitGroup) {
 	defer wg.Done()
 	var buf []byte
 	var conns []net.Conn
-	s.pubq.cond = sync.NewCond(&sync.Mutex{})
 	s.pubq.cond.L.Lock()
 	for {
 		for len(s.pubq.entries) > 0 {

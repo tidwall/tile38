@@ -321,6 +321,7 @@ func Serve(opts Options) error {
 		conns:     make(map[int]*Client),
 		http:      opts.UseHTTP,
 		pubsub:    newPubsub(),
+		pubq:      pubQueue{cond: sync.NewCond(&sync.Mutex{})},
 		monconns:  make(map[net.Conn]bool),
 		cols:      &btree.Map[string, *collection.Collection]{},
 

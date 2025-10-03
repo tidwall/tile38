@@ -2,6 +2,10 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.36.4] = 2025-10-03
+### Fixed
+- 8c9f56c: Fix leader hanging on sigterm #783 (@dobiadi)
+
 ## [1.36.3] = 2025-09-26
 ### Fixed
 - 684ad73: Fix panic, move pubq init cond #782 (@ayaIbrahimm)
@@ -124,7 +128,6 @@ This project adheres to [Semantic Versioning](http://semver.org/).
 - #691: HEALTHZ should not be AUTH protected (@Kilowhisky)
 - #685: Heap size not coming down after objects are removed (@Mukund2900, @iwpnd)
 - 0144ca6: Fix missing lock
-
 
 ## [1.31.0] = 2023-05-09
 ### Added

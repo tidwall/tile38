@@ -573,7 +573,9 @@ func (s *Server) netServe() error {
 		log.Debug("Closing client connections...")
 		s.connsmu.RLock()
 		for _, c := range s.conns {
-			c.closer.Close()
+			if c.closer != nil {
+				c.closer.Close()
+			}
 		}
 		s.connsmu.RUnlock()
 		wg.Wait()
@@ -595,7 +597,12 @@ func (s *Server) netServe() error {
 		}
 		wg.Add(1)
 		go func(conn net.Conn) {
-			defer wg.Done()
+			detached := false
+			defer func() {
+				if !detached {
+					wg.Done()
+				}
+			}()
 
 			// open connection
 			// create the client
@@ -706,12 +713,15 @@ func (s *Server) netServe() error {
 								client.in = InputStream{}
 								client.pr.rd = rwc
 								client.pr.wr = rwc
+								client.closer = nil
+								wg.Done()
+								detached = true
 								log.Debugf("Detached connection: %s", client.remoteAddr)
 
-								var wg sync.WaitGroup
-								wg.Add(1)
+								var wg2 sync.WaitGroup
+								wg2.Add(1)
 								go func() {
-									defer wg.Done()
+									defer wg2.Done()
 									err := s.goLive(
 										client.goLiveErr,
 										&liveConn{conn.RemoteAddr(), rwc},
@@ -723,7 +733,7 @@ func (s *Server) netServe() error {
 										log.Error(err)
 									}
 								}()
-								wg.Wait()
+								wg2.Wait()
 								return // close connection
 							}
 							log.Error(err)

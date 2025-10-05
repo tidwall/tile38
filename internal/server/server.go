@@ -244,6 +244,7 @@ type Options struct {
 	UseHTTP        bool
 	MetricsAddr    string
 	UnixSocketPath string // path for unix socket
+	ClientOutput   string // "" or "resp" or "json"
 
 	// DevMode puts application in to dev mode
 	DevMode bool
@@ -583,6 +584,14 @@ func (s *Server) netServe() error {
 		log.Debug("Client connection closed")
 	}()
 
+	var defaultOutputType Type
+	switch s.opts.ClientOutput {
+	case "resp":
+		defaultOutputType = RESP
+	case "json":
+		defaultOutputType = JSON
+	}
+
 	log.Infof("Ready to accept connections at %s", ln.Addr())
 	var clientID int64
 	for {
@@ -680,6 +689,8 @@ func (s *Server) netServe() error {
 					if msg != nil && msg.Command() != "" {
 						if client.outputType != Null {
 							msg.OutputType = client.outputType
+						} else if defaultOutputType != Null {
+							msg.OutputType = defaultOutputType
 						}
 						if msg.Command() == "quit" {
 							if msg.OutputType == RESP {

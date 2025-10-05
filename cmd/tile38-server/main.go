@@ -78,6 +78,7 @@ Basic Options:
   -d path     : data directory (default: data)
   -s socket   : listen on unix socket file
   -l encoding : set log encoding to json or text (default: text) 
+  -o output   : auto set client output to json or resp (default: resp) 
   -q          : no logging. totally silent output
   -v          : enable verbose logging
   -vv         : enable very verbose logging
@@ -168,6 +169,9 @@ Developer Options:
 
 		// QueueFileName allows for custom queue.db file path
 		queueFileName = ""
+
+		// ClientOutput for auto assigning the output for client.
+		clientOutput = ""
 	)
 
 	// parse non standard args.
@@ -232,6 +236,17 @@ Developer Options:
 				os.Exit(1)
 			}
 			queueFileName = os.Args[i]
+		case "-o":
+			i++
+			if i < len(os.Args) {
+				switch strings.ToLower(os.Args[i]) {
+				case "resp", "json":
+					clientOutput = strings.ToLower(os.Args[i])
+					continue
+				}
+			}
+			fmt.Fprintf(os.Stderr, "output must be 'resp' or 'json'\n")
+			os.Exit(1)
 		case "--http-transport", "-http-transport":
 			i++
 			if i < len(os.Args) {
@@ -490,6 +505,7 @@ Developer Options:
 		QueueFileName:     queueFileName,
 		Shutdown:          shutdown,
 		Spinlock:          spinlock,
+		ClientOutput:      clientOutput,
 	}
 	if err := server.Serve(opts); err != nil {
 		log.Fatal(err)

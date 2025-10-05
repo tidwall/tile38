@@ -2,6 +2,13 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.36.5] = 2025-10-05
+### Added
+- 5462de9: Add -o flag to auto set client output to json or resp #779 (@huangpeizhi2018)
+
+### Fixed
+- 8c27bd7: Fix 'outside' detect not firing when 'cross' is present
+
 ## [1.36.4] = 2025-10-03
 ### Fixed
 - 8c9f56c: Fix leader hanging on sigterm #783 (@dobiadi)

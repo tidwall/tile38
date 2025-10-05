@@ -179,7 +179,7 @@ func fenceMatch(
 				detect = "inside"
 				continue
 			}
-			if detect == "exit" {
+			if detect == "exit" || detect == "cross" {
 				detect = "outside"
 				continue
 			}

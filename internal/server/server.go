@@ -1113,7 +1113,18 @@ func (s *Server) handleInputCommand(client *Client, msg *Message) error {
 
 	if cmd == "hello" {
 		// Not Supporting RESP3+, returns an ERR instead.
-		return writeErr("unknown command '" + msg.Args[0] + "'")
+		ot, ct := msg.OutputType, msg.ConnType
+		if len(msg.Args) > 1 && (msg.Args[1] >= "0" && msg.Args[1] <= "9") &&
+			s.opts.ClientOutput == "json" && ot == JSON && ct == RESP {
+			// Here we are making sure that we ignoring the '-o json' flag, if
+			// used, otherwise the connection will fail for some redis clients
+			// like "github.com/redis/go-redis/v9" are overly strict and expect
+			// a map type or an error as the result of the HELLO command.
+			msg.OutputType, msg.ConnType = RESP, RESP
+		}
+		err := writeErr("unknown command '" + msg.Args[0] + "'")
+		msg.OutputType, msg.ConnType = ot, ct
+		return err
 	}
 
 	if cmd == "timeout" {

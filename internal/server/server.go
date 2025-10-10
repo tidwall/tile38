@@ -692,6 +692,7 @@ func (s *Server) netServe() error {
 						} else if defaultOutputType != Null {
 							msg.OutputType = defaultOutputType
 						}
+						msg.StrictRESP = client.strictRESP
 						if msg.Command() == "quit" {
 							if msg.OutputType == RESP {
 								io.WriteString(client, "+OK\r\n")
@@ -752,6 +753,7 @@ func (s *Server) netServe() error {
 						}
 
 						client.outputType = msg.OutputType
+						client.strictRESP = msg.StrictRESP
 					} else {
 						client.Write([]byte("HTTP/1.1 500 Bad Request\r\nConnection: close\r\n\r\n"))
 						break
@@ -1113,18 +1115,27 @@ func (s *Server) handleInputCommand(client *Client, msg *Message) error {
 
 	if cmd == "hello" {
 		// Not Supporting RESP3+, returns an ERR instead.
-		ot, ct := msg.OutputType, msg.ConnType
-		if len(msg.Args) > 1 && (msg.Args[1] >= "0" && msg.Args[1] <= "9") &&
-			s.opts.ClientOutput == "json" && ot == JSON && ct == RESP {
+		ot := msg.OutputType
+		if len(msg.Args) > 1 && (msg.Args[1] >= "0" &&
+			msg.Args[1] <= "9") && s.opts.ClientOutput == "json" &&
+			ot == JSON && msg.ConnType == RESP {
 			// Here we are making sure that we ignoring the '-o json' flag, if
 			// used, otherwise the connection will fail for some redis clients
 			// like "github.com/redis/go-redis/v9" are overly strict and expect
 			// a map type or an error as the result of the HELLO command.
-			msg.OutputType, msg.ConnType = RESP, RESP
+			msg.OutputType = RESP
+			msg.StrictRESP = true
 		}
 		err := writeErr("unknown command '" + msg.Args[0] + "'")
-		msg.OutputType, msg.ConnType = ot, ct
+		msg.OutputType = ot
 		return err
+	}
+
+	if cmd == "command" && len(msg.Args) > 1 && msg.Args[1] == "DOCS" &&
+		s.opts.ClientOutput == "json" {
+		// The standard Redis client typically sends a "COMMAND DOCS" to start
+		// client connection.
+		msg.StrictRESP = true
 	}
 
 	if cmd == "timeout" {
@@ -1550,6 +1561,7 @@ const (
 type Message struct {
 	_command       string
 	Args           []string
+	StrictRESP     bool
 	ConnType       Type
 	OutputType     Type
 	Auth           string
@@ -1622,6 +1634,7 @@ func readNextHTTPCommand(packet []byte, argsIn [][]byte, msg *Message, wr io.Wri
 	args = argsIn[:0]
 	msg.ConnType = HTTP
 	msg.OutputType = JSON
+	msg.StrictRESP = false
 	opacket := packet
 
 	ready, err := func() (bool, error) {
@@ -1734,6 +1747,7 @@ func readNextHTTPCommand(packet []byte, argsIn [][]byte, msg *Message, wr io.Wri
 		}
 		msg.AcceptEncoding = acceptEncoding
 		msg.OutputType = JSON
+		msg.StrictRESP = false
 		msg.Args = nmsg.Args
 		return true, nil
 	}()
@@ -1806,12 +1820,15 @@ moreData:
 			case redcon.Redis:
 				msg.ConnType = RESP
 				msg.OutputType = RESP
+				msg.StrictRESP = false
 			case redcon.Tile38:
 				msg.ConnType = Native
 				msg.OutputType = JSON
+				msg.StrictRESP = false
 			case redcon.Telnet:
 				msg.ConnType = RESP
 				msg.OutputType = RESP
+				msg.StrictRESP = false
 			}
 			msgs = append(msgs, msg)
 		}

@@ -189,6 +189,8 @@ func (s *Server) liveSubscription(
 	connType := msg.ConnType
 	if websocket {
 		outputType = JSON
+	} else if msg.StrictRESP {
+		outputType = RESP
 	}
 
 	var start time.Time

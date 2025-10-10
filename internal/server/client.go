@@ -19,6 +19,7 @@ type Client struct {
 	replAddr   string         // the known replication addr for follower connections
 	authd      bool           // client has been authenticated
 	outputType Type           // Null, JSON, or RESP
+	strictRESP bool           // client is in strict RESP mode
 	remoteAddr string         // original remote address
 	in         InputStream    // input stream
 	pr         PipelineReader // command reader

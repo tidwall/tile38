@@ -68,7 +68,7 @@ func main() {
 	output := os.Stderr
 	flag.Usage = func() {
 		fmt.Fprintf(output,
-			versionLine+`
+			"%s", versionLine+`
 
 Usage: tile38-server [-p port]
 

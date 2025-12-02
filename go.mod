@@ -28,7 +28,7 @@ require (
 	github.com/IBM/sarama v1.46.0
 	github.com/aws/aws-sdk-go v1.55.8
 	github.com/cloudflare/cloudflare-go/v4 v4.6.0
-	github.com/eclipse/paho.mqtt.golang v1.5.0
+	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/golang/protobuf v1.5.4
 	github.com/gomodule/redigo v1.9.2
 	github.com/iwpnd/sectr v0.1.2

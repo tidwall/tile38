@@ -58,13 +58,14 @@ func mvtAddFeature(l *mvt.Layer, tileX, tileY, tileZ int, o mvtObj) {
 		f = l.AddFeature(mvt.LineString)
 		line := g.Base()
 		npoints := line.NumPoints()
-		if npoints > 0 {
-			p := line.PointAt(0)
-			f.MoveTo(mvt.LatLonXY(p.Y, p.X, tileX, tileY, tileZ))
-			for i := 1; i < npoints; i++ {
-				p := line.PointAt(0)
-				f.LineTo(mvt.LatLonXY(p.Y, p.X, tileX, tileY, tileZ))
-			}
+		if npoints < 2 {
+			return
+		}
+		p := line.PointAt(0)
+		f.MoveTo(mvt.LatLonXY(p.Y, p.X, tileX, tileY, tileZ))
+		for i := 1; i < npoints; i++ {
+			p := line.PointAt(i)
+			f.LineTo(mvt.LatLonXY(p.Y, p.X, tileX, tileY, tileZ))
 		}
 		f.AddTag("type", "linestring")
 	case *geojson.Rect:

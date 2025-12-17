@@ -180,6 +180,12 @@ func keys_FSET_test(mc *mockServer) error {
 		Do("FSET", "mykey", "myid", "f2", 0).Str("1"),
 		Do("GET", "mykey", "myid", "WITHFIELDS", "HASH", 7).Str("[9my5xp7]"),
 		Do("FSET", "mykey", "myid2", "xx", "f1", 1.1, "f2", 2.2).Str("0"),
+
+		Do("FSET", "mykey", "myid", "f1", 1, "RX", "HASH", 7, "WITHFIELDS").Str("[9my5xp7 [f1 1]]"),
+		Do("FSET", "mykey", "myid", "f2", 2, "RX", "HASH", 7, "WITHFIELDS").Str("[9my5xp7 [f1 1 f2 2]]"),
+		Do("FSET", "mykey", "myid", "f1", 0, "RX", "HASH", 7, "WITHFIELDS").Str("[9my5xp7 [f2 2]]"),
+		Do("FSET", "mykey", "myid", "f2", 0, "RX", "HASH", 7, "WITHFIELDS").Str("[9my5xp7]"),
+
 		Do("GET", "mykey", "myid2").Str("<nil>"),
 		Do("DEL", "mykey", "myid").Str("1"),
 		Do("GET", "mykey", "myid").Str("<nil>"),
@@ -333,12 +339,29 @@ func keys_SET_test(mc *mockServer) error {
 		Do("GET", "mykey", "myid").Str("<nil>"),
 		Do("SET", "mykey", "myid", "point", "33", "-112", "99").OK(),
 
+		Do("SET", "mykey", "myid", "POINT", 33, -115, "RX").Str(`{"type":"Point","coordinates":[-115,33]}`),
+		Do("SET", "mykey", "myid", "POINT", 33, -115, "RX", "POINT").Str("[33 -115]"),
+		Do("SET", "mykey", "myid", "POINT", 33, -115, "RX", "OBJECT").Str(`{"type":"Point","coordinates":[-115,33]}`),
+		Do("SET", "mykey", "myid", "POINT", 33, -115, "RX", "BOUNDS").Str("[[33 -115] [33 -115]]"),
+		Do("SET", "mykey", "myid", "POINT", 33, -115, "RX", "OBJECT").Str(`{"type":"Point","coordinates":[-115,33]}`),
+		Do("SET", "mykey", "myid", "POINT", 33, -115, "RX", "HASH", 7).Str("9my5xp7"),
+		Do("DEL", "mykey", "myid").Str("1"),
+		Do("GET", "mykey", "myid").Str("<nil>"),
+
 		// Section: object
 		Do("SET", "mykey", "myid", "OBJECT", `{"type":"Point","coordinates":[-115,33]}`).OK(),
 		Do("GET", "mykey", "myid", "POINT").Str("[33 -115]"),
 		Do("GET", "mykey", "myid", "BOUNDS").Str("[[33 -115] [33 -115]]"),
 		Do("GET", "mykey", "myid", "OBJECT").Str(`{"type":"Point","coordinates":[-115,33]}`),
 		Do("GET", "mykey", "myid", "HASH", 7).Str("9my5xp7"),
+		Do("DEL", "mykey", "myid").Str("1"),
+		Do("GET", "mykey", "myid").Str("<nil>"),
+
+		Do("SET", "mykey", "myid", "OBJECT", `{"type":"Point","coordinates":[-115,33]}`, "RX").Str(`{"type":"Point","coordinates":[-115,33]}`),
+		Do("SET", "mykey", "myid", "OBJECT", `{"type":"Point","coordinates":[-115,33]}`, "RX", "POINT").Str("[33 -115]"),
+		Do("SET", "mykey", "myid", "OBJECT", `{"type":"Point","coordinates":[-115,33]}`, "RX", "BOUNDS").Str("[[33 -115] [33 -115]]"),
+		Do("SET", "mykey", "myid", "OBJECT", `{"type":"Point","coordinates":[-115,33]}`, "RX", "OBJECT").Str(`{"type":"Point","coordinates":[-115,33]}`),
+		Do("SET", "mykey", "myid", "OBJECT", `{"type":"Point","coordinates":[-115,33]}`, "RX", "HASH", 7).Str("9my5xp7"),
 		Do("DEL", "mykey", "myid").Str("1"),
 		Do("GET", "mykey", "myid").Str("<nil>"),
 
@@ -351,6 +374,14 @@ func keys_SET_test(mc *mockServer) error {
 		Do("DEL", "mykey", "myid").Str("1"),
 		Do("GET", "mykey", "myid").Str("<nil>"),
 
+		Do("SET", "mykey", "myid", "BOUNDS", 33, -115, 33, -115, "RX").Str(`{"type":"Polygon","coordinates":[[[-115,33],[-115,33],[-115,33],[-115,33],[-115,33]]]}`),
+		Do("SET", "mykey", "myid", "BOUNDS", 33, -115, 33, -115, "RX", "POINT").Str("[33 -115]"),
+		Do("SET", "mykey", "myid", "BOUNDS", 33, -115, 33, -115, "RX", "BOUNDS").Str("[[33 -115] [33 -115]]"),
+		Do("SET", "mykey", "myid", "BOUNDS", 33, -115, 33, -115, "RX", "OBJECT").Str(`{"type":"Polygon","coordinates":[[[-115,33],[-115,33],[-115,33],[-115,33],[-115,33]]]}`),
+		Do("SET", "mykey", "myid", "BOUNDS", 33, -115, 33, -115, "RX", "HASH", 7).Str("9my5xp7"),
+		Do("DEL", "mykey", "myid").Str("1"),
+		Do("GET", "mykey", "myid").Str("<nil>"),
+
 		// Section: hash
 		Do("SET", "mykey", "myid", "HASH", "9my5xp7").OK(),
 		Do("GET", "mykey", "myid", "HASH", 7).Str("9my5xp7"),
@@ -358,9 +389,16 @@ func keys_SET_test(mc *mockServer) error {
 		Do("GET", "mykey", "myid").Str("<nil>"),
 		Do("SET", "mykey", "myid", "HASH", "9my5xp7").JSON().OK(),
 
+		Do("SET", "mykey", "myid", "HASH", "9my5xp7", "RX").JSON().OK(),
+		Do("SET", "mykey", "myid", "HASH", "9my5xp7", "RX", "HASH", 7).JSON().Str(`{"ok":true,"hash":"9my5xp7"}`),
+		Do("DEL", "mykey", "myid").Str("1"),
+		Do("GET", "mykey", "myid").Str("<nil>"),
+
 		// Section: field
 		Do("SET", "mykey", "myid", "FIELD", "f1", 33, "FIELD", "a2", 44.5, "HASH", "9my5xp7").OK(),
 		Do("GET", "mykey", "myid", "WITHFIELDS", "HASH", 7).Str("[9my5xp7 [a2 44.5 f1 33]]"),
+		Do("DEL", "mykey", "myid").Str("1"),
+		Do("SET", "mykey", "myid", "FIELD", "f1", 33, "FIELD", "a2", 44.5, "HASH", "9my5xp7", "RX", "WITHFIELDS", "HASH", 7).Str("[9my5xp7 [a2 44.5 f1 33]]"),
 		Do("FSET", "mykey", "myid", "f1", 0).Str("1"),
 		Do("FSET", "mykey", "myid", "f1", 0).Str("0"),
 		Do("GET", "mykey", "myid", "WITHFIELDS", "HASH", 7).Str("[9my5xp7 [a2 44.5]]"),

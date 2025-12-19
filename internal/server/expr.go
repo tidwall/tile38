@@ -127,28 +127,6 @@ func newExprPool(s *Server) *exprPool {
 		},
 		// call
 		func(info expr.CallInfo, ctx *expr.Context) (expr.Value, error) {
-			// We want regex(properties.a.b, ".*") not properties.a.b.regex(".*")
-			if !info.Chain && info.Ident == "regex" {
-				if info.Args.Len() != 2 {
-					return expr.Undefined, fmt.Errorf("regex requires 2 arguments: field, pattern")
-				}
-
-				field := info.Args.At(0).String()
-				pattern := info.Args.At(1).String()
-
-				re, ok := pool.regexCache.Get(pattern)
-				if !ok {
-					var err error
-					re, err = regexp.Compile(pattern)
-					if err != nil {
-						return expr.Undefined, fmt.Errorf("invalid regex pattern: %v", err)
-					}
-					pool.regexCache.Set(pattern, re)
-				}
-
-				return expr.Bool(re.MatchString(field)), nil
-			}
-
 			if info.Chain {
 				switch info.Ident {
 				case "match":
@@ -164,6 +142,23 @@ func newExprPool(s *Server) *exprPool {
 		},
 		// op
 		func(info expr.OpInfo, ctx *expr.Context) (expr.Value, error) {
+			switch info.Op {
+			case expr.OpRegex:
+				field := info.Left.String()
+				pattern := info.Right.String()
+
+				re, ok := pool.regexCache.Get(pattern)
+				if !ok {
+					var err error
+					re, err = regexp.Compile(pattern)
+					if err != nil {
+						return expr.Undefined, fmt.Errorf("invalid regex pattern: %v", err)
+					}
+					pool.regexCache.Set(pattern, re)
+				}
+
+				return expr.Bool(re.MatchString(field)), nil
+			}
 			return expr.Undefined, nil
 		},
 	)

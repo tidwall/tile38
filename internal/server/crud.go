@@ -691,11 +691,11 @@ func (s *Server) cmdSET(msg *Message) (resp.Value, commandDetails, error) {
 				}
 			}
 			y, err := strconv.ParseFloat(slat, 64)
-			if err != nil || math.IsInf(y, 0) || math.IsNaN(y) {
+			if err != nil {
 				return retwerr(errInvalidArgument(slat))
 			}
 			x, err := strconv.ParseFloat(slon, 64)
-			if err != nil || math.IsInf(x, 0) || math.IsNaN(x) {
+			if err != nil {
 				return retwerr(errInvalidArgument(slon))
 			}
 			if !hasZ {

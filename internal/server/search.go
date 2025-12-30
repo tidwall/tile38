@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -87,19 +86,19 @@ func parseRectArea(ltyp string, vs []string) (nvs []string,
 			return
 		}
 		var minLat, minLon, maxLat, maxLon float64
-		if minLat, err = strconv.ParseFloat(sminLat, 64); err != nil || math.IsInf(minLat, 0) || math.IsNaN(minLat) {
+		if minLat, err = strconv.ParseFloat(sminLat, 64); err != nil {
 			err = errInvalidArgument(sminLat)
 			return
 		}
-		if minLon, err = strconv.ParseFloat(sminLon, 64); err != nil || math.IsInf(minLon, 0) || math.IsNaN(minLon) {
+		if minLon, err = strconv.ParseFloat(sminLon, 64); err != nil {
 			err = errInvalidArgument(sminLon)
 			return
 		}
-		if maxLat, err = strconv.ParseFloat(smaxlat, 64); err != nil || math.IsInf(maxLat, 0) || math.IsNaN(maxLat) {
+		if maxLat, err = strconv.ParseFloat(smaxlat, 64); err != nil {
 			err = errInvalidArgument(smaxlat)
 			return
 		}
-		if maxLon, err = strconv.ParseFloat(smaxlon, 64); err != nil || math.IsInf(maxLon, 0) || math.IsNaN(maxLon) {
+		if maxLon, err = strconv.ParseFloat(smaxlon, 64); err != nil {
 			err = errInvalidArgument(smaxlon)
 			return
 		}
@@ -246,11 +245,11 @@ func (s *Server) cmdSearchArgs(
 			return
 		}
 		var lat, lon, meters float64
-		if lat, err = strconv.ParseFloat(slat, 64); err != nil || math.IsInf(lat, 0) || math.IsNaN(lat) {
+		if lat, err = strconv.ParseFloat(slat, 64); err != nil {
 			err = errInvalidArgument(slat)
 			return
 		}
-		if lon, err = strconv.ParseFloat(slon, 64); err != nil || math.IsInf(lon, 0) || math.IsNaN(lon) {
+		if lon, err = strconv.ParseFloat(slon, 64); err != nil {
 			err = errInvalidArgument(slon)
 			return
 		}
@@ -286,11 +285,11 @@ func (s *Server) cmdSearchArgs(
 			return
 		}
 		var lat, lon, meters float64
-		if lat, err = strconv.ParseFloat(slat, 64); err != nil || math.IsInf(lat, 0) || math.IsNaN(lat) {
+		if lat, err = strconv.ParseFloat(slat, 64); err != nil {
 			err = errInvalidArgument(slat)
 			return
 		}
-		if lon, err = strconv.ParseFloat(slon, 64); err != nil || math.IsInf(lon, 0) || math.IsNaN(lon) {
+		if lon, err = strconv.ParseFloat(slon, 64); err != nil {
 			err = errInvalidArgument(slon)
 			return
 		}
@@ -345,11 +344,11 @@ func (s *Server) cmdSearchArgs(
 			return
 		}
 		var lat, lon, meters, b1, b2 float64
-		if lat, err = strconv.ParseFloat(slat, 64); err != nil || math.IsInf(lat, 0) || math.IsNaN(lat) {
+		if lat, err = strconv.ParseFloat(slat, 64); err != nil {
 			err = errInvalidArgument(slat)
 			return
 		}
-		if lon, err = strconv.ParseFloat(slon, 64); err != nil || math.IsInf(lon, 0) || math.IsNaN(lon) {
+		if lon, err = strconv.ParseFloat(slon, 64); err != nil {
 			err = errInvalidArgument(slon)
 			return
 		}

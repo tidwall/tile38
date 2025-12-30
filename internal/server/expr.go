@@ -10,6 +10,7 @@ import (
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/match"
 	"github.com/tidwall/tile38/internal/field"
+	"github.com/tidwall/tile38/internal/log"
 	"github.com/tidwall/tile38/internal/object"
 	"github.com/tidwall/tinylru"
 )
@@ -104,10 +105,6 @@ func newExprPool(s *Server) *exprPool {
 				if info.Ident == "this" {
 					return expr.Object(o), nil
 				}
-				// Register regex as a root function
-				if info.Ident == "regex" {
-					return expr.Function("regex"), nil
-				}
 				return objExpr(o, info)
 			} else {
 				switch v := info.Value.Value().(type) {
@@ -146,17 +143,16 @@ func newExprPool(s *Server) *exprPool {
 			case expr.OpRegex:
 				field := info.Left.String()
 				pattern := info.Right.String()
-
 				re, ok := pool.regexCache.Get(pattern)
 				if !ok {
 					var err error
 					re, err = regexp.Compile(pattern)
 					if err != nil {
-						return expr.Undefined, fmt.Errorf("invalid regex pattern: %v", err)
+						return expr.Undefined,
+							fmt.Errorf("invalid regex pattern: %v", err)
 					}
 					pool.regexCache.Set(pattern, re)
 				}
-
 				return expr.Bool(re.MatchString(field)), nil
 			}
 			return expr.Undefined, nil
@@ -188,7 +184,10 @@ func (p *exprPool) Put(ctx *expr.Context) {
 
 func (where whereT) matchExpr(s *Server, o *object.Object) bool {
 	ctx := s.epool.Get(o)
-	res, _ := expr.Eval(where.name, ctx)
+	res, err := expr.Eval(where.name, ctx)
+	if err != nil {
+		log.Debugf("%v", err)
+	}
 	s.epool.Put(ctx)
 	return res.Bool()
 }

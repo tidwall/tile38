@@ -479,17 +479,23 @@ func (s *Server) cmdRENAME(msg *Message) (resp.Value, commandDetails, error) {
 	if col == nil {
 		return retwerr(errKeyNotFound)
 	}
-	var ierr error
+	var hasHook, hasChannel bool
 	s.hooks.Ascend(nil, func(v interface{}) bool {
 		h := v.(*Hook)
 		if h.Key == key || h.Key == newKey {
-			ierr = errKeyHasHooksSet
-			return false
+			if h.channel {
+				hasChannel = true
+			} else {
+				hasHook = true
+			}
 		}
 		return true
 	})
-	if ierr != nil {
-		return retwerr(ierr)
+	if hasHook {
+		return retwerr(errKeyHasHooksSet)
+	}
+	if hasChannel {
+		return retwerr(errKeyHasChannelsSet)
 	}
 	var updated bool
 	newCol, _ := s.cols.Get(newKey)

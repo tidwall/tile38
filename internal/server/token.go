@@ -21,6 +21,7 @@ var errIDNotFound = errors.New("id not found")
 var errIDAlreadyExists = errors.New("id already exists")
 var errPathNotFound = errors.New("path not found")
 var errKeyHasHooksSet = errors.New("key has hooks set")
+var errKeyHasChannelsSet = errors.New("key has channels set")
 var errNotRectangle = errors.New("not a rectangle")
 
 func errInvalidArgument(arg string) error {

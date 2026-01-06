@@ -2,6 +2,20 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.37.0] = 2026-01-06
+### Added
+- #791: Add regexp to where expressions using '=~' (@TomDeVito)
+
+### Fixed
+- #793: Avoid NaN points and rects for insertions and searches (@krkeshav)
+- #789: Fix LineString feature encoding to use all points (@metaxasa)
+- 45496a0: Ensure strict resp clients for pubsub
+- f6e6fae: Ignore -o json flag for HELLO command
+
+### Updated
+- 653e7a0: Bumped github.com/eclipse/paho.mqtt.golang
+- 2a86b4b: Bumped golang.org/x/crypto
+
 ## [1.36.5] = 2025-10-05
 ### Added
 - 5462de9: Add -o flag to auto set client output to json or resp #779 (@huangpeizhi2018)

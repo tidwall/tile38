@@ -432,7 +432,7 @@ func (s *Server) cmdHooks(msg *Message) (
 				buf.WriteString(`:`)
 				buf.WriteString(jsonString(meta.Value))
 			}
-			buf.WriteString(`}}`)
+			buf.WriteString(`}`)
 			i++
 			return true
 		})

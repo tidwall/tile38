@@ -141,6 +141,12 @@ func fenceMatch(
 				}
 			} else {
 				if details.command != "fset" {
+					// For cross detection, the object is outside the fence spatially,
+					// so testObject wasn't called above. We need to check WHERE clause
+					// before proceeding with cross detection.
+					if match, _ := sw.fieldMatch(details.obj); !match {
+						return nil
+					}
 					// Maybe the old object and new object create a line that crosses the fence.
 					// Must detect for that possibility.
 					if !nocross && details.old != nil {

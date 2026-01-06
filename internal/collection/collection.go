@@ -410,6 +410,7 @@ func (c *Collection) geoSearch(
 	min, max := rtreeRect(rect)
 
 	// avoid search if NaN present as it results in full search
+	// https://github.com/tidwall/tile38/issues/793
 	if math.IsNaN(float64(min[0])) && math.IsNaN(float64(min[1])) &&
 		math.IsNaN(float64(max[0])) && math.IsNaN(float64(max[1])) {
 		return alive

@@ -7,7 +7,7 @@ require (
 	github.com/tidwall/btree v1.8.1
 	github.com/tidwall/buntdb v1.3.2
 	github.com/tidwall/expr v0.14.0
-	github.com/tidwall/geojson v1.4.5
+	github.com/tidwall/geojson v1.4.6
 	github.com/tidwall/gjson v1.18.0
 	github.com/tidwall/hashmap v1.8.1
 	github.com/tidwall/limiter v0.4.0

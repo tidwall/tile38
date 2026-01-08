@@ -168,6 +168,12 @@ func (s *Server) cmdGET(msg *Message) (resp.Value, error) {
 
 	// >> Response
 
+	oval := buildObjectResponse(msg, o, start, kind, precision, withfields, msg.OutputType == JSON)
+
+	return oval, nil
+}
+
+func buildObjectResponse(msg *Message, o *object.Object, start time.Time, kind string, precision int64, withfields, json bool) resp.Value {
 	vals := make([]resp.Value, 0, 2)
 	var buf bytes.Buffer
 	if msg.OutputType == JSON {
@@ -240,7 +246,7 @@ func (s *Server) cmdGET(msg *Message) (resp.Value, error) {
 			}
 			var i int
 			o.Fields().Scan(func(f field.Field) bool {
-				if msg.OutputType == JSON {
+				if json {
 					if i > 0 {
 						buf.WriteString(`,`)
 					}
@@ -253,16 +259,16 @@ func (s *Server) cmdGET(msg *Message) (resp.Value, error) {
 				i++
 				return true
 			})
-			if msg.OutputType == JSON {
+			if json {
 				buf.WriteString(`}`)
 			} else {
 				vals = append(vals, resp.ArrayValue(fvals))
 			}
 		}
 	}
-	if msg.OutputType == JSON {
+	if json {
 		buf.WriteString(`,"elapsed":"` + time.Since(start).String() + "\"}")
-		return resp.StringValue(buf.String()), nil
+		return resp.StringValue(buf.String())
 	}
 	var oval resp.Value
 	if withfields {
@@ -270,7 +276,7 @@ func (s *Server) cmdGET(msg *Message) (resp.Value, error) {
 	} else {
 		oval = vals[0]
 	}
-	return oval, nil
+	return oval
 }
 
 // DEL key id [ERRON404]
@@ -622,6 +628,10 @@ func (s *Server) cmdSET(msg *Message) (resp.Value, commandDetails, error) {
 	var ex int64
 	var xx bool
 	var nx bool
+	var rx bool
+	var withfields bool
+	kind := "object"
+	var precision int64
 	var oobj geojson.Object
 
 	args := msg.Args
@@ -665,6 +675,43 @@ func (s *Server) cmdSET(msg *Message) (resp.Value, commandDetails, error) {
 				return retwerr(errInvalidArgument(args[i]))
 			}
 			xx = true
+		case "rx":
+			if rx {
+				return retwerr(errInvalidArgument(args[i]))
+			}
+			rx = true
+
+			for j := i; j < i+3; j++ {
+				if j >= len(args) {
+					break
+				}
+				switch strings.ToLower(args[j]) {
+				case "withfields":
+					withfields = true
+					i += 1
+				case "object":
+					kind = "object"
+					i += 1
+				case "point":
+					kind = "point"
+					i += 1
+				case "bounds":
+					kind = "bounds"
+					i += 1
+				case "hash":
+					kind = "hash"
+					j++
+					if j == len(args) {
+						return retwerr(errInvalidNumberOfArguments)
+					}
+					var err error
+					precision, err = strconv.ParseInt(args[j], 10, 64)
+					if err != nil || precision < 1 || precision > 12 {
+						return retwerr(errInvalidArgument(args[j]))
+					}
+					i += 2
+				}
+			}
 		case "string":
 			if i+1 >= len(args) {
 				return retwerr(errInvalidNumberOfArguments)
@@ -802,12 +849,16 @@ func (s *Server) cmdSET(msg *Message) (resp.Value, commandDetails, error) {
 	d.updated = true // perhaps we should do a diff on the previous object?
 	d.timestamp = time.Now()
 
+	if rx {
+		res := buildObjectResponse(msg, obj, start, kind, precision, withfields, msg.OutputType == JSON)
+		return res, d, nil
+	}
+
 	var res resp.Value
 	switch msg.OutputType {
 	default:
 	case JSON:
-		res = resp.StringValue(`{"ok":true,"elapsed":"` +
-			time.Since(start).String() + "\"}")
+		res = resp.StringValue(`{"ok":true,"elapsed":"` + time.Since(start).String() + "\"}")
 	case RESP:
 		res = resp.SimpleStringValue("OK")
 	}
@@ -833,6 +884,11 @@ func (s *Server) cmdFSET(msg *Message) (resp.Value, commandDetails, error) {
 	var id string
 	var key string
 	var xx bool
+	var rx bool
+	var withfields bool
+	kind := "object"
+	var precision int64
+
 	var fields []field.Field // raw fields
 
 	args := msg.Args
@@ -845,6 +901,44 @@ func (s *Server) cmdFSET(msg *Message) (resp.Value, commandDetails, error) {
 		switch strings.ToLower(arg) {
 		case "xx":
 			xx = true
+		case "rx":
+			if rx {
+				return retwerr(errInvalidArgument(args[i]))
+			}
+			rx = true
+
+			for j := i; j < i+3; j++ {
+				if j >= len(args) {
+					break
+				}
+				switch strings.ToLower(args[j]) {
+				case "withfields":
+					withfields = true
+					i += 1
+				case "object":
+					kind = "object"
+					i += 1
+				case "point":
+					kind = "point"
+					i += 1
+				case "bounds":
+					kind = "bounds"
+					i += 1
+				case "hash":
+					kind = "hash"
+					j++
+					if j == len(args) {
+						return retwerr(errInvalidNumberOfArguments)
+					}
+					var err error
+					precision, err = strconv.ParseInt(args[j], 10, 64)
+					if err != nil || precision < 1 || precision > 12 {
+						return retwerr(errInvalidArgument(args[j]))
+					}
+					i += 2
+				}
+			}
+
 		default:
 			fkey := arg
 			i++
@@ -895,6 +989,11 @@ func (s *Server) cmdFSET(msg *Message) (resp.Value, commandDetails, error) {
 	// >> Response
 
 	var res resp.Value
+
+	if rx {
+		res := buildObjectResponse(msg, d.obj, start, kind, precision, withfields, msg.OutputType == JSON)
+		return res, d, nil
+	}
 
 	switch msg.OutputType {
 	case JSON:

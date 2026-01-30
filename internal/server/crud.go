@@ -628,7 +628,7 @@ func (s *Server) cmdSET(msg *Message) (resp.Value, commandDetails, error) {
 	var ex int64
 	var xx bool
 	var nx bool
-	var rx bool
+	var ret bool
 	var withfields bool
 	kind := "object"
 	var precision int64
@@ -675,11 +675,11 @@ func (s *Server) cmdSET(msg *Message) (resp.Value, commandDetails, error) {
 				return retwerr(errInvalidArgument(args[i]))
 			}
 			xx = true
-		case "rx":
-			if rx {
+		case "return":
+			if ret {
 				return retwerr(errInvalidArgument(args[i]))
 			}
-			rx = true
+			ret = true
 
 			for j := i; j < i+3; j++ {
 				if j >= len(args) {
@@ -849,7 +849,7 @@ func (s *Server) cmdSET(msg *Message) (resp.Value, commandDetails, error) {
 	d.updated = true // perhaps we should do a diff on the previous object?
 	d.timestamp = time.Now()
 
-	if rx {
+	if ret {
 		res := buildObjectResponse(msg, obj, start, kind, precision, withfields, msg.OutputType == JSON)
 		return res, d, nil
 	}
@@ -884,7 +884,7 @@ func (s *Server) cmdFSET(msg *Message) (resp.Value, commandDetails, error) {
 	var id string
 	var key string
 	var xx bool
-	var rx bool
+	var ret bool
 	var withfields bool
 	kind := "object"
 	var precision int64
@@ -901,11 +901,11 @@ func (s *Server) cmdFSET(msg *Message) (resp.Value, commandDetails, error) {
 		switch strings.ToLower(arg) {
 		case "xx":
 			xx = true
-		case "rx":
-			if rx {
+		case "return":
+			if ret {
 				return retwerr(errInvalidArgument(args[i]))
 			}
-			rx = true
+			ret = true
 
 			for j := i; j < i+3; j++ {
 				if j >= len(args) {
@@ -990,7 +990,7 @@ func (s *Server) cmdFSET(msg *Message) (resp.Value, commandDetails, error) {
 
 	var res resp.Value
 
-	if rx {
+	if ret {
 		res := buildObjectResponse(msg, d.obj, start, kind, precision, withfields, msg.OutputType == JSON)
 		return res, d, nil
 	}

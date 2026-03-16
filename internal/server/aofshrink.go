@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tidwall/btree"
@@ -17,6 +18,31 @@ import (
 const maxkeys = 8
 const maxids = 32
 const maxchunk = 4 * 1024 * 1024
+
+func (s *Server) watchAutoAOFShrink(wg *sync.WaitGroup) {
+	defer wg.Done()
+	var lastShrink time.Time
+	s.loopUntilServerStops(time.Second*10, func() {
+		minSize := s.config.aofshrinkMinSize()
+		if minSize == 0 {
+			return
+		}
+		if time.Since(lastShrink) < time.Minute {
+			return
+		}
+		s.mu.RLock()
+		sz := s.aofsz
+		shrinking := s.shrinking
+		s.mu.RUnlock()
+		if shrinking || int64(sz) <= minSize {
+			return
+		}
+		log.Infof("auto aof shrink triggered: aof_size=%d threshold=%d",
+			sz, minSize)
+		lastShrink = time.Now()
+		go s.aofshrink()
+	})
+}
 
 func (s *Server) aofshrink() {
 	start := time.Now()

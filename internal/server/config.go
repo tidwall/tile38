@@ -34,11 +34,12 @@ const (
 	AutoGC          = "autogc"
 	KeepAlive       = "keepalive"
 	LogConfig       = "logconfig"
-	AnnounceIP      = "replica_announce_ip"
-	AnnouncePort    = "replica_announce_port"
+	AnnounceIP       = "replica_announce_ip"
+	AnnouncePort     = "replica_announce_port"
+	AOFShrinkMinSize = "aofshrink-min-size"
 )
 
-var validProperties = []string{RequirePass, LeaderAuth, ProtectedMode, MaxMemory, AutoGC, KeepAlive, LogConfig, ReplicaPriority, AnnouncePort, AnnounceIP}
+var validProperties = []string{RequirePass, LeaderAuth, ProtectedMode, MaxMemory, AutoGC, KeepAlive, LogConfig, ReplicaPriority, AnnouncePort, AnnounceIP, AOFShrinkMinSize}
 
 // Config is a tile38 config
 type Config struct {
@@ -68,10 +69,12 @@ type Config struct {
 	_keepAlive      int64
 	_logConfigP     interface{}
 	_logConfig      string
-	_announceIPP    string
-	_announceIP     string
-	_announcePortP  string
-	_announcePort   int64
+	_announceIPP       string
+	_announceIP        string
+	_announcePortP     string
+	_announcePort      int64
+	_aofshrinkMinSizeP string
+	_aofshrinkMinSize  int64
 }
 
 func loadConfig(path string) (*Config, error) {
@@ -100,8 +103,9 @@ func loadConfig(path string) (*Config, error) {
 		_autoGCP:        gjson.Get(json, AutoGC).String(),
 		_keepAliveP:     gjson.Get(json, KeepAlive).String(),
 		_logConfig:      gjson.Get(json, LogConfig).String(),
-		_announceIPP:    gjson.Get(json, AnnounceIP).String(),
-		_announcePortP:  gjson.Get(json, AnnouncePort).String(),
+		_announceIPP:       gjson.Get(json, AnnounceIP).String(),
+		_announcePortP:     gjson.Get(json, AnnouncePort).String(),
+		_aofshrinkMinSizeP: gjson.Get(json, AOFShrinkMinSize).String(),
 	}
 
 	if config._serverID == "" {
@@ -145,6 +149,9 @@ func loadConfig(path string) (*Config, error) {
 	if err := config.setProperty(AnnouncePort, config._announcePortP, true); err != nil {
 		return nil, err
 	}
+	if err := config.setProperty(AOFShrinkMinSize, config._aofshrinkMinSizeP, true); err != nil {
+		return nil, err
+	}
 	config.write(false)
 	return config, nil
 }
@@ -184,6 +191,7 @@ func (config *Config) write(writeProperties bool) {
 		} else {
 			config._announcePortP = strconv.FormatUint(uint64(config._announcePort), 10)
 		}
+		config._aofshrinkMinSizeP = formatMemSize(config._aofshrinkMinSize)
 	}
 
 	m := make(map[string]interface{})
@@ -238,6 +246,9 @@ func (config *Config) write(writeProperties bool) {
 	}
 	if config._announcePortP != "" {
 		m[AnnouncePort] = config._announcePortP
+	}
+	if config._aofshrinkMinSizeP != "" {
+		m[AOFShrinkMinSize] = config._aofshrinkMinSizeP
 	}
 	data, err := json.MarshalIndent(m, "", "\t")
 	if err != nil {
@@ -373,6 +384,12 @@ func (config *Config) setProperty(name, value string, fromLoad bool) error {
 				config._announcePort = int64(announcePort)
 			}
 		}
+	case AOFShrinkMinSize:
+		sz, ok := parseMemSize(value)
+		if !ok {
+			return clientErrorf("Invalid argument '%s' for CONFIG SET '%s'", value, name)
+		}
+		config._aofshrinkMinSize = sz
 	}
 
 	if invalid {
@@ -422,6 +439,8 @@ func (config *Config) getProperty(name string) string {
 		return config._announceIP
 	case AnnouncePort:
 		return strconv.FormatUint(uint64(config._announcePort), 10)
+	case AOFShrinkMinSize:
+		return formatMemSize(config._aofshrinkMinSize)
 	}
 }
 
@@ -565,6 +584,12 @@ func (config *Config) announcePort() int {
 	v := config._announcePort
 	config.mu.RUnlock()
 	return int(v)
+}
+func (config *Config) aofshrinkMinSize() int64 {
+	config.mu.RLock()
+	v := config._aofshrinkMinSize
+	config.mu.RUnlock()
+	return v
 }
 func (config *Config) setFollowHost(v string) {
 	config.mu.Lock()

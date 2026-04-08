@@ -68,8 +68,7 @@ type Endpoint struct {
 		Channel string
 	}
 	Kafka struct {
-		Host       string
-		Port       int
+		Brokers    []string
 		TopicName  string
 		Auth       string
 		SSL        bool
@@ -424,21 +423,24 @@ func parseEndpoint(s string) (Endpoint, error) {
 
 	if endpoint.Protocol == Kafka {
 		// Parsing connection from URL string
-		hp := strings.Split(s, ":")
-		switch len(hp) {
-		default:
-			return endpoint, errors.New("invalid kafka url")
-		case 1:
-			endpoint.Kafka.Host = hp[0]
-			endpoint.Kafka.Port = 9092
-		case 2:
-			n, err := strconv.ParseUint(hp[1], 10, 16)
-			if err != nil {
-				return endpoint, errors.New("invalid kafka url port")
+		for _, broker := range strings.Split(s, ",") {
+			broker = strings.TrimSpace(broker)
+			if broker == "" {
+				return endpoint, errors.New("invalid kafka url")
 			}
-
-			endpoint.Kafka.Host = hp[0]
-			endpoint.Kafka.Port = int(n)
+			hp := strings.Split(broker, ":")
+			switch len(hp) {
+			default:
+				return endpoint, errors.New("invalid kafka url")
+			case 1:
+				endpoint.Kafka.Brokers = append(endpoint.Kafka.Brokers, hp[0]+":9092")
+			case 2:
+				_, err := strconv.ParseUint(hp[1], 10, 16)
+				if err != nil {
+					return endpoint, errors.New("invalid kafka url port")
+				}
+				endpoint.Kafka.Brokers = append(endpoint.Kafka.Brokers, broker)
+			}
 		}
 
 		// Parsing Kafka queue name

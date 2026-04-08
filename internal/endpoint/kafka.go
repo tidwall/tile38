@@ -72,7 +72,6 @@ func (conn *KafkaConn) Send(msg string) error {
 		sarama.Logger = lg.New(log.Output(), "[sarama] ", 0)
 	}
 
-	uri := fmt.Sprintf("%s:%d", conn.ep.Kafka.Host, conn.ep.Kafka.Port)
 	if conn.conn == nil {
 		cfg := sarama.NewConfig()
 
@@ -162,7 +161,7 @@ func (conn *KafkaConn) Send(msg string) error {
 			}
 		}
 
-		c, err := sarama.NewSyncProducer([]string{uri}, cfg)
+		c, err := sarama.NewSyncProducer(conn.ep.Kafka.Brokers, cfg)
 		if err != nil {
 			cfg.MetricRegistry.UnregisterAll()
 			return err

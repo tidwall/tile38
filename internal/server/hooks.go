@@ -45,8 +45,7 @@ func (s *Server) cmdSetHook(msg *Message) (
 		if vs, urls, ok = tokenval(vs); !ok || urls == "" {
 			return NOMessage, d, errInvalidNumberOfArguments
 		}
-		for _, url := range strings.Split(urls, ",") {
-			url = strings.TrimSpace(url)
+		for _, url := range splitEndpointURLs(urls) {
 			err := s.epc.Validate(url)
 			if err != nil {
 				log.Errorf("sethook: %v", err)
@@ -716,4 +715,24 @@ func (h *Hook) proc() (ok bool) {
 		}
 	}
 	return true
+}
+
+// splitEndpointURLs splits endpoint URLs on commas, but rejoins parts
+// that don't have a scheme prefix (e.g. kafka broker addresses).
+func splitEndpointURLs(s string) []string {
+	parts := strings.Split(s, ",")
+	var urls []string
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if len(urls) > 0 && !hasSchemePrefix(part) {
+			urls[len(urls)-1] += "," + part
+		} else {
+			urls = append(urls, part)
+		}
+	}
+	return urls
+}
+
+func hasSchemePrefix(s string) bool {
+	return strings.Contains(s, "://") || strings.HasPrefix(s, "Endpoint=")
 }

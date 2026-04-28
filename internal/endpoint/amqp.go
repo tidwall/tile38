@@ -29,6 +29,9 @@ func (conn *AMQPConn) Expired() bool {
 		if time.Since(conn.t) > amqpExpiresAfter {
 			conn.close()
 			conn.ex = true
+		} else if conn.conn != nil && conn.conn.IsClosed() {
+			conn.close()
+			conn.ex = true
 		}
 	}
 	return conn.ex
@@ -59,6 +62,10 @@ func (conn *AMQPConn) Send(msg string) error {
 		return errExpired
 	}
 	conn.t = time.Now()
+
+	if conn.conn != nil && conn.conn.IsClosed() {
+		conn.close()
+	}
 
 	if conn.conn == nil {
 		prefix := "amqp://"
@@ -121,7 +128,7 @@ func (conn *AMQPConn) Send(msg string) error {
 		conn.channel = channel
 	}
 
-	return conn.channel.Publish(
+	err := conn.channel.Publish(
 		conn.ep.AMQP.QueueName,
 		conn.ep.AMQP.RouteKey,
 		conn.ep.AMQP.Mandatory,
@@ -135,6 +142,12 @@ func (conn *AMQPConn) Send(msg string) error {
 			Priority:        conn.ep.AMQP.Priority,
 		},
 	)
+
+	if err != nil {
+		conn.close()
+	}
+
+	return err
 }
 
 func newAMQPConn(ep Endpoint) *AMQPConn {

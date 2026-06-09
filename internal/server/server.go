@@ -520,6 +520,8 @@ func Serve(opts Options) error {
 	bgwg.Add(1)
 	go s.backgroundSyncAOF(&bgwg)
 	bgwg.Add(1)
+	go s.watchAutoAOFShrink(&bgwg)
+	bgwg.Add(1)
 	go s.startPublishQueue(&bgwg)
 	defer func() {
 		log.Debug("Stopping background routines")

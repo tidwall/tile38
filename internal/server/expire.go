@@ -38,13 +38,19 @@ func (s *Server) backgroundExpireObjects(now time.Time) {
 		})
 		return true
 	})
+	isLeader := s.config.followHost() == ""
 	for _, msg := range msgs {
 		_, d, err := s.cmdDEL(msg)
 		if err != nil {
 			log.Fatal(err)
 		}
-		if err := s.writeAOF(msg.Args, &d); err != nil {
-			log.Fatal(err)
+		// Only write DEL to AOF on the leader. Followers can deterministically
+		// expire the same items via TTL, so replicating these deletions is
+		// redundant and causes unnecessary AOF growth.
+		if isLeader {
+			if err := s.writeAOF(msg.Args, &d); err != nil {
+				log.Fatal(err)
+			}
 		}
 	}
 	if len(msgs) > 0 {
@@ -69,13 +75,16 @@ func (s *Server) backgroundExpireHooks(now time.Time) {
 		return true
 	})
 
+	isLeader := s.config.followHost() == ""
 	for _, msg := range msgs {
 		_, d, err := s.cmdDelHook(msg)
 		if err != nil {
 			log.Fatal(err)
 		}
-		if err := s.writeAOF(msg.Args, &d); err != nil {
-			log.Fatal(err)
+		if isLeader {
+			if err := s.writeAOF(msg.Args, &d); err != nil {
+				log.Fatal(err)
+			}
 		}
 	}
 	if len(msgs) > 0 {

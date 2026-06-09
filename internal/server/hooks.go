@@ -634,13 +634,14 @@ func (h *Hook) proc() (ok bool) {
 		// get keys and vals
 		err := tx.AscendGreaterOrEqual("hooks",
 			h.query, func(key, val string) bool {
-				if strings.HasPrefix(key, hookLogPrefix) {
-					// Verify this hooks name matches the one in the notif
-					if h.Name == gjson.Get(val, "hook").String() {
-						keys = append(keys, key)
-						vals = append(vals, val)
-					}
+				// The "hooks" index is sorted by JSON "hook" field. Once we
+				// encounter an entry for a different hook, all of our entries
+				// have been consumed and we can stop the scan.
+				if gjson.Get(val, "hook").String() != h.Name {
+					return false
 				}
+				keys = append(keys, key)
+				vals = append(vals, val)
 				return true
 			},
 		)

@@ -18,22 +18,33 @@ import (
 
 const kafkaExpiresAfter = time.Second * 30
 
+// kafkaMaxLifetime is the maximum time a Kafka producer connection is kept
+// alive before being recycled. This prevents slow memory growth in the sarama
+// library's internal state (metadata cache, metrics registry, buffers) that
+// accumulates in long-lived producers.
+const kafkaMaxLifetime = time.Minute * 30
+
 // KafkaConn is an endpoint connection
 type KafkaConn struct {
-	mu   sync.Mutex
-	ep   Endpoint
-	conn sarama.SyncProducer
-	cfg  *sarama.Config
-	ex   bool
-	t    time.Time
+	mu        sync.Mutex
+	ep        Endpoint
+	conn      sarama.SyncProducer
+	cfg       *sarama.Config
+	ex        bool
+	t         time.Time
+	createdAt time.Time
 }
 
-// Expired returns true if the connection has expired
+// Expired returns true if the connection has expired due to inactivity or
+// exceeding its maximum lifetime.
 func (conn *KafkaConn) Expired() bool {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 	if !conn.ex {
-		if time.Since(conn.t) > kafkaExpiresAfter {
+		idleExpired := time.Since(conn.t) > kafkaExpiresAfter
+		lifetimeExpired := !conn.createdAt.IsZero() &&
+			time.Since(conn.createdAt) > kafkaMaxLifetime
+		if idleExpired || lifetimeExpired {
 			conn.close()
 			conn.ex = true
 		}
@@ -55,6 +66,7 @@ func (conn *KafkaConn) close() {
 		conn.conn = nil
 		conn.cfg.MetricRegistry.UnregisterAll()
 		conn.cfg = nil
+		conn.createdAt = time.Time{}
 	}
 }
 
@@ -169,6 +181,7 @@ func (conn *KafkaConn) Send(msg string) error {
 
 		conn.conn = c
 		conn.cfg = cfg
+		conn.createdAt = time.Now()
 	}
 
 	// parse json again to get out info for our kafka key

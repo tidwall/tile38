@@ -45,5 +45,26 @@ func keys_A5_test(mc *mockServer) error {
 		Do("WITHIN", "areakey", "IDS", "A5", "51575d8000000000").Str(`[0 [in]]`),
 		Do("INTERSECTS", "areakey", "IDS", "A5", "nothex").Err("invalid argument 'nothex'"),
 		Do("INTERSECTS", "areakey", "A5").Err("wrong number of arguments for 'intersects' command"),
+		// A5 names both an output and a search area, so the area must still
+		// resolve when no output is given.
+		Do("INTERSECTS", "areakey", "A5", "51575d8000000000").
+			Str(`[0 [[in {"type":"Point","coordinates":[13,52]}]]]`),
+		Do("INTERSECTS", "areakey", "A5", "nothex").Err("invalid argument 'nothex'"),
+		// ...and the output form still wins when a resolution follows.
+		Do("INTERSECTS", "areakey", "A5", "10", "A5", "51575d8000000000").
+			Str(`[0 [[in 51575d8000000000]]]`),
+
+		// --- Fences (hooks and channels) ---
+		Do("SETCHAN", "a5chan", "WITHIN", "areakey", "FENCE", "A5",
+			"51575d8000000000").Str("1"),
+		Do("SETCHAN", "a5chanout", "INTERSECTS", "areakey", "FENCE", "A5", "10",
+			"A5", "51575d8000000000").Str("1"),
+		Do("SETHOOK", "a5hook", "http://127.0.0.1:12345/", "WITHIN", "areakey",
+			"FENCE", "A5", "51575d8000000000").Str("1"),
+		Do("SETCHAN", "a5bad", "WITHIN", "areakey", "FENCE", "A5", "nothex").
+			Err("invalid argument 'nothex'"),
+		Do("DELCHAN", "a5chan").Str("1"),
+		Do("DELCHAN", "a5chanout").Str("1"),
+		Do("DELHOOK", "a5hook").Str("1"),
 	)
 }

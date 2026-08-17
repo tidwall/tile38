@@ -35,6 +35,7 @@ func subTestFence(g *testGroup) {
 
 	// various
 	g.regSubTest("detect eecio", fence_eecio_test)
+	g.regSubTest("a5 channel", fence_a5_channel_test)
 }
 
 type fenceReader struct {
@@ -364,6 +365,77 @@ func doTile38(c redis.Conn, cmd string, args ...interface{}) (string, error) {
 		return "", errors.New(gjson.Get(js, "err").String())
 	}
 	return js, err
+}
+
+// fence_a5_channel_test runs a channel fence over an A5 cell, both with and
+// without an explicit output, then checks the A5 output on the fence messages.
+// A5 cell 51575d8000000000 is the resolution 10 cell holding POINT 52 13.
+func fence_a5_channel_test(mc *mockServer) error {
+	conn, err := dialTile38(mc.port)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if _, err := doTile38(conn, "SETCHAN", "test-a5", "WITHIN", "a5fleet",
+		"FENCE", "A5", "51575d8000000000"); err != nil {
+		return err
+	}
+	// same fence, but asking for the A5 cell of each match as the output
+	if _, err := doTile38(conn, "SETCHAN", "test-a5-out", "WITHIN", "a5fleet",
+		"FENCE", "A5", "10", "A5", "51575d8000000000"); err != nil {
+		return err
+	}
+	if _, err := doTile38(conn, "SUBSCRIBE", "test-a5"); err != nil {
+		return err
+	}
+	if _, err := doTile38(conn, "SUBSCRIBE", "test-a5-out"); err != nil {
+		return err
+	}
+
+	sc, err := dialTile38(mc.port)
+	if err != nil {
+		return err
+	}
+	defer sc.Close()
+	// inside the cell, then well outside of it
+	if _, err := doTile38(sc, "SET", "a5fleet", "truck", "POINT", 52, 13); err != nil {
+		return err
+	}
+	if _, err := doTile38(sc, "SET", "a5fleet", "truck", "POINT", 0, 0); err != nil {
+		return err
+	}
+	if _, err := doTile38(sc, "PUBLISH", "test-a5", "DONE"); err != nil {
+		return err
+	}
+	if _, err := doTile38(sc, "PUBLISH", "test-a5-out", "DONE"); err != nil {
+		return err
+	}
+
+	var detects []string
+	var a5s []string
+	for done := 0; done < 2; {
+		js, err := redis.String(conn.Receive())
+		if err != nil {
+			return err
+		}
+		if js == `"DONE"` {
+			done++
+			continue
+		}
+		detects = append(detects, gjson.Get(js, "detect").String())
+		if a5 := gjson.Get(js, "a5"); a5.Exists() {
+			a5s = append(a5s, a5.String())
+		}
+	}
+	// both channels report the same transitions
+	if got := strings.Join(detects, ","); got != "enter,enter,inside,inside,exit,exit,outside,outside" {
+		return fmt.Errorf("expected 'enter,enter,inside,inside,exit,exit,outside,outside', got '%s'", got)
+	}
+	// only the channel with the A5 output carries a5 cells
+	if got := strings.Join(a5s, ","); got != "51575d8000000000,51575d8000000000,4f05dc8000000000,4f05dc8000000000" {
+		return fmt.Errorf("expected 4 a5 cells, got '%s'", got)
+	}
+	return nil
 }
 
 func fence_eecio_test(mc *mockServer) error {

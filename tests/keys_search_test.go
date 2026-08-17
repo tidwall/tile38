@@ -34,6 +34,7 @@ func subTestSearch(g *testGroup) {
 	g.regSubTest("FIELDS", keys_FIELDS_search_test)
 	g.regSubTest("BUFFER", keys_BUFFER_search_test)
 	g.regSubTest("A5", keys_A5_test)
+	g.regSubTest("A5_FENCE_RELOAD", keys_A5_fence_reload_test)
 }
 
 func keys_KNN_basic_test(mc *mockServer) error {

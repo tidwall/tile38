@@ -8,6 +8,8 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,6 +38,7 @@ func subTestFence(g *testGroup) {
 	// various
 	g.regSubTest("detect eecio", fence_eecio_test)
 	g.regSubTest("a5 channel", fence_a5_channel_test)
+	g.regSubTest("a5 webhook", fence_a5_webhook_test)
 }
 
 type fenceReader struct {
@@ -434,6 +437,58 @@ func fence_a5_channel_test(mc *mockServer) error {
 	// only the channel with the A5 output carries a5 cells
 	if got := strings.Join(a5s, ","); got != "51575d8000000000,51575d8000000000,4f05dc8000000000,4f05dc8000000000" {
 		return fmt.Errorf("expected 4 a5 cells, got '%s'", got)
+	}
+	return nil
+}
+
+// fence_a5_webhook_test is fence_a5_channel_test over a SETHOOK endpoint,
+// so the hook side of the A5 fence gets exercised too.
+func fence_a5_webhook_test(mc *mockServer) error {
+	msgs := make(chan string, 32)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err == nil {
+			select {
+			case msgs <- string(body):
+			default:
+			}
+		}
+		fmt.Fprintln(w, "OK")
+	}))
+	defer ts.Close()
+
+	conn, err := dialTile38(mc.port)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if _, err := doTile38(conn, "SETHOOK", "test-a5-hook", ts.URL,
+		"WITHIN", "a5hookfleet", "FENCE", "DETECT", "enter,exit",
+		"A5", "51575d8000000000"); err != nil {
+		return err
+	}
+	defer doTile38(conn, "DELHOOK", "test-a5-hook")
+
+	// inside the cell, then well outside of it
+	if _, err := doTile38(conn, "SET", "a5hookfleet", "truck", "POINT", 52, 13); err != nil {
+		return err
+	}
+	if _, err := doTile38(conn, "SET", "a5hookfleet", "truck", "POINT", 0, 0); err != nil {
+		return err
+	}
+
+	var detects []string
+	for i := 0; i < 2; i++ {
+		select {
+		case msg := <-msgs:
+			detects = append(detects, gjson.Get(msg, "detect").String())
+		case <-time.After(time.Second * 10):
+			return fmt.Errorf("timeout waiting for webhook message %d, got '%s'",
+				i+1, strings.Join(detects, ","))
+		}
+	}
+	if got := strings.Join(detects, ","); got != "enter,exit" {
+		return fmt.Errorf("expected 'enter,exit', got '%s'", got)
 	}
 	return nil
 }

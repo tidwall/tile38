@@ -66,12 +66,12 @@ func keys_A5_test(mc *mockServer) error {
 		Do("SETHOOK", "a5hookout", "http://127.0.0.1:12345/", "INTERSECTS",
 			"areakey", "FENCE", "A5", "10", "A5", "51575d8000000000").Str("1"),
 		// the stored command round-trips through CHANS/HOOKS unchanged
-		Do("CHANS", "a5chan").JSON().Str(`{"ok":true,"chans":[{"name":"a5chan",` +
-			`"key":"areakey","ttl":-1,"command":["WITHIN","areakey","FENCE",` +
+		Do("CHANS", "a5chan").JSON().Str(`{"ok":true,"chans":[{"name":"a5chan",`+
+			`"key":"areakey","ttl":-1,"command":["WITHIN","areakey","FENCE",`+
 			`"A5","51575d8000000000"],"meta":{}}]}`),
-		Do("HOOKS", "a5hook").JSON().Str(`{"ok":true,"hooks":[{"name":"a5hook",` +
-			`"key":"areakey","ttl":-1,"endpoints":["http://127.0.0.1:12345/"],` +
-			`"command":["WITHIN","areakey","FENCE","A5","51575d8000000000"],` +
+		Do("HOOKS", "a5hook").JSON().Str(`{"ok":true,"hooks":[{"name":"a5hook",`+
+			`"key":"areakey","ttl":-1,"endpoints":["http://127.0.0.1:12345/"],`+
+			`"command":["WITHIN","areakey","FENCE","A5","51575d8000000000"],`+
 			`"meta":{}}]}`),
 		// fence argument validation
 		Do("SETCHAN", "a5bad", "WITHIN", "areakey", "FENCE", "A5", "nothex").

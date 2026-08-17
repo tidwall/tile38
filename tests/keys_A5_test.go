@@ -59,12 +59,62 @@ func keys_A5_test(mc *mockServer) error {
 			"51575d8000000000").Str("1"),
 		Do("SETCHAN", "a5chanout", "INTERSECTS", "areakey", "FENCE", "A5", "10",
 			"A5", "51575d8000000000").Str("1"),
+		Do("SETCHAN", "a5chandetect", "WITHIN", "areakey", "FENCE", "DETECT",
+			"enter,exit", "A5", "51575d8000000000").Str("1"),
 		Do("SETHOOK", "a5hook", "http://127.0.0.1:12345/", "WITHIN", "areakey",
 			"FENCE", "A5", "51575d8000000000").Str("1"),
+		Do("SETHOOK", "a5hookout", "http://127.0.0.1:12345/", "INTERSECTS",
+			"areakey", "FENCE", "A5", "10", "A5", "51575d8000000000").Str("1"),
+		// the stored command round-trips through CHANS/HOOKS unchanged
+		Do("CHANS", "a5chan").JSON().Str(`{"ok":true,"chans":[{"name":"a5chan",` +
+			`"key":"areakey","ttl":-1,"command":["WITHIN","areakey","FENCE",` +
+			`"A5","51575d8000000000"],"meta":{}}]}`),
+		Do("HOOKS", "a5hook").JSON().Str(`{"ok":true,"hooks":[{"name":"a5hook",` +
+			`"key":"areakey","ttl":-1,"endpoints":["http://127.0.0.1:12345/"],` +
+			`"command":["WITHIN","areakey","FENCE","A5","51575d8000000000"],` +
+			`"meta":{}}]}`),
+		// fence argument validation
 		Do("SETCHAN", "a5bad", "WITHIN", "areakey", "FENCE", "A5", "nothex").
 			Err("invalid argument 'nothex'"),
+		Do("SETCHAN", "a5bad", "WITHIN", "areakey", "FENCE", "A5").
+			Err("wrong number of arguments for 'setchan' command"),
+		Do("SETHOOK", "a5bad", "http://127.0.0.1:12345/", "WITHIN", "areakey",
+			"FENCE", "A5", "nothex").Err("invalid argument 'nothex'"),
+		// NEARBY only takes POINT areas, so A5 stays an output there
+		Do("SETCHAN", "a5bad", "NEARBY", "areakey", "FENCE", "A5",
+			"51575d8000000000").Err("invalid argument '51575d8000000000'"),
 		Do("DELCHAN", "a5chan").Str("1"),
 		Do("DELCHAN", "a5chanout").Str("1"),
+		Do("DELCHAN", "a5chandetect").Str("1"),
 		Do("DELHOOK", "a5hook").Str("1"),
+		Do("DELHOOK", "a5hookout").Str("1"),
+	)
+}
+
+// keys_A5_fence_reload_test replays an AOF holding A5 fences. The stored
+// command is re-parsed on load, so a fence that only parses interactively
+// would take the server down on the next restart.
+func keys_A5_fence_reload_test(mc *mockServer) error {
+	mc2, err := loadAOF("" +
+		"SET fleet truck POINT 52 13\r\n" +
+		"SETCHAN a5chan WITHIN fleet FENCE A5 51575d8000000000\r\n" +
+		"SETHOOK a5hook http://127.0.0.1:12345/ INTERSECTS fleet FENCE " +
+		"A5 10 A5 51575d8000000000\r\n")
+	if mc2 != nil {
+		defer mc2.Close()
+	}
+	if err != nil {
+		return err
+	}
+	return mc2.DoBatch(
+		Do("CHANS", "*").JSON().Str(`{"ok":true,"chans":[{"name":"a5chan",`+
+			`"key":"fleet","ttl":-1,"command":["WITHIN","fleet","FENCE","A5",`+
+			`"51575d8000000000"],"meta":{}}]}`),
+		Do("HOOKS", "*").JSON().Str(`{"ok":true,"hooks":[{"name":"a5hook",`+
+			`"key":"fleet","ttl":-1,"endpoints":["http://127.0.0.1:12345/"],`+
+			`"command":["INTERSECTS","fleet","FENCE","A5","10","A5",`+
+			`"51575d8000000000"],"meta":{}}]}`),
+		// the reloaded fence still matches
+		Do("INTERSECTS", "fleet", "IDS", "A5", "51575d8000000000").Str(`[0 [truck]]`),
 	)
 }

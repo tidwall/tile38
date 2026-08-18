@@ -54,6 +54,17 @@ func keys_A5_test(mc *mockServer) error {
 		Do("INTERSECTS", "areakey", "A5", "10", "A5", "51575d8000000000").
 			Str(`[0 [[in 51575d8000000000]]]`),
 
+		// --- TEST command (like QUADKEY) ---
+		Do("TEST", "POINT", 52, 13, "WITHIN", "A5", "51575d8000000000").Str("1"),
+		Do("TEST", "POINT", 0, 0, "WITHIN", "A5", "51575d8000000000").Str("0"),
+		Do("TEST", "POINT", 52, 13, "INTERSECTS", "A5", "51575d8000000000").Str("1"),
+		Do("TEST", "A5", "51575d8000000000", "INTERSECTS", "POINT", 52, 13).Str("1"),
+		Do("TEST", "GET", "areakey", "in", "WITHIN", "A5", "51575d8000000000").Str("1"),
+		Do("TEST", "GET", "areakey", "out", "WITHIN", "A5", "51575d8000000000").Str("0"),
+		// a pentagon isn't a rectangle, so it can't be clipped against
+		Do("TEST", "POINT", 52, 13, "INTERSECTS", "CLIP", "A5", "51575d8000000000").
+			Err("invalid clip type 'A5'"),
+
 		// --- Fences (hooks and channels) ---
 		Do("SETCHAN", "a5chan", "WITHIN", "areakey", "FENCE", "A5",
 			"51575d8000000000").Str("1"),

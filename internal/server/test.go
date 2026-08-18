@@ -225,6 +225,25 @@ func (s *Server) parseArea(ovs []string, doClip bool) (vs []string, o geojson.Ob
 			Min: geometry.Point{X: minLon, Y: minLat},
 			Max: geometry.Point{X: maxLon, Y: maxLat},
 		})
+	case "a5":
+		if doClip {
+			err = fmt.Errorf("invalid clip type '%s'", typ)
+			return
+		}
+		var scell string
+		if vs, scell, ok = tokenval(vs); !ok || scell == "" {
+			err = errInvalidNumberOfArguments
+			return
+		}
+		var cellID uint64
+		if cellID, err = a5DecodeCell(scell); err != nil {
+			err = errInvalidArgument(scell)
+			return
+		}
+		if o, err = a5CellPolygon(cellID); err != nil {
+			err = errInvalidArgument(scell)
+			return
+		}
 	case "tile":
 		var sx, sy, sz string
 		if vs, sx, ok = tokenval(vs); !ok || sx == "" {
@@ -290,10 +309,10 @@ func (s *Server) parseArea(ovs []string, doClip bool) (vs []string, o geojson.Ob
 
 // TEST (POINT lat lon)|(GET key id)|(BOUNDS minlat minlon maxlat maxlon)|
 // (OBJECT geojson)|(CIRCLE lat lon meters)|(TILE x y z)|(QUADKEY quadkey)|
-// (HASH geohash) INTERSECTS|WITHIN [CLIP] (POINT lat lon)|(GET key id)|
-// (BOUNDS minlat minlon maxlat maxlon)|(OBJECT geojson)|
+// (HASH geohash)|(A5 cell) INTERSECTS|WITHIN [CLIP] (POINT lat lon)|
+// (GET key id)|(BOUNDS minlat minlon maxlat maxlon)|(OBJECT geojson)|
 // (CIRCLE lat lon meters)|(TILE x y z)|(QUADKEY quadkey)|(HASH geohash)|
-// (SECTOR lat lon meters bearing1 bearing2)
+// (A5 cell)|(SECTOR lat lon meters bearing1 bearing2)
 func (s *Server) cmdTEST(msg *Message) (res resp.Value, err error) {
 	start := time.Now()
 

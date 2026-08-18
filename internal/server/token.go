@@ -885,7 +885,7 @@ loop:
 				ae = &areaExpression{op: OR, children: []*areaExpression{ae}}
 			}
 			vsout = nvs
-		case "point", "circle", "object", "bounds", "hash", "quadkey", "tile", "get", "sector":
+		case "point", "circle", "object", "bounds", "hash", "quadkey", "tile", "get", "sector", "a5":
 			parsedVs, parsedObj, areaErr := s.parseArea(vsout, doClip)
 			if areaErr != nil {
 				err = areaErr

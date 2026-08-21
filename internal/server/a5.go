@@ -37,10 +37,35 @@ func a5EncodePoint(lon, lat float64, res int) (string, error) {
 // a5DecodeCell parses an A5 cell ID string. Cell IDs are hexadecimal (the form
 // produced by a5EncodePoint), optionally with a 0x prefix. Decoding is always
 // base 16 so that all-digit IDs round-trip unambiguously with the encoder.
+//
+// Hex-parseable is not the same as valid, and the difference is a crash: a5-go
+// panics instead of erroring on IDs whose resolution or origin bits are out of
+// range. "1" carries no resolution marker, so a5.GetResolution reports -1 and
+// a5.CellVertices reaches SToAnchor with a negative resolution. This is the
+// trust boundary for cell IDs off the wire -- every caller of a5CellPolygon and
+// a5.CellToLonLat parses through here first.
 func a5DecodeCell(s string) (uint64, error) {
 	s = strings.TrimPrefix(s, "0x")
 	s = strings.TrimPrefix(s, "0X")
-	return strconv.ParseUint(s, 16, 64)
+	cellID, err := strconv.ParseUint(s, 16, 64)
+	if err != nil {
+		return 0, err
+	}
+	res := a5.GetResolution(cellID)
+	if !a5ValidResolution(res) {
+		return 0, errInvalidArgument(s)
+	}
+	// The top 6 bits hold the origin, or the origin and segment together once
+	// there is a segment to hold (resolution 1 and finer). Only 12 of the 64
+	// values they can spell are real dodecahedron faces.
+	origin := int(cellID >> a5.HilbertStartBit)
+	if res > 0 {
+		origin /= 5
+	}
+	if origin >= len(a5.Origins) {
+		return 0, errInvalidArgument(s)
+	}
+	return cellID, nil
 }
 
 // a5CellPolygon builds the pentagon boundary of an A5 cell as a geojson

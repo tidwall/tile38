@@ -84,6 +84,11 @@ func testcmd_WITHIN_test(mc *mockServer) error {
 		Do("TEST", "GET", "mykey", "point1", "WITHIN", "quadkey", "pqowie").Err("invalid argument 'pqowie'"),
 		Do("TEST", "GET", "mykey", "point1", "WITHIN", "quadkey", "123", "asdf").Err("wrong number of arguments for 'test' command"),
 
+		Do("TEST", "GET", "mykey", "point1", "WITHIN", "a5").Err("wrong number of arguments for 'test' command"),
+		Do("TEST", "GET", "mykey", "point1", "WITHIN", "a5", "51575d8000000000").Str("0"),
+		Do("TEST", "GET", "mykey", "point1", "WITHIN", "a5", "pqowie").Err("invalid argument 'pqowie'"),
+		Do("TEST", "GET", "mykey", "point1", "WITHIN", "a5", "51575d8000000000", "asdf").Err("wrong number of arguments for 'test' command"),
+
 		Do("TEST", "GET", "mykey", "point1", "WITHIN", "tile").Err("wrong number of arguments for 'test' command"),
 		Do("TEST", "GET", "mykey", "point1", "WITHIN", "tile", "1").Err("wrong number of arguments for 'test' command"),
 		Do("TEST", "GET", "mykey", "point1", "WITHIN", "tile", "1", "2").Err("wrong number of arguments for 'test' command"),

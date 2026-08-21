@@ -677,7 +677,9 @@ func (s *Server) parseSearchScanBaseTokens(
 				err = errInvalidNumberOfArguments
 				return
 			}
-		case "a5":
+		case "a5s":
+			// A5S <resolution> is the output; bare A5 <cell> stays a search
+			// area, so the two never collide the way BOUNDS does.
 			t.output = outputA5
 			if nvs, sprecision, ok = tokenval(nvs); !ok || sprecision == "" {
 				err = errInvalidNumberOfArguments
@@ -871,7 +873,7 @@ loop:
 				ae = &areaExpression{op: OR, children: []*areaExpression{ae}}
 			}
 			vsout = nvs
-		case "point", "circle", "object", "bounds", "hash", "quadkey", "tile", "get", "sector":
+		case "point", "circle", "object", "bounds", "hash", "quadkey", "tile", "get", "sector", "a5":
 			parsedVs, parsedObj, areaErr := s.parseArea(vsout, doClip)
 			if areaErr != nil {
 				err = areaErr

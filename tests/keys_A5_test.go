@@ -30,13 +30,17 @@ func keys_A5_test(mc *mockServer) error {
 
 		// --- Output format (like HASHES) ---
 		Do("SET", "outkey", "a", "POINT", 52, 13).OK(),
-		Do("SCAN", "outkey", "A5", "10").Str(`[0 [[a 51575d8000000000]]]`),
-		Do("SCAN", "outkey", "A5", "0").Str(`[0 [[a 1200000000000000]]]`),
-		Do("NEARBY", "outkey", "LIMIT", 10, "A5", "10", "POINT", 52, 13, 100000).
+		Do("SCAN", "outkey", "A5S", "10").Str(`[0 [[a 51575d8000000000]]]`),
+		Do("SCAN", "outkey", "A5S", "0").Str(`[0 [[a 1200000000000000]]]`),
+		Do("SCAN", "outkey", "A5S", "10").JSON().Str(`{"ok":true,"a5s":`+
+			`[{"id":"a","a5":"51575d8000000000"}],"count":1,"cursor":0}`),
+		Do("NEARBY", "outkey", "LIMIT", 10, "A5S", "10", "POINT", 52, 13, 100000).
 			Str(`[0 [[a 51575d8000000000]]]`),
 		// output resolution validation
-		Do("SCAN", "outkey", "A5", "31").Err("invalid argument '31'"),
-		Do("SCAN", "outkey", "A5").Err("wrong number of arguments for 'scan' command"),
+		Do("SCAN", "outkey", "A5S", "31").Err("invalid argument '31'"),
+		Do("SCAN", "outkey", "A5S").Err("wrong number of arguments for 'scan' command"),
+		// A5 is only ever an area, never an output
+		Do("SCAN", "outkey", "A5", "10").Err("invalid argument 'A5'"),
 
 		// --- Query area (like QUADKEY) ---
 		Do("SET", "areakey", "in", "POINT", 52, 13).OK(),
@@ -45,5 +49,111 @@ func keys_A5_test(mc *mockServer) error {
 		Do("WITHIN", "areakey", "IDS", "A5", "51575d8000000000").Str(`[0 [in]]`),
 		Do("INTERSECTS", "areakey", "IDS", "A5", "nothex").Err("invalid argument 'nothex'"),
 		Do("INTERSECTS", "areakey", "A5").Err("wrong number of arguments for 'intersects' command"),
+		// the area resolves with no output given...
+		Do("INTERSECTS", "areakey", "A5", "51575d8000000000").
+			Str(`[0 [[in {"type":"Point","coordinates":[13,52]}]]]`),
+		Do("INTERSECTS", "areakey", "A5", "nothex").Err("invalid argument 'nothex'"),
+		// ...and A5S selects the output without shadowing the area.
+		Do("INTERSECTS", "areakey", "A5S", "10", "A5", "51575d8000000000").
+			Str(`[0 [[in 51575d8000000000]]]`),
+		Do("INTERSECTS", "areakey", "A5S", "1", "BOUNDS", 50, 10, 55, 15).
+			Str(`[0 [[in 5100000000000000]]]`),
+		// two areas without AND/OR is not an expression
+		Do("INTERSECTS", "areakey", "IDS", "A5", "51575d8000000000",
+			"BOUNDS", 10, 10, 20, 20).
+			Err("wrong number of arguments for 'intersects' command"),
+
+		// --- Cell IDs that parse as hex but are not cells ---
+		// "1" carries no resolution marker; a5-go used to panic on it rather
+		// than erroring, taking the server down from any client.
+		Do("INTERSECTS", "areakey", "A5", "1").Err("invalid argument '1'"),
+		Do("INTERSECTS", "areakey", "IDS", "A5", "1").Err("invalid argument '1'"),
+		Do("INTERSECTS", "areakey", "A5", "1", "BOUNDS", 10, 10, 20, 20).
+			Err("invalid argument '1'"),
+		Do("INTERSECTS", "areakey", "A5", "0").Err("invalid argument '0'"),
+		Do("INTERSECTS", "areakey", "A5", "4000000000000000").
+			Err("invalid argument '4000000000000000'"),
+		Do("WITHIN", "areakey", "A5", "1").Err("invalid argument '1'"),
+		Do("SET", "areakey", "bad", "A5", "1").Err("invalid argument '1'"),
+		Do("TEST", "A5", "1", "INTERSECTS", "POINT", 52, 13).
+			Err("invalid argument '1'"),
+		Do("TEST", "POINT", 52, 13, "WITHIN", "A5", "1").
+			Err("invalid argument '1'"),
+		Do("SETCHAN", "a5bad", "WITHIN", "areakey", "FENCE", "A5", "1").
+			Err("invalid argument '1'"),
+
+		// --- TEST command (like QUADKEY) ---
+		Do("TEST", "POINT", 52, 13, "WITHIN", "A5", "51575d8000000000").Str("1"),
+		Do("TEST", "POINT", 0, 0, "WITHIN", "A5", "51575d8000000000").Str("0"),
+		Do("TEST", "POINT", 52, 13, "INTERSECTS", "A5", "51575d8000000000").Str("1"),
+		Do("TEST", "A5", "51575d8000000000", "INTERSECTS", "POINT", 52, 13).Str("1"),
+		Do("TEST", "GET", "areakey", "in", "WITHIN", "A5", "51575d8000000000").Str("1"),
+		Do("TEST", "GET", "areakey", "out", "WITHIN", "A5", "51575d8000000000").Str("0"),
+		// a pentagon isn't a rectangle, so it can't be clipped against
+		Do("TEST", "POINT", 52, 13, "INTERSECTS", "CLIP", "A5", "51575d8000000000").
+			Err("invalid clip type 'A5'"),
+
+		// --- Fences (hooks and channels) ---
+		Do("SETCHAN", "a5chan", "WITHIN", "areakey", "FENCE", "A5",
+			"51575d8000000000").Str("1"),
+		Do("SETCHAN", "a5chanout", "INTERSECTS", "areakey", "FENCE", "A5S", "10",
+			"A5", "51575d8000000000").Str("1"),
+		Do("SETCHAN", "a5chandetect", "WITHIN", "areakey", "FENCE", "DETECT",
+			"enter,exit", "A5", "51575d8000000000").Str("1"),
+		Do("SETHOOK", "a5hook", "http://127.0.0.1:12345/", "WITHIN", "areakey",
+			"FENCE", "A5", "51575d8000000000").Str("1"),
+		Do("SETHOOK", "a5hookout", "http://127.0.0.1:12345/", "INTERSECTS",
+			"areakey", "FENCE", "A5S", "10", "A5", "51575d8000000000").Str("1"),
+		// the stored command round-trips through CHANS/HOOKS unchanged
+		Do("CHANS", "a5chan").JSON().Str(`{"ok":true,"chans":[{"name":"a5chan",`+
+			`"key":"areakey","ttl":-1,"command":["WITHIN","areakey","FENCE",`+
+			`"A5","51575d8000000000"],"meta":{}}]}`),
+		Do("HOOKS", "a5hook").JSON().Str(`{"ok":true,"hooks":[{"name":"a5hook",`+
+			`"key":"areakey","ttl":-1,"endpoints":["http://127.0.0.1:12345/"],`+
+			`"command":["WITHIN","areakey","FENCE","A5","51575d8000000000"],`+
+			`"meta":{}}]}`),
+		// fence argument validation
+		Do("SETCHAN", "a5bad", "WITHIN", "areakey", "FENCE", "A5", "nothex").
+			Err("invalid argument 'nothex'"),
+		Do("SETCHAN", "a5bad", "WITHIN", "areakey", "FENCE", "A5").
+			Err("wrong number of arguments for 'setchan' command"),
+		Do("SETHOOK", "a5bad", "http://127.0.0.1:12345/", "WITHIN", "areakey",
+			"FENCE", "A5", "nothex").Err("invalid argument 'nothex'"),
+		// NEARBY only takes POINT areas
+		Do("SETCHAN", "a5bad", "NEARBY", "areakey", "FENCE", "A5",
+			"51575d8000000000").Err("invalid argument 'A5'"),
+		Do("DELCHAN", "a5chan").Str("1"),
+		Do("DELCHAN", "a5chanout").Str("1"),
+		Do("DELCHAN", "a5chandetect").Str("1"),
+		Do("DELHOOK", "a5hook").Str("1"),
+		Do("DELHOOK", "a5hookout").Str("1"),
+	)
+}
+
+// keys_A5_fence_reload_test replays an AOF holding A5 fences. The stored
+// command is re-parsed on load, so a fence that only parses interactively
+// would take the server down on the next restart.
+func keys_A5_fence_reload_test(mc *mockServer) error {
+	mc2, err := loadAOF("" +
+		"SET fleet truck POINT 52 13\r\n" +
+		"SETCHAN a5chan WITHIN fleet FENCE A5 51575d8000000000\r\n" +
+		"SETHOOK a5hook http://127.0.0.1:12345/ INTERSECTS fleet FENCE " +
+		"A5S 10 A5 51575d8000000000\r\n")
+	if mc2 != nil {
+		defer mc2.Close()
+	}
+	if err != nil {
+		return err
+	}
+	return mc2.DoBatch(
+		Do("CHANS", "*").JSON().Str(`{"ok":true,"chans":[{"name":"a5chan",`+
+			`"key":"fleet","ttl":-1,"command":["WITHIN","fleet","FENCE","A5",`+
+			`"51575d8000000000"],"meta":{}}]}`),
+		Do("HOOKS", "*").JSON().Str(`{"ok":true,"hooks":[{"name":"a5hook",`+
+			`"key":"fleet","ttl":-1,"endpoints":["http://127.0.0.1:12345/"],`+
+			`"command":["INTERSECTS","fleet","FENCE","A5S","10","A5",`+
+			`"51575d8000000000"],"meta":{}}]}`),
+		// the reloaded fence still matches
+		Do("INTERSECTS", "fleet", "IDS", "A5", "51575d8000000000").Str(`[0 [truck]]`),
 	)
 }

@@ -133,7 +133,7 @@ func (sw *scanWriter) hasFieldsOutput() bool {
 	switch sw.output {
 	default:
 		return false
-	case outputObjects, outputPoints, outputHashes, outputBounds:
+	case outputObjects, outputPoints, outputHashes, outputA5, outputBounds:
 		return !sw.nofields
 	}
 }
@@ -168,6 +168,8 @@ func (sw *scanWriter) writeFoot() {
 				sw.wr.WriteString(`,"bounds":[`)
 			case outputHashes:
 				sw.wr.WriteString(`,"hashes":[`)
+			case outputA5:
+				sw.wr.WriteString(`,"a5s":[`)
 			case outputCount:
 
 			}

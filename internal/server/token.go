@@ -677,25 +677,13 @@ func (s *Server) parseSearchScanBaseTokens(
 				err = errInvalidNumberOfArguments
 				return
 			}
-		case "a5":
-			var sres string
-			if nvs, sres, ok = tokenval(nvs); !ok || sres == "" {
+		case "a5s":
+			// A5S <resolution> is the output; bare A5 <cell> stays a search
+			// area, so the two never collide the way BOUNDS does.
+			t.output = outputA5
+			if nvs, sprecision, ok = tokenval(nvs); !ok || sprecision == "" {
 				err = errInvalidNumberOfArguments
 				return
-			}
-			// A5 names both an output (A5 <resolution>) and a search area
-			// (A5 <cell>), the same collision BOUNDS has. When the token that
-			// follows isn't a valid resolution it must be a cell id, so leave
-			// A5 to the area parser. This is what lets WITHIN/INTERSECTS and
-			// the SETHOOK/SETCHAN fences they back accept "A5 <cell>" without
-			// an explicit output.
-			res, rerr := strconv.ParseUint(sres, 10, 64)
-			if (rerr != nil || res > a5MaxResolution) &&
-				(cmd == "within" || cmd == "intersects") {
-				updline = false
-			} else {
-				t.output = outputA5
-				sprecision = sres
 			}
 		case "bounds":
 			t.output = outputBounds

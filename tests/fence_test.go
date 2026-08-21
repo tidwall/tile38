@@ -371,7 +371,7 @@ func doTile38(c redis.Conn, cmd string, args ...interface{}) (string, error) {
 }
 
 // fence_a5_channel_test runs a channel fence over an A5 cell, both with and
-// without an explicit output, then checks the A5 output on the fence messages.
+// without an A5S output, then checks the A5 output on the fence messages.
 // A5 cell 51575d8000000000 is the resolution 10 cell holding POINT 52 13.
 func fence_a5_channel_test(mc *mockServer) error {
 	conn, err := dialTile38(mc.port)
@@ -385,7 +385,7 @@ func fence_a5_channel_test(mc *mockServer) error {
 	}
 	// same fence, but asking for the A5 cell of each match as the output
 	if _, err := doTile38(conn, "SETCHAN", "test-a5-out", "WITHIN", "a5fleet",
-		"FENCE", "A5", "10", "A5", "51575d8000000000"); err != nil {
+		"FENCE", "A5S", "10", "A5", "51575d8000000000"); err != nil {
 		return err
 	}
 	if _, err := doTile38(conn, "SUBSCRIBE", "test-a5"); err != nil {

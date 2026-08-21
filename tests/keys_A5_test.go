@@ -63,6 +63,25 @@ func keys_A5_test(mc *mockServer) error {
 			"BOUNDS", 10, 10, 20, 20).
 			Err("wrong number of arguments for 'intersects' command"),
 
+		// --- Cell IDs that parse as hex but are not cells ---
+		// "1" carries no resolution marker; a5-go used to panic on it rather
+		// than erroring, taking the server down from any client.
+		Do("INTERSECTS", "areakey", "A5", "1").Err("invalid argument '1'"),
+		Do("INTERSECTS", "areakey", "IDS", "A5", "1").Err("invalid argument '1'"),
+		Do("INTERSECTS", "areakey", "A5", "1", "BOUNDS", 10, 10, 20, 20).
+			Err("invalid argument '1'"),
+		Do("INTERSECTS", "areakey", "A5", "0").Err("invalid argument '0'"),
+		Do("INTERSECTS", "areakey", "A5", "4000000000000000").
+			Err("invalid argument '4000000000000000'"),
+		Do("WITHIN", "areakey", "A5", "1").Err("invalid argument '1'"),
+		Do("SET", "areakey", "bad", "A5", "1").Err("invalid argument '1'"),
+		Do("TEST", "A5", "1", "INTERSECTS", "POINT", 52, 13).
+			Err("invalid argument '1'"),
+		Do("TEST", "POINT", 52, 13, "WITHIN", "A5", "1").
+			Err("invalid argument '1'"),
+		Do("SETCHAN", "a5bad", "WITHIN", "areakey", "FENCE", "A5", "1").
+			Err("invalid argument '1'"),
+
 		// --- TEST command (like QUADKEY) ---
 		Do("TEST", "POINT", 52, 13, "WITHIN", "A5", "51575d8000000000").Str("1"),
 		Do("TEST", "POINT", 0, 0, "WITHIN", "A5", "51575d8000000000").Str("0"),

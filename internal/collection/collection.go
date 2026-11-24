@@ -1,8 +1,10 @@
 package collection
 
 import (
+	"cmp"
 	"math"
 	"runtime"
+	"slices"
 
 	"github.com/tidwall/btree"
 	"github.com/tidwall/geojson"
@@ -53,7 +55,7 @@ func byExpires(a, b *object.Object) bool {
 // Collection represents a collection of geojson objects.
 type Collection struct {
 	objs     btree.Map[string, *object.Object]      // sorted by id
-	spatial  rtree.RTreeGN[float32, *object.Object] // geospatially indexed
+	spatial  rtree.RTreeGN[float64, *object.Object] // geospatially indexed
 	values   *btree.BTreeG[*object.Object]          // sorted by value+id
 	expires  *btree.BTreeG[*object.Object]          // sorted by ex+id
 	weight   int
@@ -144,19 +146,19 @@ func rtreeValueUp(d float64) float32 {
 	return f
 }
 
-func rtreeItem(item *object.Object) (min, max [2]float32, data *object.Object) {
+func rtreeItem(item *object.Object) (min, max [2]float64, data *object.Object) {
 	min, max = rtreeRect(item.Rect())
 	return min, max, item
 }
 
-func rtreeRect(rect geometry.Rect) (min, max [2]float32) {
-	return [2]float32{
-			rtreeValueDown(rect.Min.X),
-			rtreeValueDown(rect.Min.Y),
-		}, [2]float32{
-			rtreeValueUp(rect.Max.X),
-			rtreeValueUp(rect.Max.Y),
-		}
+func rtreeRect(rect geometry.Rect) (min, max [2]float64) {
+	return [2]float64{
+		rect.Min.X,
+		rect.Min.Y,
+	}, [2]float64{
+		rect.Max.X,
+		rect.Max.Y,
+	}
 }
 
 // Set adds or replaces an object in the collection and returns the fields
@@ -406,23 +408,29 @@ func (c *Collection) geoSearch(
 	rect geometry.Rect,
 	iter func(o *object.Object) bool,
 ) bool {
-	alive := true
 	min, max := rtreeRect(rect)
-
 	// avoid search if NaN present as it results in full search
 	// https://github.com/tidwall/tile38/issues/793
 	if math.IsNaN(float64(min[0])) && math.IsNaN(float64(min[1])) &&
 		math.IsNaN(float64(max[0])) && math.IsNaN(float64(max[1])) {
-		return alive
+		return true
 	}
-
-	c.spatial.Search(
-		min, max,
-		func(_, _ [2]float32, o *object.Object) bool {
-			alive = iter(o)
-			return alive
-		},
-	)
+	// sort all object
+	var objs []*object.Object
+	c.spatial.Search(min, max, func(_, _ [2]float64, o *object.Object) bool {
+		objs = append(objs, o)
+		return true
+	})
+	slices.SortFunc(objs, func(a, b *object.Object) int {
+		return cmp.Compare(a.ID(), b.ID())
+	})
+	alive := true
+	for i := range objs {
+		if !iter(objs[i]) {
+			alive = false
+			break
+		}
+	}
 	return alive
 }
 
@@ -588,20 +596,20 @@ func (c *Collection) Nearby(
 	}
 	distFn := geodeticDistAlgo([2]float64{center.X, center.Y})
 	c.spatial.Nearby(
-		func(min, max [2]float32, data *object.Object, item bool) float64 {
-			return distFn(
+		func(min, max [2]float64, data *object.Object, item bool) float64 {
+			return float64(distFn(
 				[2]float64{float64(min[0]), float64(min[1])},
 				[2]float64{float64(max[0]), float64(max[1])},
 				data, item,
-			)
+			))
 		},
-		func(_, _ [2]float32, o *object.Object, dist float64) bool {
+		func(_, _ [2]float64, o *object.Object, dist float64) bool {
 			count++
 			if count <= offset {
 				return true
 			}
 			nextStep(count, cursor, deadline)
-			alive = iter(o, dist)
+			alive = iter(o, float64(dist))
 			return alive
 		},
 	)
